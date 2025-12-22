@@ -30,9 +30,9 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-56px)] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#080b10] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl p-8">
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl p-6 sm:p-8">
           {/* Logo */}
           <div className="text-center mb-8">
             <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center">
