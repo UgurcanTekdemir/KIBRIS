@@ -1,53 +1,51 @@
-import { useEffect } from "react";
-import "@/App.css";
+import React from "react";
+import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { AuthProvider } from "./context/AuthContext";
+import { BetSlipProvider } from "./context/BetSlipContext";
+import Layout from "./components/layout/Layout";
+import HomePage from "./pages/HomePage";
+import LiveMatchesPage from "./pages/LiveMatchesPage";
+import MatchesPage from "./pages/MatchesPage";
+import MatchDetailPage from "./pages/MatchDetailPage";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import DashboardPage from "./pages/DashboardPage";
+import CouponsPage from "./pages/CouponsPage";
+import AdminPanel from "./pages/AdminPanel";
+import AgentPanel from "./pages/AgentPanel";
+import BetSlipPage from "./pages/BetSlipPage";
 
 function App() {
   return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
+    <AuthProvider>
+      <BetSlipProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route
+              path="/*"
+              element={
+                <Layout>
+                  <Routes>
+                    <Route index element={<HomePage />} />
+                    <Route path="live" element={<LiveMatchesPage />} />
+                    <Route path="matches" element={<MatchesPage />} />
+                    <Route path="match/:id" element={<MatchDetailPage />} />
+                    <Route path="dashboard" element={<DashboardPage />} />
+                    <Route path="coupons" element={<CouponsPage />} />
+                    <Route path="betslip" element={<BetSlipPage />} />
+                    <Route path="admin" element={<AdminPanel />} />
+                    <Route path="agent" element={<AgentPanel />} />
+                  </Routes>
+                </Layout>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+      </BetSlipProvider>
+    </AuthProvider>
   );
 }
 
