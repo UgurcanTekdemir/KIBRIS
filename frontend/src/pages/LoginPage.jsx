@@ -34,12 +34,12 @@ const LoginPage = () => {
       <div className="w-full max-w-md">
         <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl p-6 sm:p-8">
           {/* Logo */}
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center">
-              <span className="text-3xl font-bold text-black">B</span>
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center">
+              <span className="text-2xl sm:text-3xl font-bold text-black">B</span>
             </div>
-            <h1 className="text-2xl font-bold text-white">Giriş Yap</h1>
-            <p className="text-gray-500 mt-1">Hesabınıza giriş yapın</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Giriş Yap</h1>
+            <p className="text-gray-500 mt-1 text-sm">Hesabınıza giriş yapın</p>
           </div>
 
           {/* Error */}
