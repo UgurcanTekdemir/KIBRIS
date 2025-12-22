@@ -148,7 +148,7 @@ html, body {
 
 /* Magic Navigation Wrapper - Integrated Header */
 .magic-nav-wrapper {
-    min-height: 120px;
+    min-height: 84px; /* 120px * 0.7 = 84px (30% smaller) */
 }
 
 /* Logo and Site Name - %20 bigger in X and Y axis */
@@ -157,8 +157,21 @@ html, body {
     transform-origin: left center;
 }
 
+/* Mobile Logo - %10 shift to left on X axis */
+.mobile-logo-shift {
+    transform: scale(1.2) translateX(-10%);
+    transform-origin: left center;
+}
+
+/* Auth Page Logo - %10 shift to left on X axis */
+.auth-logo-shift {
+    transform: scale(1.2) translateX(-10%);
+    transform-origin: center center;
+}
+
 .logo-box {
     transform: scale(1.2);
+    object-fit: contain;
 }
 
 .site-name {
@@ -170,12 +183,12 @@ html, body {
     position: relative;
     width: 100%;
     max-width: 540px;
-    height: 120px;
+    height: 84px; /* 120px * 0.7 = 84px (30% smaller) */
     background: #141b27;
     box-shadow: inset 5px 5px 10px rgba(0, 0, 0, 0.5),
         inset 5px 5px 20px rgba(255, 255, 255, 0.05),
         inset -5px -5px 15px rgba(0, 0, 0, 0.75);
-    border-radius: 25px;
+    border-radius: 18px; /* 25px * 0.7 = 17.5px, rounded to 18px */
     display: flex;
     justify-content: center;
     align-items: center;
@@ -220,14 +233,14 @@ html, body {
 
 .magic-navigation li a .icon {
     position: absolute;
-    font-size: 1.75em;
-    width: 50px;
-    height: 50px;
+    font-size: 1.225em; /* 1.75em * 0.7 = 1.225em */
+    width: 35px; /* 50px * 0.7 = 35px */
+    height: 35px; /* 50px * 0.7 = 35px */
     display: flex;
     align-items: center;
     justify-content: center;
     color: #6b7280;
-    border-radius: 50px;
+    border-radius: 35px; /* 50px * 0.7 = 35px */
     transition: 0.5s;
     transition-delay: 0.2s;
 }
@@ -235,7 +248,7 @@ html, body {
 .magic-navigation li.active a .icon {
     background: #f59e0b;
     color: #fff;
-    transform: translateY(-55px);
+    transform: translateY(-38px); /* -55px * 0.7 = -38.5px, rounded to -38px */
     box-shadow: 5px 5px 7px rgba(0, 0, 0, 0.25),
         inset 2px 2px 3px rgba(255, 255, 255, 0.25),
         inset -3px -3px 5px rgba(0, 0, 0, 0.5);
@@ -245,8 +258,8 @@ html, body {
 .magic-navigation li a .icon::before {
     content: "";
     position: absolute;
-    inset: 50px;
-    background: #0a0e14;
+    inset: 7px; /* Adjusted for smaller icon size (35px icon, 7px inset) */
+    background: #f59f0b46;
     border-radius: 50%;
     box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.5),
         inset 2px 2px 3px rgba(255, 255, 255, 0.1),
@@ -261,13 +274,13 @@ html, body {
 
 .magic-navigation li a .text {
     position: absolute;
-    font-size: 0.75em;
+    font-size: 0.525em; /* 0.75em * 0.7 = 0.525em */
     color: #0a0e14;
     opacity: 0;
-    transform: translateY(20px);
-    padding: 2px 10px;
+    transform: translateY(14px); /* 20px * 0.7 = 14px */
+    padding: 2px 7px; /* 10px * 0.7 = 7px */
     background: #fff;
-    border-radius: 15px;
+    border-radius: 10px; /* 15px * 0.7 = 10.5px, rounded to 10px */
     box-shadow: 5px 5px 7px rgba(0, 0, 0, 0.25),
         inset -3px -3px 5px rgba(0, 0, 0, 0.5);
     transition: 0.5s;
@@ -278,7 +291,7 @@ html, body {
 
 .magic-navigation li.active a .text {
     opacity: 1;
-    transform: translateY(10px);
+    transform: translateY(7px); /* 10px * 0.7 = 7px */
     transition-delay: 0.2s;
 }
 
@@ -423,5 +436,216 @@ html, body {
     .magic-navigation li a .text {
         font-size: 0.65em;
         padding: 2px 8px;
+    }
+}
+
+/* Auth Page - Next Level Login & Registration Form */
+.auth-container {
+    padding: 40px;
+    border-radius: 20px;
+    border: 8px solid #141b27;
+    box-shadow: -5px -5px 15px rgba(255, 255, 255, 0.05),
+        5px 5px 15px rgba(0, 0, 0, 0.5),
+        inset -5px -5px 15px rgba(255, 255, 255, 0.05),
+        inset 5px 5px 15px rgba(0, 0, 0, 0.5);
+    background: #141b27;
+    max-width: 400px;
+    width: 100%;
+}
+
+.auth-container .auth-form {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.auth-container .auth-form .inputBox {
+    margin-bottom: 10px;
+}
+
+.auth-container .auth-form.signin,
+.auth-container.signinForm .auth-form.signup {
+    display: none;
+}
+
+.auth-container.signinForm .auth-form.signin {
+    display: flex;
+}
+
+.auth-container .auth-form.hidden {
+    display: none !important;
+}
+
+.auth-container .auth-form h2 {
+    color: #fff;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    font-size: 1.5em;
+}
+
+.auth-container .auth-form .inputBox {
+    position: relative;
+    width: 100%;
+}
+
+.auth-container .auth-form .inputBox input {
+    padding: 12px 10px 12px 48px;
+    border: none;
+    width: 100%;
+    background: #0a0e14;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: #fff;
+    font-weight: 300;
+    border-radius: 25px;
+    font-size: 1em;
+    box-shadow: -5px -5px 15px rgba(255, 255, 255, 0.05),
+        5px 5px 15px rgba(0, 0, 0, 0.5);
+    transition: 0.5s;
+    outline: none;
+}
+
+.auth-container .auth-form .inputBox span {
+    position: absolute;
+    left: 0;
+    padding: 12px 10px 12px 48px;
+    pointer-events: none;
+    font-size: 1em;
+    font-weight: 300;
+    transition: 0.5s;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.auth-container .auth-form .inputBox input:valid ~ span,
+.auth-container .auth-form .inputBox input:focus ~ span {
+    color: #f59e0b;
+    border: 1px solid #f59e0b;
+    background: #0a0e14;
+    transform: translateX(25px) translateY(-7px);
+    font-size: 0.6em;
+    padding: 0 8px;
+    border-radius: 10px;
+    letter-spacing: 0.1em;
+}
+
+.auth-container .auth-form .inputBox input:valid,
+.auth-container .auth-form .inputBox input:focus {
+    border: 1px solid #f59e0b;
+}
+
+.auth-container .auth-form .inputBox .icon {
+    position: absolute;
+    top: 50%;
+    left: 16px;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    padding-right: 8px;
+    color: #f59e0b;
+    border-right: 1px solid #f59e0b;
+    pointer-events: none;
+    stroke-width: 2;
+}
+
+.auth-container .auth-form .inputBox input[type="submit"] {
+    background: #f59e0b;
+    color: #0a0e14;
+    padding: 10px 0;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: -5px -5px 15px rgba(255, 255, 255, 0.05),
+        5px 5px 15px rgba(0, 0, 0, 0.5),
+        inset -5px -5px 15px rgba(255, 255, 255, 0.1),
+        inset 5px 5px 15px rgba(0, 0, 0, 0.5);
+    transition: all 0.3s;
+}
+
+.auth-container .auth-form .inputBox input[type="submit"]:hover:not(:disabled) {
+    background: #f97316;
+    transform: translateY(-2px);
+}
+
+.auth-container .auth-form .inputBox input[type="submit"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.auth-container .auth-form p {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.75em;
+    font-weight: 300;
+    text-align: center;
+}
+
+.auth-container .auth-form p a {
+    font-weight: 500;
+    color: #f59e0b;
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.auth-container .auth-form p a:hover {
+    color: #f97316;
+}
+
+.error-message {
+    color: #ef4444;
+    font-size: 0.875em;
+    padding: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    text-align: center;
+    width: 100%;
+}
+
+.demo-accounts {
+    margin-top: 20px;
+    padding: 15px;
+    background: rgba(26, 35, 50, 0.5);
+    border-radius: 12px;
+    width: 100%;
+}
+
+.demo-title {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.75em;
+    margin-bottom: 8px;
+    font-weight: 300;
+}
+
+.demo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.demo-list p {
+    font-size: 0.7em;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+    text-align: left;
+}
+
+.demo-label {
+    color: #f59e0b;
+    font-weight: 500;
+}
+
+/* Responsive adjustments for Auth Page */
+@media (max-width: 640px) {
+    .auth-container {
+        padding: 30px 20px;
+        border-width: 4px;
+    }
+    
+    .auth-container .auth-form .inputBox {
+        width: 100%;
+    }
+    
+    .auth-container .auth-form h2 {
+        font-size: 1.3em;
     }
 }

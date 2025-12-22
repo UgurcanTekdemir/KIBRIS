@@ -55,10 +55,14 @@ const MagicNavigation = () => {
       <div className="hidden md:flex justify-between items-center py-4 px-4 w-full magic-nav-wrapper">
         {/* Logo & Site Name - Left Side */}
         <Link to="/" className="flex items-center gap-2 logo-container flex-shrink-0">
-          <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg flex items-center justify-center font-bold text-black text-lg logo-box">
-            B
-          </div>
-          <span className="text-xl font-bold text-white hidden sm:block site-name">BullBet</span>
+          <img 
+            src="https://img.icons8.com/?size=100&id=9ESZMOeUioJS&format=png&color=f59e0b" 
+            alt="GuessBet Logo" 
+            className="w-8 h-8 logo-box"
+          />
+          <span className="text-xl font-bold text-white hidden sm:block site-name">
+            Guess<span className="text-orange-500">Bet</span>
+          </span>
         </Link>
 
         {/* Magic Navigation Items - Center */}

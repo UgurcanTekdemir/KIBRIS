@@ -8,8 +8,7 @@ import HomePage from "./pages/HomePage";
 import LiveMatchesPage from "./pages/LiveMatchesPage";
 import MatchesPage from "./pages/MatchesPage";
 import MatchDetailPage from "./pages/MatchDetailPage";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
+import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import CouponsPage from "./pages/CouponsPage";
 import AdminPanel from "./pages/AdminPanel";
@@ -22,8 +21,8 @@ function App() {
       <BetSlipProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/login" element={<AuthPage />} />
+            <Route path="/register" element={<AuthPage />} />
             <Route
               path="/*"
               element={

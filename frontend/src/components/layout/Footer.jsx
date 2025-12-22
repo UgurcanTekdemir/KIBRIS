@@ -26,10 +26,14 @@ const Footer = () => {
           {/* Logo & About */}
           <div className="space-y-4">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg flex items-center justify-center font-bold text-black text-xl">
-                B
-              </div>
-              <span className="text-xl font-bold text-white">BullBet</span>
+              <img 
+                src="https://img.icons8.com/?size=100&id=9ESZMOeUioJS&format=png&color=f59e0b" 
+                alt="GuessBet Logo" 
+                className="w-10 h-10"
+              />
+              <span className="text-xl font-bold text-white">
+                Guess<span className="text-orange-500">Bet</span>
+              </span>
             </Link>
             <p className="text-gray-400 text-sm leading-relaxed">
               Güvenilir ve eğlenceli bahis deneyimi için doğru adres. 
@@ -110,8 +114,8 @@ const Footer = () => {
             <ul className="space-y-3">
               <li className="flex items-center gap-2 text-gray-400 text-sm">
                 <Mail size={16} className="text-amber-500" />
-                <a href="mailto:destek@bullbet.com" className="hover:text-amber-500 transition-colors">
-                  destek@bullbet.com
+                <a href="mailto:destek@guessbet.com" className="hover:text-amber-500 transition-colors">
+                  destek@guessbet.com
                 </a>
               </li>
               <li className="flex items-center gap-2 text-gray-400 text-sm">
@@ -136,7 +140,7 @@ const Footer = () => {
         <div className="border-t border-[#1e2736] pt-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-500 text-sm text-center md:text-left">
-              © {currentYear} BullBet. Tüm hakları saklıdır.
+              © {currentYear} <span>Guess<span className="text-orange-500">Bet</span></span>. Tüm hakları saklıdır.
             </p>
             <div className="flex items-center gap-2 text-gray-500 text-xs">
               <Shield size={14} />
