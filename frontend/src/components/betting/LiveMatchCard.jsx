@@ -6,10 +6,16 @@ const LiveMatchCard = ({ match }) => {
   const { addSelection, isSelected } = useBetSlip();
   const mainMarket = match.markets?.[0];
 
+  const handleOddsClick = (e, opt) => {
+    e.preventDefault();
+    e.stopPropagation();
+    addSelection(match, mainMarket.name, opt.label, opt.value);
+  };
+
   return (
-    <div className="min-w-[280px] bg-gradient-to-br from-[#1a2332] to-[#0d1117] border border-[#2a3a4d] rounded-xl overflow-hidden hover:border-amber-500/50 transition-all">
+    <div className="min-w-[240px] sm:min-w-[280px] bg-gradient-to-br from-[#1a2332] to-[#0d1117] border border-[#2a3a4d] rounded-xl overflow-hidden hover:border-amber-500/50 transition-all flex-shrink-0">
       {/* Live Badge */}
-      <div className="flex items-center justify-between px-3 py-2 bg-red-500/10 border-b border-red-500/20">
+      <div className="flex items-center justify-between px-3 py-1.5 sm:py-2 bg-red-500/10 border-b border-red-500/20">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
           <span className="text-red-500 text-xs font-bold">CANLI</span>
@@ -43,7 +49,7 @@ const LiveMatchCard = ({ match }) => {
               return (
                 <button
                   key={opt.label}
-                  onClick={() => addSelection(match, mainMarket.name, opt.label, opt.value)}
+                  onClick={(e) => handleOddsClick(e, opt)}
                   className={`flex-1 py-1.5 rounded text-center transition-all ${
                     selected
                       ? 'bg-amber-500 text-black'
