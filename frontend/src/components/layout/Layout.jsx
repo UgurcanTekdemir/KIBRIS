@@ -3,6 +3,8 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 import BetSlip from '../betting/BetSlip';
 import MobileNavigation from './MobileNavigation';
+import MagicNavigation from './MagicNavigation';
+import Footer from './Footer';
 import { Toaster } from 'sonner';
 
 const Layout = ({ children }) => {
@@ -15,20 +17,29 @@ const Layout = ({ children }) => {
         onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         isMobileMenuOpen={isMobileMenuOpen}
       />
+      
+      {/* Magic Navigation - Desktop Only (includes logo, site name, login/register) */}
+      <div className="hidden md:block">
+        <MagicNavigation />
+      </div>
+      
       <Sidebar isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
       
-      <div className="pt-14 lg:pl-64 pb-20 lg:pb-0">
-        <div className="flex">
+      <div className="pt-14 md:pt-[152px] lg:pt-[152px] lg:pl-64 pb-20 lg:pb-0 flex flex-col min-h-screen">
+        <div className="flex gap-0 lg:gap-4 flex-1">
           {/* Main Content */}
-          <main className="flex-1 min-h-[calc(100vh-56px)] p-3 sm:p-4">
+          <main className="flex-1 w-full lg:max-w-[calc(100%-22rem)] px-2 sm:px-3 lg:p-4">
             {children}
           </main>
           
           {/* BetSlip Sidebar (Desktop Only) */}
-          <aside className="hidden xl:block w-80 p-4 sticky top-14 h-[calc(100vh-56px)]">
+          <aside className="hidden xl:block w-80 flex-shrink-0 p-4 sticky top-[152px] h-[calc(100vh-152px)] overflow-hidden">
             <BetSlip />
           </aside>
         </div>
+
+        {/* Footer */}
+        <Footer />
       </div>
 
       {/* Mobile Navigation */}

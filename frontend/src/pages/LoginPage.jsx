@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { User, Lock, AlertCircle } from 'lucide-react';
+import { User, Lock, AlertCircle, ArrowLeft } from 'lucide-react';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -30,7 +30,17 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#080b10] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#080b10] flex items-center justify-center p-4 relative">
+      {/* Back to Home Button */}
+      <button
+        onClick={() => navigate('/')}
+        className="fixed top-20 md:top-24 left-4 z-40 flex items-center gap-2 p-2.5 bg-[#0d1117] border border-[#1e2736] rounded-lg text-gray-400 hover:text-white hover:bg-[#1a2332] transition-colors shadow-lg"
+        aria-label="Ana Sayfaya Dön"
+      >
+        <ArrowLeft size={20} />
+        <span className="hidden sm:inline text-sm font-medium">Ana Sayfa</span>
+      </button>
+      
       <div className="w-full max-w-md">
         <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl p-6 sm:p-8">
           {/* Logo */}

@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { sportsCategories, leagues } from '../../data/mockData';
-import { Home, Zap, Calendar, Trophy, ChevronRight } from 'lucide-react';
+import { Home, Zap, Calendar, Trophy, ChevronRight, Search } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
+import { Input } from '../ui/input';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
+  const [searchQuery, setSearchQuery] = useState('');
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },
@@ -14,6 +16,12 @@ const Sidebar = ({ isOpen, onClose }) => {
   ];
 
   const footballLeagues = leagues.filter((l) => l.sportId === 1);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    // Search functionality can be implemented here
+    console.log('Searching for:', searchQuery);
+  };
 
   return (
     <>
@@ -33,6 +41,23 @@ const Sidebar = ({ isOpen, onClose }) => {
       >
         <ScrollArea className="h-full">
           <div className="p-4">
+            {/* Search Bar */}
+            <div className="mb-6">
+              <form onSubmit={handleSearch} className="relative">
+                <Search 
+                  size={18} 
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" 
+                />
+                <Input
+                  type="text"
+                  placeholder="Maç, takım veya lig ara..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 bg-[#1a2332] border-[#2a3a4d] text-white placeholder:text-gray-500 focus:border-amber-500/50 focus:ring-amber-500/20"
+                />
+              </form>
+            </div>
+
             {/* Main Navigation */}
             <nav className="space-y-1 mb-6">
               {navItems.map((item) => {

@@ -17,38 +17,42 @@ const MobileNavigation = () => {
     { path: user ? '/dashboard' : '/login', label: user ? 'Hesap' : 'Giriş', icon: User },
   ];
 
+  const isActive = (path) => {
+    if (path === '/') {
+      return location.pathname === '/';
+    }
+    return location.pathname.startsWith(path);
+  };
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a0e14] border-t border-[#1e2736] lg:hidden safe-area-bottom">
-      <div className="flex items-center justify-around h-16 px-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname === item.path;
-          
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`flex flex-col items-center justify-center flex-1 py-2 relative transition-colors ${
-                isActive ? 'text-amber-500' : 'text-gray-500'
-              }`}
-            >
-              <div className="relative">
-                <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-                {item.isLive && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                )}
-                {item.badge > 0 && (
-                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-amber-500 text-black text-xs font-bold rounded-full flex items-center justify-center">
-                    {item.badge}
+      {/* Magic Navigation Bar - Mobile */}
+      <div className="flex justify-center items-center py-3 px-2 w-full">
+        <ul className="magic-navigation-mobile">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.path);
+            
+            return (
+              <li key={item.path} className={active ? 'active' : ''}>
+                <Link to={item.path}>
+                  <span className="icon" style={{ position: 'relative' }}>
+                    <Icon size={20} />
+                    {item.isLive && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse z-10"></span>
+                    )}
+                    {item.badge > 0 && (
+                      <span className="absolute -top-2 -right-2 w-5 h-5 bg-amber-500 text-black text-xs font-bold rounded-full flex items-center justify-center z-10">
+                        {item.badge}
+                      </span>
+                    )}
                   </span>
-                )}
-              </div>
-              <span className={`text-[10px] mt-1 font-medium ${isActive ? 'text-amber-500' : 'text-gray-500'}`}>
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
+                  <span className="text">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </nav>
   );

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { User, Lock, Mail, Phone, AlertCircle, CheckCircle } from 'lucide-react';
+import { User, Lock, Mail, Phone, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
 const RegisterPage = () => {
@@ -41,7 +41,16 @@ const RegisterPage = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-56px)] flex items-center justify-center p-4">
+    <div className="min-h-[calc(100vh-56px)] flex items-center justify-center p-4 relative">
+      {/* Back Button - Mobile Only */}
+      <button
+        onClick={() => navigate(-1)}
+        className="lg:hidden fixed top-20 left-4 z-40 p-2 bg-[#0d1117] border border-[#1e2736] rounded-lg text-gray-400 hover:text-white hover:bg-[#1a2332] transition-colors shadow-lg"
+        aria-label="Geri"
+      >
+        <ArrowLeft size={20} />
+      </button>
+      
       <div className="w-full max-w-md">
         <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl p-8">
           {/* Logo */}

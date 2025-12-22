@@ -54,7 +54,7 @@ const BetSlip = () => {
   }
 
   return (
-    <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
+    <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden flex flex-col h-full max-h-[calc(100vh-56px)]">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-[#1e2736]">
         <div className="flex items-center gap-2">
@@ -75,7 +75,7 @@ const BetSlip = () => {
       </div>
 
       {/* Selections */}
-      <ScrollArea className="max-h-[300px]">
+      <ScrollArea className="h-[calc(100vh-400px)] min-h-[200px] max-h-[400px]">
         <div className="p-3 space-y-2">
           {selections.map((selection, index) => (
             <div
@@ -106,7 +106,7 @@ const BetSlip = () => {
       </ScrollArea>
 
       {/* Footer */}
-      <div className="p-4 border-t border-[#1e2736] space-y-3">
+      <div className="p-4 border-t border-[#1e2736] space-y-3 mt-auto">
         {/* Stake Input */}
         <div>
           <label className="text-xs text-gray-400 mb-1 block">Bahis Miktarı (₺)</label>

@@ -82,6 +82,19 @@ code {
     }
 }
 
+/* Hide Emergent badge */
+#emergent-badge,
+a[id="emergent-badge"],
+a[href*="emergent.sh"],
+a[href*="emergent-badge"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    left: -9999px !important;
+}
+
 @layer base {
     [data-debug-wrapper="true"] {
         display: contents !important;
@@ -111,5 +124,30 @@ code {
         border-right-color: inherit;
         border-top-color: inherit;
         border-bottom-color: inherit;
+    }
+}
+
+/* Mobile optimizations */
+@layer utilities {
+    .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+    
+    .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+    }
+    
+    /* Safe area for mobile devices */
+    .safe-area-bottom {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    /* Touch-friendly tap targets */
+    @media (max-width: 640px) {
+        button, a {
+            min-height: 44px;
+            min-width: 44px;
+        }
     }
 }

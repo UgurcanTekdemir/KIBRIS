@@ -145,3 +145,283 @@ html, body {
         font-size: 16px !important;
     }
 }
+
+/* Magic Navigation Wrapper - Integrated Header */
+.magic-nav-wrapper {
+    min-height: 120px;
+}
+
+/* Logo and Site Name - %20 bigger in X and Y axis */
+.logo-container {
+    transform: scale(1.2);
+    transform-origin: left center;
+}
+
+.logo-box {
+    transform: scale(1.2);
+}
+
+.site-name {
+    transform: scale(1.2);
+}
+
+/* Magic Navigation Tabs Menu */
+.magic-navigation {
+    position: relative;
+    width: 100%;
+    max-width: 540px;
+    height: 120px;
+    background: #141b27;
+    box-shadow: inset 5px 5px 10px rgba(0, 0, 0, 0.5),
+        inset 5px 5px 20px rgba(255, 255, 255, 0.05),
+        inset -5px -5px 15px rgba(0, 0, 0, 0.75);
+    border-radius: 25px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.magic-navigation li {
+    position: relative;
+    width: 80px;
+    margin: 0 5px;
+}
+
+.magic-navigation li::before {
+    content: "";
+    position: absolute;
+    top: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 5px;
+    height: 5px;
+    background: #1e2736;
+    border-radius: 50%;
+    transition: 0.5s;
+}
+
+.magic-navigation li.active::before {
+    background: #f59e0b;
+    box-shadow: 0 0 5px #f59e0b, 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b,
+        0 0 40px #f59e0b, 0 0 50px #f59e0b;
+}
+
+.magic-navigation li a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-decoration: none;
+    position: relative;
+}
+
+.magic-navigation li a .icon {
+    position: absolute;
+    font-size: 1.75em;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    border-radius: 50px;
+    transition: 0.5s;
+    transition-delay: 0.2s;
+}
+
+.magic-navigation li.active a .icon {
+    background: #f59e0b;
+    color: #fff;
+    transform: translateY(-55px);
+    box-shadow: 5px 5px 7px rgba(0, 0, 0, 0.25),
+        inset 2px 2px 3px rgba(255, 255, 255, 0.25),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transition-delay: 0s;
+}
+
+.magic-navigation li a .icon::before {
+    content: "";
+    position: absolute;
+    inset: 50px;
+    background: #0a0e14;
+    border-radius: 50%;
+    box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.5),
+        inset 2px 2px 3px rgba(255, 255, 255, 0.1),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transform: scale(0);
+    transition: 0.5s;
+}
+
+.magic-navigation li.active a .icon::before {
+    transform: scale(1);
+}
+
+.magic-navigation li a .text {
+    position: absolute;
+    font-size: 0.75em;
+    color: #0a0e14;
+    opacity: 0;
+    transform: translateY(20px);
+    padding: 2px 10px;
+    background: #fff;
+    border-radius: 15px;
+    box-shadow: 5px 5px 7px rgba(0, 0, 0, 0.25),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transition: 0.5s;
+    transition-delay: 0s;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.magic-navigation li.active a .text {
+    opacity: 1;
+    transform: translateY(10px);
+    transition-delay: 0.2s;
+}
+
+/* Magic Navigation Mobile */
+.magic-navigation-mobile {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    height: 80px;
+    background: #141b27;
+    box-shadow: inset 5px 5px 10px rgba(0, 0, 0, 0.5),
+        inset 5px 5px 20px rgba(255, 255, 255, 0.05),
+        inset -5px -5px 15px rgba(0, 0, 0, 0.75);
+    border-radius: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.magic-navigation-mobile li {
+    position: relative;
+    width: 60px;
+    margin: 0 2px;
+}
+
+.magic-navigation-mobile li::before {
+    content: "";
+    position: absolute;
+    top: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: #1e2736;
+    border-radius: 50%;
+    transition: 0.5s;
+}
+
+.magic-navigation-mobile li.active::before {
+    background: #f59e0b;
+    box-shadow: 0 0 4px #f59e0b, 0 0 8px #f59e0b, 0 0 16px #f59e0b;
+}
+
+.magic-navigation-mobile li a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-decoration: none;
+    position: relative;
+}
+
+.magic-navigation-mobile li a .icon {
+    position: absolute;
+    font-size: 1.5em;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    border-radius: 50px;
+    transition: 0.5s;
+    transition-delay: 0.2s;
+}
+
+.magic-navigation-mobile li.active a .icon {
+    background: #f59e0b;
+    color: #fff;
+    transform: translateY(-40px);
+    box-shadow: 4px 4px 6px rgba(0, 0, 0, 0.25),
+        inset 2px 2px 3px rgba(255, 255, 255, 0.25),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transition-delay: 0s;
+}
+
+.magic-navigation-mobile li a .icon::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    background: #f0eae373;
+    border-radius: 50%;
+    box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.5),
+        inset 2px 2px 3px rgba(255, 255, 255, 0.1),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transform: scale(0);
+    transition: 0.5s;
+}
+
+.magic-navigation-mobile li.active a .icon::before {
+    transform: scale(1);
+}
+
+.magic-navigation-mobile li a .text {
+    position: absolute;
+    font-size: 0.65em;
+    color: #0a0e14;
+    opacity: 0;
+    transform: translateY(15px);
+    padding: 2px 8px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 4px 4px 6px rgba(0, 0, 0, 0.25),
+        inset -3px -3px 5px rgba(0, 0, 0, 0.5);
+    transition: 0.5s;
+    transition-delay: 0s;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.magic-navigation-mobile li.active a .text {
+    opacity: 1;
+    transform: translateY(8px);
+    transition-delay: 0.2s;
+}
+
+/* Responsive adjustments for Magic Navigation */
+@media (max-width: 768px) {
+    .magic-navigation {
+        max-width: 100%;
+        height: 100px;
+    }
+    
+    .magic-navigation li {
+        width: 60px;
+        margin: 0 3px;
+    }
+    
+    .magic-navigation li a .icon {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5em;
+    }
+    
+    .magic-navigation li.active a .icon {
+        transform: translateY(-45px);
+    }
+    
+    .magic-navigation li a .text {
+        font-size: 0.65em;
+        padding: 2px 8px;
+    }
+}
