@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useBetSlip } from '../../context/BetSlipContext';
 import { Menu, X, User, LogOut, Wallet, FileText, Settings, ChevronDown } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
@@ -14,7 +13,6 @@ import {
 
 const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
   const { user, logout } = useAuth();
-  const { selections } = useBetSlip();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -35,7 +33,7 @@ const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-[#0a0e14] to-[#141b27] border-b border-[#1e2736]">
-      <div className="flex items-center justify-between h-14 px-4">
+      <div className="flex items-center justify-between h-14 px-3 sm:px-4">
         {/* Logo & Menu */}
         <div className="flex items-center gap-3">
           <button
