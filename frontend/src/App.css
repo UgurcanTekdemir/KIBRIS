@@ -121,3 +121,27 @@ table {
 .hide-scrollbar::-webkit-scrollbar {
     display: none;
 }
+
+/* Safe area for mobile navigation */
+.safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Prevent pull-to-refresh on mobile */
+html, body {
+    overscroll-behavior: none;
+}
+
+/* Touch optimizations */
+@media (hover: none) {
+    button, a {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+/* Fix for iOS input zoom */
+@media screen and (max-width: 640px) {
+    input, select, textarea {
+        font-size: 16px !important;
+    }
+}
