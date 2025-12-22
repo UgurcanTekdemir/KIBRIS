@@ -65,33 +65,35 @@ const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
         </nav>
 
         {/* User Section */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
-              {/* Balance */}
-              <div className="hidden sm:flex items-center gap-2 bg-[#1a2332] px-3 py-1.5 rounded-lg border border-[#2a3a4d]">
-                <Wallet size={16} className="text-amber-500" />
-                <span className="text-white font-semibold">
-                  {user.balance.toLocaleString('tr-TR')} ₺
+              {/* Balance - Hidden on very small screens */}
+              <div className="hidden xs:flex items-center gap-1.5 sm:gap-2 bg-[#1a2332] px-2 sm:px-3 py-1.5 rounded-lg border border-[#2a3a4d]">
+                <Wallet size={14} className="text-amber-500 sm:w-4 sm:h-4" />
+                <span className="text-white font-semibold text-sm sm:text-base">
+                  {user.balance >= 1000 
+                    ? `${(user.balance / 1000).toFixed(1)}K` 
+                    : user.balance.toLocaleString('tr-TR')} ₺
                 </span>
               </div>
 
               {/* User Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-2 text-gray-300 hover:text-white hover:bg-[#1a2332]">
-                    <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center">
-                      <User size={16} className="text-black" />
+                  <Button variant="ghost" className="flex items-center gap-1.5 sm:gap-2 text-gray-300 hover:text-white hover:bg-[#1a2332] px-2 sm:px-3">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center">
+                      <User size={14} className="text-black sm:w-4 sm:h-4" />
                     </div>
-                    <span className="hidden sm:block">{user.username}</span>
-                    <ChevronDown size={16} />
+                    <span className="hidden sm:block text-sm">{user.username}</span>
+                    <ChevronDown size={14} className="hidden sm:block" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56 bg-[#1a2332] border-[#2a3a4d]">
                   <div className="px-3 py-2 border-b border-[#2a3a4d]">
                     <p className="text-white font-medium">{user.username}</p>
                     <p className="text-xs text-amber-500">{getRoleLabel(user.role)}</p>
-                    <p className="text-sm text-gray-400 mt-1 sm:hidden">
+                    <p className="text-sm text-gray-400 mt-1 xs:hidden">
                       Bakiye: {user.balance.toLocaleString('tr-TR')} ₺
                     </p>
                   </div>
@@ -132,28 +134,16 @@ const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
           ) : (
             <div className="flex items-center gap-2">
               <Link to="/login">
-                <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-[#1a2332]">
-                  Giriş Yap
+                <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-[#1a2332] text-sm px-2 sm:px-4">
+                  Giriş
                 </Button>
               </Link>
               <Link to="/register">
-                <Button className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold">
-                  Kayıt Ol
+                <Button className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold text-sm px-3 sm:px-4">
+                  Kayıt
                 </Button>
               </Link>
             </div>
-          )}
-
-          {/* Mobile Betslip Button */}
-          {selections.length > 0 && (
-            <Link to="/betslip" className="lg:hidden">
-              <Button className="relative bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-3">
-                <FileText size={18} />
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs flex items-center justify-center">
-                  {selections.length}
-                </span>
-              </Button>
-            </Link>
           )}
         </div>
       </div>
