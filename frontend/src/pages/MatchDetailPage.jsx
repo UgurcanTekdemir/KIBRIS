@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useBetSlip } from '../context/BetSlipContext';
 import { ArrowLeft, Clock, TrendingUp, AlertCircle, ChevronDown, Filter } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -11,10 +11,12 @@ import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategor
 
 const MatchDetailPage = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { addSelection, isSelected } = useBetSlip();
   const { match, loading, error } = useMatchDetails(id);
   const [openMarkets, setOpenMarkets] = useState({});
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
+  const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
 
   // Group markets by category
   const marketsByCategory = useMemo(() => {
@@ -35,6 +37,11 @@ const MatchDetailPage = () => {
     return marketsByCategory[selectedCategory] || [];
   }, [match?.markets, selectedCategory, marketsByCategory]);
 
+  // Reset logo errors when match changes
+  useEffect(() => {
+    setLogoErrors({ home: false, away: false });
+  }, [match?.id]);
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -53,10 +60,13 @@ const MatchDetailPage = () => {
   if (error || !match) {
     return (
       <div className="max-w-4xl mx-auto">
-        <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
+        <button 
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors"
+        >
           <ArrowLeft size={18} />
           <span>Geri</span>
-        </Link>
+        </button>
         <Alert variant="destructive" className="bg-red-500/10 border-red-500/30">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-white">
@@ -64,12 +74,14 @@ const MatchDetailPage = () => {
           </AlertDescription>
         </Alert>
         <div className="text-center py-8">
-          <Link to="/">
-            <Button variant="outline" className="border-[#2a3a4d] text-white">
-              <ArrowLeft size={16} className="mr-2" />
-              Ana Sayfaya Dön
-            </Button>
-          </Link>
+          <Button 
+            variant="outline" 
+            className="border-[#2a3a4d] text-white"
+            onClick={() => navigate(-1)}
+          >
+            <ArrowLeft size={16} className="mr-2" />
+            Geri
+          </Button>
         </div>
       </div>
     );
@@ -78,10 +90,13 @@ const MatchDetailPage = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Back Button */}
-      <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
+      <button 
+        onClick={() => navigate(-1)}
+        className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors"
+      >
         <ArrowLeft size={18} />
         <span>Geri</span>
-      </Link>
+      </button>
 
       {/* Match Header */}
       <div className="bg-gradient-to-br from-[#1a2332] to-[#0d1117] border border-[#2a3a4d] rounded-2xl overflow-hidden mb-6">
@@ -113,8 +128,17 @@ const MatchDetailPage = () => {
           <div className="flex items-center justify-center gap-8">
             {/* Home Team */}
             <div className="text-center flex-1">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-[#0a0e14] flex items-center justify-center text-2xl font-bold text-white">
-                {match.homeTeam.charAt(0)}
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-[#0a0e14] flex items-center justify-center overflow-hidden">
+                {match.homeTeamLogo && !logoErrors.home ? (
+                  <img 
+                    src={match.homeTeamLogo} 
+                    alt={match.homeTeam}
+                    className="w-full h-full object-contain p-2"
+                    onError={() => setLogoErrors(prev => ({ ...prev, home: true }))}
+                  />
+                ) : (
+                  <span className="text-2xl font-bold text-white">{match.homeTeam.charAt(0)}</span>
+                )}
               </div>
               <h3 className="text-white font-bold text-lg">{match.homeTeam}</h3>
             </div>
@@ -140,8 +164,17 @@ const MatchDetailPage = () => {
 
             {/* Away Team */}
             <div className="text-center flex-1">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-[#0a0e14] flex items-center justify-center text-2xl font-bold text-white">
-                {match.awayTeam.charAt(0)}
+              <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-[#0a0e14] flex items-center justify-center overflow-hidden">
+                {match.awayTeamLogo && !logoErrors.away ? (
+                  <img 
+                    src={match.awayTeamLogo} 
+                    alt={match.awayTeam}
+                    className="w-full h-full object-contain p-2"
+                    onError={() => setLogoErrors(prev => ({ ...prev, away: true }))}
+                  />
+                ) : (
+                  <span className="text-2xl font-bold text-white">{match.awayTeam.charAt(0)}</span>
+                )}
               </div>
               <h3 className="text-white font-bold text-lg">{match.awayTeam}</h3>
             </div>

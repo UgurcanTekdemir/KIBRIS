@@ -56,6 +56,40 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
+
+# Banner Models
+class Banner(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    image_url: str
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    link_url: Optional[str] = None
+    button_text: Optional[str] = None
+    is_active: bool = True
+    order: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class BannerCreate(BaseModel):
+    image_url: str
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    link_url: Optional[str] = None
+    button_text: Optional[str] = None
+    is_active: bool = True
+    order: int = 0
+
+class BannerUpdate(BaseModel):
+    image_url: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    link_url: Optional[str] = None
+    button_text: Optional[str] = None
+    is_active: Optional[bool] = None
+    order: Optional[int] = None
+
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
@@ -227,6 +261,107 @@ async def test_api_connection():
             "token_length": len(nosy_api_service.token) if nosy_api_service.token else 0,
             "error_details": str(e)
         }
+
+
+# Banner API Endpoints
+@api_router.get("/banners", response_model=List[Banner])
+async def get_banners(active_only: bool = Query(False, description="Return only active banners")):
+    """Get all banners"""
+    try:
+        if not db:
+            # Return empty list if MongoDB is not configured
+            return []
+        
+        query = {"is_active": True} if active_only else {}
+        banners = await db.banners.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+        
+        # Convert ISO string dates back to datetime objects
+        for banner in banners:
+            if isinstance(banner.get('created_at'), str):
+                banner['created_at'] = datetime.fromisoformat(banner['created_at'])
+            if isinstance(banner.get('updated_at'), str):
+                banner['updated_at'] = datetime.fromisoformat(banner['updated_at'])
+        
+        return banners
+    except Exception as e:
+        logger.error(f"Error fetching banners: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/banners", response_model=Banner)
+async def create_banner(banner: BannerCreate):
+    """Create a new banner"""
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="MongoDB not configured")
+        
+        banner_dict = banner.model_dump()
+        banner_obj = Banner(**banner_dict)
+        
+        # Convert to dict and serialize datetime to ISO string for MongoDB
+        doc = banner_obj.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        doc['updated_at'] = doc['updated_at'].isoformat()
+        
+        await db.banners.insert_one(doc)
+        return banner_obj
+    except Exception as e:
+        logger.error(f"Error creating banner: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.put("/banners/{banner_id}", response_model=Banner)
+async def update_banner(banner_id: str, banner_update: BannerUpdate):
+    """Update a banner"""
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="MongoDB not configured")
+        
+        # Get existing banner
+        existing = await db.banners.find_one({"id": banner_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Banner not found")
+        
+        # Update fields
+        update_data = {k: v for k, v in banner_update.model_dump().items() if v is not None}
+        update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+        
+        await db.banners.update_one({"id": banner_id}, {"$set": update_data})
+        
+        # Get updated banner
+        updated = await db.banners.find_one({"id": banner_id}, {"_id": 0})
+        
+        # Convert ISO string dates back to datetime objects
+        if isinstance(updated.get('created_at'), str):
+            updated['created_at'] = datetime.fromisoformat(updated['created_at'])
+        if isinstance(updated.get('updated_at'), str):
+            updated['updated_at'] = datetime.fromisoformat(updated['updated_at'])
+        
+        return Banner(**updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating banner: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.delete("/banners/{banner_id}")
+async def delete_banner(banner_id: str):
+    """Delete a banner"""
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="MongoDB not configured")
+        
+        result = await db.banners.delete_one({"id": banner_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Banner not found")
+        
+        return {"success": True, "message": "Banner deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting banner: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Include the router in the main app
 app.include_router(api_router)

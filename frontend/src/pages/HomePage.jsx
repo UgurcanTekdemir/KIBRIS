@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { liveMatches, upcomingMatches } from '../data/mockData';
 import MatchCard from '../components/betting/MatchCard';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
+import HeroBannerSlider from '../components/HeroBannerSlider';
 import { Zap, Calendar, TrendingUp, Star, ChevronRight, Search, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
@@ -56,33 +57,8 @@ const HomePage = () => {
           </button>
         )}
       </div>
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-lg sm:rounded-xl lg:rounded-2xl bg-gradient-to-r from-amber-600/20 via-[#1a2332] to-[#0d1117] border border-amber-500/20">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=1200')] bg-cover bg-center opacity-10"></div>
-        <div className="relative p-3 sm:p-4 md:p-6 lg:p-10">
-          <div className="max-w-xl">
-            <h1 className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-1.5 sm:mb-2 md:mb-3">
-              Canlı Bahis Heyecanı
-            </h1>
-            <p className="text-gray-400 text-xs sm:text-sm md:text-base mb-3 sm:mb-4 md:mb-6 leading-relaxed">
-              En yüksek oranlarla canlı maçlara bahis yapın. Anında ödemeler, güvenli platform.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link to="/live" className="flex-1 sm:flex-none">
-                <Button className="w-full sm:w-auto bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-bold text-xs sm:text-sm md:text-base h-9 sm:h-10">
-                  <Zap size={14} className="mr-1.5 sm:mr-2" />
-                  Canlı Maçlar
-                </Button>
-              </Link>
-              <Link to="/matches" className="flex-1 sm:flex-none">
-                <Button variant="outline" className="w-full sm:w-auto border-[#2a3a4d] text-white hover:bg-[#1a2332] text-xs sm:text-sm md:text-base h-9 sm:h-10">
-                  Tüm Maçlar
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Hero Banner Slider */}
+      <HeroBannerSlider />
 
       {/* Live Matches Section */}
       <section>

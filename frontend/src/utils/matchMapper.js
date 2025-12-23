@@ -75,6 +75,8 @@ export function mapApiMatchToInternal(apiMatch) {
     leagueFlag: apiMatch.LeagueFlag || getLeagueFlag(apiMatch.Country || apiMatch.League),
     homeTeam: apiMatch.Team1 || apiMatch.homeTeam || apiMatch.home_team || 'Home Team',
     awayTeam: apiMatch.Team2 || apiMatch.awayTeam || apiMatch.away_team || 'Away Team',
+    homeTeamLogo: apiMatch.Team1Logo || apiMatch.homeTeamLogo || apiMatch.home_team_logo || null,
+    awayTeamLogo: apiMatch.Team2Logo || apiMatch.awayTeamLogo || apiMatch.away_team_logo || null,
     homeScore: scoreParts ? parseInt(scoreParts[0]) || 0 : null,
     awayScore: scoreParts ? parseInt(scoreParts[1]) || 0 : null,
     minute: isLive ? (apiMatch.MB || apiMatch.minute || apiMatch.min || null) : null,
