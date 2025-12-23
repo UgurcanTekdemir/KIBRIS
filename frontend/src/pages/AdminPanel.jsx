@@ -15,6 +15,7 @@ import {
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
+import { bannerAPI } from '../services/api';
 
 const AdminPanel = () => {
   const { user } = useAuth();
@@ -39,13 +40,11 @@ const AdminPanel = () => {
     
     const fetchBanners = async () => {
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners`);
-        if (response.ok) {
-          const data = await response.json();
-          setBanners(data || []);
-        }
+        const data = await bannerAPI.getBanners();
+        setBanners(data || []);
       } catch (error) {
         console.error('Error fetching banners:', error);
+        toast.error('Bannerlar yüklenirken bir hata oluştu');
       }
     };
     fetchBanners();
@@ -85,47 +84,31 @@ const AdminPanel = () => {
   const handleBannerSubmit = async (e) => {
     e.preventDefault();
     try {
-      const url = editingBanner
-        ? `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners/${editingBanner.id}`
-        : `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners`;
-      
-      const method = editingBanner ? 'PUT' : 'POST';
-      const body = editingBanner
-        ? { ...bannerForm }
-        : { ...bannerForm };
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        toast.success(editingBanner ? 'Banner güncellendi' : 'Banner oluşturuldu');
-        setBannerForm({
-          image_url: '',
-          title: '',
-          subtitle: '',
-          link_url: '',
-          button_text: '',
-          is_active: true,
-          order: 0,
-        });
-        setEditingBanner(null);
-        // Refresh banners
-        const bannersResponse = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners`);
-        if (bannersResponse.ok) {
-          const data = await bannersResponse.json();
-          setBanners(data || []);
-        }
+      if (editingBanner) {
+        await bannerAPI.updateBanner(editingBanner.id, bannerForm);
+        toast.success('Banner güncellendi');
       } else {
-        toast.error('Banner kaydedilemedi');
+        await bannerAPI.createBanner(bannerForm);
+        toast.success('Banner oluşturuldu');
       }
+      
+      setBannerForm({
+        image_url: '',
+        title: '',
+        subtitle: '',
+        link_url: '',
+        button_text: '',
+        is_active: true,
+        order: 0,
+      });
+      setEditingBanner(null);
+      
+      // Refresh banners
+      const data = await bannerAPI.getBanners();
+      setBanners(data || []);
     } catch (error) {
       console.error('Error saving banner:', error);
-      toast.error('Bir hata oluştu');
+      toast.error(error.message || 'Banner kaydedilemedi');
     }
   };
 
@@ -135,19 +118,12 @@ const AdminPanel = () => {
     }
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        toast.success('Banner silindi');
-        setBanners(banners.filter(b => b.id !== id));
-      } else {
-        toast.error('Banner silinemedi');
-      }
+      await bannerAPI.deleteBanner(id);
+      toast.success('Banner silindi');
+      setBanners(banners.filter(b => b.id !== id));
     } catch (error) {
       console.error('Error deleting banner:', error);
-      toast.error('Bir hata oluştu');
+      toast.error(error.message || 'Banner silinemedi');
     }
   };
 

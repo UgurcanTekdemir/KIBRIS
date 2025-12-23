@@ -96,6 +96,16 @@ class BannerUpdate(BaseModel):
 async def root():
     return {"message": "Hello World"}
 
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "service": "KIBRIS API",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mongodb_connected": db is not None
+    }
+
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     if not db:
@@ -361,13 +371,20 @@ async def delete_banner(banner_id: str):
         logger.error(f"Error deleting banner: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# CORS Configuration
+cors_origins_str = os.environ.get('CORS_ORIGINS', '*')
+# Clean up CORS origins - remove empty strings and strip whitespace
+cors_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+
+logger.info(f"CORS Origins configured: {cors_origins}")
+
 # Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins if cors_origins != ['*'] else ['*'],
     allow_methods=["*"],
     allow_headers=["*"],
 )

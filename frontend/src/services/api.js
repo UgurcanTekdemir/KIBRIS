@@ -3,7 +3,16 @@
  * Handles all API calls to the backend
  */
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+// Get API base URL - remove trailing /api if present to avoid double /api
+const rawApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const cleanApiUrl = rawApiUrl.replace(/\/api\/?$/, '');
+const API_BASE_URL = `${cleanApiUrl}/api`;
+
+// Debug: Log API URL in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('🔧 API Base URL:', API_BASE_URL);
+  console.log('🔧 REACT_APP_API_URL:', process.env.REACT_APP_API_URL);
+}
 
 class ApiError extends Error {
   constructor(message, status, data) {
@@ -29,11 +38,33 @@ async function fetchAPI(endpoint, options = {}) {
 
   try {
     const response = await fetch(url, config);
-    const data = await response.json();
+    
+    // Check if response is ok before trying to parse JSON
+    const contentType = response.headers.get('content-type');
+    let data;
+    
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // If JSON parsing fails, try to get text
+        const text = await response.text();
+        console.error('JSON parse error. Response text:', text);
+        throw new ApiError(
+          `Invalid JSON response: ${text.substring(0, 100)}`,
+          response.status,
+          { raw: text }
+        );
+      }
+    } else {
+      // Non-JSON response
+      const text = await response.text();
+      data = { message: text };
+    }
 
     if (!response.ok) {
       throw new ApiError(
-        data.detail || data.message || 'API request failed',
+        data.detail || data.message || `API request failed (${response.status})`,
         response.status,
         data
       );
@@ -44,10 +75,22 @@ async function fetchAPI(endpoint, options = {}) {
     if (error instanceof ApiError) {
       throw error;
     }
+    
+    // Network errors (CORS, connection refused, etc.)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('Network error:', error);
+      console.error('Attempted URL:', url);
+      throw new ApiError(
+        `Backend'e bağlanılamıyor. Lütfen backend URL'ini kontrol edin: ${API_BASE_URL}`,
+        0,
+        { originalError: error.message, url }
+      );
+    }
+    
     throw new ApiError(
-      error.message || 'Network error',
+      error.message || 'Bilinmeyen bir hata oluştu',
       0,
-      null
+      { originalError: error.message }
     );
   }
 }
@@ -131,6 +174,97 @@ export const matchAPI = {
   async getCountries(matchType = 1) {
     const response = await fetchAPI(`/countries?match_type=${matchType}`);
     return response.data || [];
+  },
+};
+
+/**
+ * Banner API Service
+ */
+export const bannerAPI = {
+  /**
+   * Get all banners
+   * @param {boolean} activeOnly - Return only active banners
+   * @returns {Promise<Array>} List of banners
+   */
+  async getBanners(activeOnly = false) {
+    const response = await fetch(`${API_BASE_URL}/banners${activeOnly ? '?active_only=true' : ''}`);
+    if (!response.ok) {
+      throw new ApiError(
+        `Failed to fetch banners: ${response.statusText}`,
+        response.status,
+        null
+      );
+    }
+    return await response.json();
+  },
+
+  /**
+   * Create a new banner
+   * @param {Object} bannerData - Banner data
+   * @returns {Promise<Object>} Created banner
+   */
+  async createBanner(bannerData) {
+    const response = await fetch(`${API_BASE_URL}/banners`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bannerData),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError(
+        data.detail || data.message || 'Failed to create banner',
+        response.status,
+        data
+      );
+    }
+    return await response.json();
+  },
+
+  /**
+   * Update a banner
+   * @param {string} bannerId - Banner ID
+   * @param {Object} bannerData - Updated banner data
+   * @returns {Promise<Object>} Updated banner
+   */
+  async updateBanner(bannerId, bannerData) {
+    const response = await fetch(`${API_BASE_URL}/banners/${bannerId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bannerData),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError(
+        data.detail || data.message || 'Failed to update banner',
+        response.status,
+        data
+      );
+    }
+    return await response.json();
+  },
+
+  /**
+   * Delete a banner
+   * @param {string} bannerId - Banner ID
+   * @returns {Promise<Object>} Success message
+   */
+  async deleteBanner(bannerId) {
+    const response = await fetch(`${API_BASE_URL}/banners/${bannerId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError(
+        data.detail || data.message || 'Failed to delete banner',
+        response.status,
+        data
+      );
+    }
+    return await response.json();
   },
 };
 

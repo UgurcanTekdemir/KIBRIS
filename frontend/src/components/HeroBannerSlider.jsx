@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Carousel, CarouselContent, CarouselItem } from './ui/carousel';
 import { Button } from './ui/button';
+import { bannerAPI } from '../services/api';
 
 // Mock banner data
 const mockBanners = [
@@ -47,19 +48,12 @@ const HeroBannerSlider = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/banners?active_only=true`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.length > 0) {
-            setBanners(data);
-            setUseMockData(false);
-          } else {
-            // If no banners in database, use mock data
-            setBanners(mockBanners);
-            setUseMockData(true);
-          }
+        const data = await bannerAPI.getBanners(true);
+        if (data && data.length > 0) {
+          setBanners(data);
+          setUseMockData(false);
         } else {
-          // If API fails, use mock data
+          // If no banners in database, use mock data
           setBanners(mockBanners);
           setUseMockData(true);
         }
