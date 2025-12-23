@@ -38,19 +38,35 @@ const MatchesPage = () => {
     );
   }, [allMatches, searchTerm]);
 
+  // Since API returns matches from 2026, we'll show them in a more useful way:
+  // - Today: Matches starting today or earliest upcoming matches
+  // - Tomorrow: Next batch of matches
+  // - Future: All remaining matches
+  
+  const sortedMatches = useMemo(() => {
+    return [...filteredMatches].sort((a, b) => {
+      // Sort by date first, then by time
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return (a.time || '').localeCompare(b.time || '');
+    });
+  }, [filteredMatches]);
+
   const todayMatches = useMemo(() => {
-    return filteredMatches.filter(
-      (m) => m.isLive || m.date === today
-    );
-  }, [filteredMatches, today]);
+    // Show first 10 matches (earliest upcoming)
+    return sortedMatches.slice(0, 10);
+  }, [sortedMatches]);
 
   const tomorrowMatches = useMemo(() => {
-    return filteredMatches.filter((m) => m.date === tomorrow);
-  }, [filteredMatches, tomorrow]);
+    // Show next 10 matches
+    return sortedMatches.slice(10, 20);
+  }, [sortedMatches]);
 
   const futureMatches = useMemo(() => {
-    return filteredMatches.filter((m) => m.date && m.date > tomorrow);
-  }, [filteredMatches, tomorrow]);
+    // Show all remaining matches
+    return sortedMatches.slice(20);
+  }, [sortedMatches]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -145,19 +161,19 @@ const MatchesPage = () => {
             value="today"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Bugün ({todayMatches.length})
+            Yakın Maçlar ({todayMatches.length})
           </TabsTrigger>
           <TabsTrigger
             value="tomorrow"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Yarın ({tomorrowMatches.length})
+            Devamı ({tomorrowMatches.length})
           </TabsTrigger>
           <TabsTrigger
             value="future"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Gelecek ({futureMatches.length})
+            Tümü ({futureMatches.length})
           </TabsTrigger>
         </TabsList>
 
@@ -177,7 +193,7 @@ const MatchesPage = () => {
               </div>
               {todayMatches.length === 0 && !loading && (
                 <div className="text-center py-16 text-gray-500">
-                  Bugün için maç bulunamadı
+                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Yakın zamanda maç bulunamadı'}
                 </div>
               )}
             </>
@@ -200,7 +216,7 @@ const MatchesPage = () => {
               </div>
               {tomorrowMatches.length === 0 && !loading && (
                 <div className="text-center py-16 text-gray-500">
-                  Yarın için maç bulunamadı
+                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Daha fazla maç bulunamadı'}
                 </div>
               )}
             </>
@@ -223,7 +239,7 @@ const MatchesPage = () => {
               </div>
               {futureMatches.length === 0 && !loading && (
                 <div className="text-center py-16 text-gray-500">
-                  Gelecek maç bulunamadı
+                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Tüm maçlar yukarıdaki sekmelerde gösteriliyor'}
                 </div>
               )}
             </>

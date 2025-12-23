@@ -9,6 +9,24 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatchDetails } from '../hooks/useMatches';
 import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategories';
 
+// Format date for display
+function formatMatchDateTime(date, time) {
+  if (!date) return time || '';
+  
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  
+  if (date === today) {
+    return `Bugün ${time || ''}`;
+  } else if (date === tomorrow) {
+    return `Yarın ${time || ''}`;
+  } else {
+    // Format as DD.MM.YYYY
+    const [year, month, day] = date.split('-');
+    return `${day}.${month}.${year} ${time || ''}`.trim();
+  }
+}
+
 const MatchDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -17,6 +35,11 @@ const MatchDetailPage = () => {
   const [openMarkets, setOpenMarkets] = useState({});
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
+  
+  const dateTimeDisplay = useMemo(() => {
+    if (!match) return '';
+    return formatMatchDateTime(match.date, match.time);
+  }, [match?.date, match?.time]);
 
   // Group markets by category
   const marketsByCategory = useMemo(() => {
@@ -118,7 +141,7 @@ const MatchDetailPage = () => {
           ) : (
             <div className="flex items-center gap-2 text-gray-400">
               <Clock size={16} />
-              <span>{match.date} - {match.time}</span>
+              <span>{dateTimeDisplay}</span>
             </div>
           )}
         </div>
@@ -155,7 +178,7 @@ const MatchDetailPage = () => {
                   <div className="text-sm text-gray-400">
                     <div className="flex items-center justify-center gap-1">
                       <Clock size={14} />
-                      <span>{match.date} {match.time}</span>
+                      <span>{dateTimeDisplay}</span>
                     </div>
                   </div>
                 </div>

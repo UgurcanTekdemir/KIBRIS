@@ -1,40 +1,92 @@
 import React, { useState, useMemo } from 'react';
-import { liveMatches, upcomingMatches } from '../data/mockData';
 import MatchCard from '../components/betting/MatchCard';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
 import HeroBannerSlider from '../components/HeroBannerSlider';
-import { Zap, Calendar, TrendingUp, Star, ChevronRight, Search, X } from 'lucide-react';
+import { Zap, Calendar, TrendingUp, Star, ChevronRight, Search, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ScrollArea, ScrollBar } from '../components/ui/scroll-area';
+import { useMatches } from '../hooks/useMatches';
+
+// Popular Leagues Component
+function PopularLeagues({ allMatches }) {
+  const leagues = [
+    { id: 1, name: 'Süper Lig', flag: '🇹🇷', searchTerms: ['süper lig', 'super league', 'turkey'] },
+    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', searchTerms: ['premier', 'epl', 'england'] },
+    { id: 3, name: 'La Liga', flag: '🇪🇸', searchTerms: ['la liga', 'spain', 'ispanya'] },
+    { id: 4, name: 'Serie A', flag: '🇮🇹', searchTerms: ['serie a', 'italy', 'italya'] },
+    { id: 5, name: 'Bundesliga', flag: '🇩🇪', searchTerms: ['bundesliga', 'germany', 'almanya'] },
+    { id: 6, name: 'Ligue 1', flag: '🇫🇷', searchTerms: ['ligue 1', 'france', 'fransa'] },
+  ];
+
+  const leagueCounts = useMemo(() => {
+    const counts = {};
+    leagues.forEach(league => {
+      counts[league.id] = allMatches.filter(match => {
+        const matchLeague = match.league?.toLowerCase() || '';
+        return league.searchTerms.some(term => matchLeague.includes(term.toLowerCase()));
+      }).length;
+    });
+    return counts;
+  }, [allMatches]);
+
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
+      {leagues.map((league) => (
+        <Link
+          key={league.id}
+          to={`/league/${league.id}`}
+          className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
+        >
+          <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{league.flag}</span>
+          <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{league.name}</p>
+          <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500">{leagueCounts[league.id] || 0} maç</p>
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const today = new Date().toISOString().split('T')[0];
   
-  const allMatches = useMemo(() => {
-    return [...liveMatches, ...upcomingMatches];
-  }, []);
+  // Fetch matches from API
+  const { matches: allMatches, loading, error } = useMatches({ matchType: 1 });
 
-  const filteredLiveMatches = useMemo(() => {
-    if (!searchQuery.trim()) return liveMatches;
+  // Filter matches by today and upcoming
+  // Note: The Odds API returns future matches, so we show upcoming matches instead
+  const todayMatches = useMemo(() => {
+    // Show matches from today onwards (including today)
+    return allMatches.filter(m => m.date >= today).slice(0, 4);
+  }, [allMatches, today]);
+
+  const upcomingMatches = useMemo(() => {
+    // Show next 8 upcoming matches (excluding the ones shown in todayMatches)
+    const todayCount = todayMatches.length;
+    return allMatches.filter(m => m.date >= today).slice(todayCount, todayCount + 8);
+  }, [allMatches, today, todayMatches.length]);
+
+  const filteredTodayMatches = useMemo(() => {
+    if (!searchQuery.trim()) return todayMatches;
     const query = searchQuery.toLowerCase();
-    return liveMatches.filter(match => 
-      match.homeTeam.toLowerCase().includes(query) ||
-      match.awayTeam.toLowerCase().includes(query) ||
-      match.league.toLowerCase().includes(query)
+    return todayMatches.filter(match => 
+      match.homeTeam?.toLowerCase().includes(query) ||
+      match.awayTeam?.toLowerCase().includes(query) ||
+      match.league?.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [todayMatches, searchQuery]);
 
   const filteredUpcomingMatches = useMemo(() => {
     if (!searchQuery.trim()) return upcomingMatches;
     const query = searchQuery.toLowerCase();
     return upcomingMatches.filter(match => 
-      match.homeTeam.toLowerCase().includes(query) ||
-      match.awayTeam.toLowerCase().includes(query) ||
-      match.league.toLowerCase().includes(query)
+      match.homeTeam?.toLowerCase().includes(query) ||
+      match.awayTeam?.toLowerCase().includes(query) ||
+      match.league?.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [upcomingMatches, searchQuery]);
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-3 sm:space-y-4 lg:space-y-6">
@@ -60,31 +112,39 @@ const HomePage = () => {
       {/* Hero Banner Slider */}
       <HeroBannerSlider />
 
-      {/* Live Matches Section */}
+      {/* Today's Matches Section */}
       <section>
         <div className="flex items-center justify-between mb-2 sm:mb-3 md:mb-4">
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-red-500 rounded-full animate-pulse"></div>
-            <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Canlı Maçlar</h2>
-            <span className="bg-red-500/20 text-red-500 text-[9px] sm:text-[10px] md:text-xs font-bold px-1 sm:px-1.5 md:px-2 py-0.5 rounded">
-              {liveMatches.length} CANLI
-            </span>
+            <Calendar size={16} className="text-amber-500 sm:w-4 sm:h-4 md:w-5 md:h-5" />
+            <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Bugünün Maçları</h2>
+            {loading && <Loader2 size={14} className="animate-spin text-gray-400" />}
           </div>
-          <Link to="/live" className="flex items-center gap-0.5 sm:gap-1 text-amber-500 hover:text-amber-400 text-[10px] sm:text-xs md:text-sm font-medium">
+          <Link to="/matches" className="flex items-center gap-0.5 sm:gap-1 text-amber-500 hover:text-amber-400 text-[10px] sm:text-xs md:text-sm font-medium">
             Tümünü Gör
             <ChevronRight size={12} className="sm:w-3.5 sm:h-3.5" />
           </Link>
         </div>
         
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
+            <p className="text-red-400 text-xs sm:text-sm">{error}</p>
+          </div>
+        )}
+        
         <div className="overflow-x-auto pb-2 -mx-2 sm:-mx-3 sm:mx-0 sm:px-0 scrollbar-hide">
           <div className="flex gap-2 sm:gap-3 px-2 sm:px-0">
-            {filteredLiveMatches.length > 0 ? (
-              filteredLiveMatches.map((match) => (
-                <LiveMatchCard key={match.id} match={match} />
+            {loading ? (
+              <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
+                Maçlar yükleniyor...
+              </div>
+            ) : filteredTodayMatches.length > 0 ? (
+              filteredTodayMatches.slice(0, 4).map((match) => (
+                <MatchCard key={match.id} match={match} compact={true} />
               ))
             ) : (
               <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
-                Arama kriterlerinize uygun canlı maç bulunamadı.
+                {searchQuery ? 'Arama kriterlerinize uygun maç bulunamadı.' : 'Bugün için maç bulunamadı.'}
               </div>
             )}
           </div>
@@ -94,10 +154,10 @@ const HomePage = () => {
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
         {[
-          { label: 'Canlı Maç', value: liveMatches.length, icon: Zap, color: 'text-red-500' },
-          { label: 'Bugün', value: upcomingMatches.filter(m => m.date === '2025-07-15').length, icon: Calendar, color: 'text-blue-500' },
-          { label: 'En Yüksek', value: '12.50', icon: TrendingUp, color: 'text-green-500' },
-          { label: 'Popüler', value: '45+', icon: Star, color: 'text-amber-500' },
+          { label: 'Bugün', value: todayMatches.length, icon: Calendar, color: 'text-blue-500' },
+          { label: 'Yakın Maçlar', value: upcomingMatches.length, icon: Calendar, color: 'text-green-500' },
+          { label: 'Toplam', value: allMatches.length, icon: TrendingUp, color: 'text-amber-500' },
+          { label: 'Ligler', value: new Set(allMatches.map(m => m.league)).size, icon: Star, color: 'text-purple-500' },
         ].map((stat, idx) => {
           const Icon = stat.icon;
           return (
@@ -147,26 +207,7 @@ const HomePage = () => {
           <Star size={16} className="text-amber-500 sm:w-4 sm:h-4 md:w-5 md:h-5" />
           Popüler Ligler
         </h2>
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-          {[
-            { name: 'Süper Lig', flag: '🇹🇷', count: 12 },
-            { name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', count: 10 },
-            { name: 'La Liga', flag: '🇪🇸', count: 10 },
-            { name: 'Serie A', flag: '🇮🇹', count: 10 },
-            { name: 'Bundesliga', flag: '🇩🇪', count: 9 },
-            { name: 'Şampiyonlar', flag: '🇪🇺', count: 8 },
-          ].map((league, idx) => (
-            <Link
-              key={idx}
-              to={`/league/${idx + 1}`}
-              className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
-            >
-              <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{league.flag}</span>
-              <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{league.name}</p>
-              <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500">{league.count} maç</p>
-            </Link>
-          ))}
-        </div>
+        <PopularLeagues allMatches={allMatches} />
       </section>
     </div>
   );

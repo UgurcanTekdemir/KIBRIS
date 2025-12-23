@@ -1,10 +1,32 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { Clock, ChevronRight } from 'lucide-react';
 
+// Format date for display
+function formatMatchDateTime(date, time) {
+  if (!date) return time || '';
+  
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  
+  if (date === today) {
+    return `Bugün ${time || ''}`;
+  } else if (date === tomorrow) {
+    return `Yarın ${time || ''}`;
+  } else {
+    // Format as DD.MM.YYYY
+    const [year, month, day] = date.split('-');
+    return `${day}.${month}.${year} ${time || ''}`.trim();
+  }
+}
+
 const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
   const { addSelection, isSelected } = useBetSlip();
+  
+  const dateTimeDisplay = useMemo(() => {
+    return formatMatchDateTime(match.date, match.time);
+  }, [match.date, match.time]);
 
   const handleOddsClick = (e, market, option, odds) => {
     e.preventDefault();
@@ -32,7 +54,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             ) : (
               <div className="flex items-center gap-0.5 sm:gap-1 text-gray-400">
                 <Clock size={9} className="sm:w-2.5 sm:h-2.5" />
-                <span className="text-[10px] sm:text-xs">{match.time}</span>
+                <span className="text-[10px] sm:text-xs">{dateTimeDisplay}</span>
               </div>
             )}
           </div>
@@ -109,7 +131,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           ) : (
             <div className="flex items-center gap-1 text-gray-400">
               <Clock size={12} />
-              <span className="text-xs">{match.time}</span>
+              <span className="text-xs">{dateTimeDisplay}</span>
             </div>
           )}
         </div>

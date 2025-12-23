@@ -9,6 +9,7 @@ import HomePage from "./pages/HomePage";
 import LiveMatchesPage from "./pages/LiveMatchesPage";
 import MatchesPage from "./pages/MatchesPage";
 import MatchDetailPage from "./pages/MatchDetailPage";
+import LeaguePage from "./pages/LeaguePage";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import CouponsPage from "./pages/CouponsPage";
@@ -148,6 +149,7 @@ function AppContent() {
           <Route path="live" element={<LiveMatchesPage />} />
           <Route path="matches" element={<MatchesPage />} />
           <Route path="match/:id" element={<MatchDetailPage />} />
+          <Route path="league/:id" element={<LeaguePage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="coupons" element={<CouponsPage />} />
           <Route path="betslip" element={<BetSlipPage />} />

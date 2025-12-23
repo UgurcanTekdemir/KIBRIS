@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from nosy_api import nosy_api_service
+from the_odds_api import the_odds_service
 
 
 ROOT_DIR = Path(__file__).parent
@@ -136,14 +137,8 @@ async def get_matches(
 ):
     """Get betting program matches"""
     try:
-        api_response = await nosy_api_service.get_matches(
-            match_type=match_type,
-            league=league,
-            date=date,
-            country=country
-        )
-        # NosyAPI returns data in 'data' field
-        matches = api_response.get('data', []) if isinstance(api_response, dict) else api_response
+        # Use The Odds API service instead of NosyAPI
+        matches = await the_odds_service.get_matches()
         return {"success": True, "data": matches}
     except Exception as e:
         logger.error(f"Error fetching matches: {e}")
@@ -154,44 +149,44 @@ async def get_matches(
 async def get_live_matches(
     match_type: int = Query(1, description="Match type (1=Futbol, 2=Basketbol, etc.)")
 ):
-    """Get live matches (matches currently in progress)"""
+    """
+    Get live matches (matches currently in progress).
+    
+    Note: Requires a paid The Odds API plan. Free plan doesn't provide live scores.
+    With paid plan, this uses the Scores API to get live matches with scores.
+    """
     try:
-        # Get matches for today and filter live ones
-        today = datetime.now().strftime("%Y-%m-%d")
-        api_response = await nosy_api_service.get_matches(match_type=match_type, date=today)
+        # Try to get live matches with scores (requires paid plan)
+        live_matches = await the_odds_service.get_live_matches()
         
-        # NosyAPI returns data in 'data' field
-        all_matches = api_response.get('data', []) if isinstance(api_response, dict) else api_response
+        if not live_matches:
+            # If no live matches found (could be free plan or no live matches at the moment)
+            # Return upcoming matches sorted by commence_time as fallback
+            all_matches = await the_odds_service.get_matches()
+            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
+            return {"success": True, "data": sorted_matches[:20], "is_live": False}
         
-        # Filter live matches: LiveStatus must be 1 AND Result must not be 0 (match has actually started)
-        live_matches = [
-            m for m in all_matches 
-            if m.get('LiveStatus') == 1 
-            and m.get('Result') 
-            and m.get('Result') != 0 
-            and m.get('Result') != '0'
-            and '-' in str(m.get('Result', ''))
-        ]
-        
-        return {"success": True, "data": live_matches}
+        return {"success": True, "data": live_matches, "is_live": True}
     except Exception as e:
         logger.error(f"Error fetching live matches: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Fallback to upcoming matches if Scores API fails (free plan)
+        try:
+            all_matches = await the_odds_service.get_matches()
+            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
+            return {"success": True, "data": sorted_matches[:20], "is_live": False}
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.get("/matches/{match_id}")
 async def get_match_details(match_id: str):
     """Get detailed information for a specific match"""
     try:
-        api_response = await nosy_api_service.get_match_details(match_id)
-        # NosyAPI returns data in 'data' field as an array with one match
-        if isinstance(api_response, dict) and 'data' in api_response:
-            match_data = api_response['data'][0] if api_response['data'] else None
-            if not match_data:
-                raise HTTPException(status_code=404, detail="Match not found")
-            return {"success": True, "data": match_data}
-        # Fallback if response structure is different
-        return {"success": True, "data": api_response}
+        match_data = await the_odds_service.get_match_by_id(match_id)
+        if not match_data:
+            raise HTTPException(status_code=404, detail="Match not found")
+        return {"success": True, "data": match_data}
     except HTTPException:
         raise
     except Exception as e:
@@ -203,9 +198,9 @@ async def get_match_details(match_id: str):
 async def get_popular_matches(
     match_type: int = Query(1, description="Match type (1=Futbol, 2=Basketbol, etc.)")
 ):
-    """Get popular matches"""
+    """Get popular matches (matches with most bookmakers)"""
     try:
-        matches = await nosy_api_service.get_popular_matches(match_type=match_type)
+        matches = await the_odds_service.get_popular_matches(limit=20)
         return {"success": True, "data": matches}
     except Exception as e:
         logger.error(f"Error fetching popular matches: {e}")
@@ -217,9 +212,12 @@ async def get_leagues(
     match_type: int = Query(1, description="Match type"),
     country: Optional[str] = Query(None, description="Country filter")
 ):
-    """Get available leagues"""
+    """Get available leagues from The Odds API"""
     try:
-        leagues = await nosy_api_service.get_leagues(match_type=match_type, country=country)
+        leagues = await the_odds_service.get_available_leagues()
+        # Filter by country if provided
+        if country:
+            leagues = [l for l in leagues if l.get("country", "").lower() == country.lower()]
         return {"success": True, "data": leagues}
     except Exception as e:
         logger.error(f"Error fetching leagues: {e}")
@@ -230,9 +228,9 @@ async def get_leagues(
 async def get_countries(
     match_type: int = Query(1, description="Match type")
 ):
-    """Get available countries"""
+    """Get available countries from The Odds API leagues"""
     try:
-        countries = await nosy_api_service.get_countries(match_type=match_type)
+        countries = await the_odds_service.get_available_countries()
         return {"success": True, "data": countries}
     except Exception as e:
         logger.error(f"Error fetching countries: {e}")
