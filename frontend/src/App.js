@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { BetSlipProvider } from "./context/BetSlipContext";
 import Layout from "./components/layout/Layout";
+import Loader from "./components/Loader";
 import HomePage from "./pages/HomePage";
 import LiveMatchesPage from "./pages/LiveMatchesPage";
 import MatchesPage from "./pages/MatchesPage";
@@ -167,17 +168,20 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <BetSlipProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<AuthPage />} />
-            <Route path="/register" element={<AuthPage />} />
-            <Route path="/*" element={<AppContent />} />
-          </Routes>
-        </BrowserRouter>
-      </BetSlipProvider>
-    </AuthProvider>
+    <>
+      <Loader />
+      <AuthProvider>
+        <BetSlipProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<AuthPage />} />
+              <Route path="/register" element={<AuthPage />} />
+              <Route path="/*" element={<AppContent />} />
+            </Routes>
+          </BrowserRouter>
+        </BetSlipProvider>
+      </AuthProvider>
+    </>
   );
 }
 
