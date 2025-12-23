@@ -44,7 +44,7 @@ export function mapApiMatchToInternal(apiMatch) {
         name: bet.gameName || bet.gameNameEn || 'Bahis',
         options: bet.odds.map(odd => ({
           label: odd.value || odd.label || '',
-          value: odd.odd || odd.value || 0,
+          value: parseFloat(odd.odd || odd.value || 0) || 0,
         })),
       }))
       .filter(market => market.options.length > 0);
@@ -54,16 +54,16 @@ export function mapApiMatchToInternal(apiMatch) {
       {
         name: 'Maç Sonucu',
         options: [
-          { label: '1', value: apiMatch.HomeWin || 0 },
-          { label: 'X', value: apiMatch.Draw || 0 },
-          { label: '2', value: apiMatch.AwayWin || 0 },
+          { label: '1', value: parseFloat(apiMatch.HomeWin) || 0 },
+          { label: 'X', value: parseFloat(apiMatch.Draw) || 0 },
+          { label: '2', value: parseFloat(apiMatch.AwayWin) || 0 },
         ].filter(opt => opt.value > 0),
       },
       ...(apiMatch.Under25 && apiMatch.Over25 ? [{
         name: 'Toplam Gol',
         options: [
-          { label: 'Alt 2.5', value: apiMatch.Under25 },
-          { label: 'Üst 2.5', value: apiMatch.Over25 },
+          { label: 'Alt 2.5', value: parseFloat(apiMatch.Under25) || 0 },
+          { label: 'Üst 2.5', value: parseFloat(apiMatch.Over25) || 0 },
         ],
       }] : []),
     ];

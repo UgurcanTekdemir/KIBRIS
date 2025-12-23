@@ -1,17 +1,39 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useBetSlip } from '../context/BetSlipContext';
-import { ArrowLeft, Clock, TrendingUp, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Clock, TrendingUp, AlertCircle, ChevronDown, Filter } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatchDetails } from '../hooks/useMatches';
+import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategories';
 
 const MatchDetailPage = () => {
   const { id } = useParams();
   const { addSelection, isSelected } = useBetSlip();
   const { match, loading, error } = useMatchDetails(id);
+  const [openMarkets, setOpenMarkets] = useState({});
+  const [selectedCategory, setSelectedCategory] = useState('Tümü');
+
+  // Group markets by category
+  const marketsByCategory = useMemo(() => {
+    if (!match?.markets) return {};
+    return groupMarketsByCategory(match.markets);
+  }, [match?.markets]);
+
+  // Get available categories
+  const categories = useMemo(() => {
+    const cats = Object.keys(marketsByCategory);
+    return ['Tümü', ...getCategoryOrder().filter(cat => cats.includes(cat)), ...cats.filter(cat => !getCategoryOrder().includes(cat))];
+  }, [marketsByCategory]);
+
+  // Filter markets by selected category
+  const filteredMarkets = useMemo(() => {
+    if (!match?.markets) return [];
+    if (selectedCategory === 'Tümü') return match.markets;
+    return marketsByCategory[selectedCategory] || [];
+  }, [match?.markets, selectedCategory, marketsByCategory]);
 
   if (loading) {
     return (
@@ -159,39 +181,94 @@ const MatchDetailPage = () => {
 
       {/* Markets */}
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <TrendingUp size={20} className="text-amber-500" />
-          Bahis Marketleri
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <TrendingUp size={20} className="text-amber-500" />
+            Bahis Marketleri
+          </h2>
+        </div>
 
-        {match.markets?.map((market, idx) => (
-          <div key={idx} className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736]">
-              <h3 className="text-white font-medium">{market.name}</h3>
-            </div>
-            <div className="p-4">
-              <div className="flex flex-wrap gap-2">
-                {market.options.map((opt) => {
-                  const selected = isSelected(match.id, market.name, opt.label);
-                  return (
-                    <button
-                      key={opt.label}
-                      onClick={() => addSelection(match, market.name, opt.label, opt.value)}
-                      className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg text-center transition-all ${
-                        selected
-                          ? 'bg-amber-500 text-black'
-                          : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
-                      }`}
-                    >
-                      <span className="text-xs text-gray-400 block mb-1">{opt.label}</span>
-                      <span className="font-bold text-lg">{opt.value.toFixed(2)}</span>
-                    </button>
-                  );
-                })}
-              </div>
+        {/* Category Filter */}
+        {categories.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <Filter size={16} className="text-gray-400 flex-shrink-0" />
+            <div className="flex gap-2 min-w-max">
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  onClick={() => {
+                    setSelectedCategory(category);
+                    setOpenMarkets({}); // Reset open markets when changing category
+                  }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                    selectedCategory === category
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-[#1a2332] text-gray-400 hover:bg-[#2a3a4d] hover:text-white'
+                  }`}
+                >
+                  {category}
+                  {category !== 'Tümü' && marketsByCategory[category] && (
+                    <span className="ml-2 text-xs opacity-75">
+                      ({marketsByCategory[category].length})
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
-        ))}
+        )}
+
+        {/* Markets List */}
+        <div className="space-y-4">
+          {filteredMarkets.length > 0 ? (
+            filteredMarkets.map((market, idx) => {
+              const marketKey = `${selectedCategory}-${idx}-${market.name}`;
+              const isOpen = openMarkets[marketKey] !== undefined ? openMarkets[marketKey] : (idx === 0 && selectedCategory === 'Tümü');
+              return (
+                <div key={marketKey} className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setOpenMarkets(prev => ({ ...prev, [marketKey]: !isOpen }))}
+                    className="w-full px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736] flex items-center justify-between hover:bg-[#141820] transition-colors"
+                  >
+                    <h3 className="text-white font-medium">{market.name}</h3>
+                    <ChevronDown 
+                      size={20} 
+                      className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'transform rotate-180' : ''}`}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div className="p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {market.options.map((opt) => {
+                          const selected = isSelected(match.id, market.name, opt.label);
+                          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+                          return (
+                            <button
+                              key={opt.label}
+                              onClick={() => addSelection(match, market.name, opt.label, oddsValue)}
+                              className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg text-center transition-all ${
+                                selected
+                                  ? 'bg-amber-500 text-black'
+                                  : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
+                              }`}
+                            >
+                              <span className="text-xs text-gray-400 block mb-1">{opt.label}</span>
+                              <span className="font-bold text-lg">{oddsValue.toFixed(2)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              Bu kategoride bahis bulunamadı
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

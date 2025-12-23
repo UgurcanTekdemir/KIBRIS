@@ -65,10 +65,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             <div className="flex gap-1 sm:gap-1.5">
               {mainMarket.options.map((opt) => {
                 const selected = isSelected(match.id, mainMarket.name, opt.label);
+                const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                 return (
                   <button
                     key={opt.label}
-                    onClick={(e) => handleOddsClick(e, mainMarket, opt.label, opt.value)}
+                    onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
                     className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all ${
                       selected
                         ? 'bg-amber-500 text-black'
@@ -76,7 +77,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                     }`}
                   >
                     <span className="text-[9px] sm:text-[10px] text-gray-400 block leading-tight">{opt.label}</span>
-                    <span className="font-bold text-xs sm:text-sm">{opt.value.toFixed(2)}</span>
+                    <span className="font-bold text-xs sm:text-sm">{oddsValue.toFixed(2)}</span>
                   </button>
                 );
               })}
@@ -141,10 +142,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           <div className="flex gap-2">
             {mainMarket.options.map((opt) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
+              const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               return (
                 <button
                   key={opt.label}
-                  onClick={(e) => handleOddsClick(e, mainMarket, opt.label, opt.value)}
+                  onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
                   className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                     selected
                       ? 'bg-amber-500 text-black'
@@ -152,7 +154,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                   }`}
                 >
                   <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
-                  <span className="font-bold">{opt.value.toFixed(2)}</span>
+                  <span className="font-bold">{oddsValue.toFixed(2)}</span>
                 </button>
               );
             })}
@@ -169,10 +171,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               <div className="flex gap-2">
                 {market.options.map((opt) => {
                   const selected = isSelected(match.id, market.name, opt.label);
+                  const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                   return (
                     <button
                       key={opt.label}
-                      onClick={(e) => handleOddsClick(e, market, opt.label, opt.value)}
+                      onClick={(e) => handleOddsClick(e, market, opt.label, oddsValue)}
                       className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                         selected
                           ? 'bg-amber-500 text-black'
@@ -180,7 +183,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                       }`}
                     >
                       <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
-                      <span className="font-bold text-sm">{opt.value.toFixed(2)}</span>
+                      <span className="font-bold text-sm">{oddsValue.toFixed(2)}</span>
                     </button>
                   );
                 })}

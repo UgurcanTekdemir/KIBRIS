@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import MatchCard from '../components/betting/MatchCard';
 import { Calendar, Filter, Search, AlertCircle } from 'lucide-react';
 import { Input } from '../components/ui/input';
@@ -9,8 +10,17 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatches } from '../hooks/useMatches';
 
 const MatchesPage = () => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlSearchQuery = searchParams.get('search') || '';
+  const [searchTerm, setSearchTerm] = useState(urlSearchQuery);
   const today = new Date().toISOString().split('T')[0];
+
+  // Sync URL search param with local state
+  useEffect(() => {
+    if (urlSearchQuery && urlSearchQuery !== searchTerm) {
+      setSearchTerm(urlSearchQuery);
+    }
+  }, [urlSearchQuery]);
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
   const dayAfterTomorrow = new Date(Date.now() + 172800000).toISOString().split('T')[0];
 
@@ -82,7 +92,21 @@ const MatchesPage = () => {
             <Input
               placeholder="Takım veya lig ara..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                const newValue = e.target.value;
+                setSearchTerm(newValue);
+                // Update URL search param
+                if (newValue.trim()) {
+                  setSearchParams({ search: newValue.trim() });
+                } else {
+                  setSearchParams({});
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                }
+              }}
               className="pl-9 bg-[#0d1117] border-[#1e2736] text-white"
             />
           </div>

@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { sportsCategories, leagues } from '../../data/mockData';
 import { Home, Zap, Calendar, Trophy, ChevronRight, Search } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
+import { useMatches } from '../../hooks/useMatches';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchRef = useRef(null);
+  const suggestionsRef = useRef(null);
+
+  // Fetch matches for search suggestions
+  const { matches: allMatches } = useMatches({ matchType: 1 });
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },
@@ -17,10 +25,84 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   const footballLeagues = leagues.filter((l) => l.sportId === 1);
 
+  // Generate search suggestions
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim() || searchQuery.length < 2) return [];
+
+    const query = searchQuery.toLowerCase().trim();
+    const results = [];
+
+    // Extract unique team names and leagues
+    const teams = new Set();
+    const leagueNames = new Set();
+
+    if (allMatches && allMatches.length > 0) {
+      allMatches.forEach((match) => {
+        if (match.homeTeam?.toLowerCase().includes(query)) {
+          teams.add(match.homeTeam);
+        }
+        if (match.awayTeam?.toLowerCase().includes(query)) {
+          teams.add(match.awayTeam);
+        }
+        if (match.league?.toLowerCase().includes(query)) {
+          leagueNames.add(match.league);
+        }
+      });
+    }
+
+    // Add teams to suggestions
+    Array.from(teams).slice(0, 5).forEach((team) => {
+      results.push({ type: 'team', label: team, value: team });
+    });
+
+    // Add leagues to suggestions
+    Array.from(leagueNames).slice(0, 3).forEach((league) => {
+      results.push({ type: 'league', label: league, value: league });
+    });
+
+    return results;
+  }, [searchQuery, allMatches]);
+
+  // Handle click outside to close suggestions
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target) &&
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const handleSearch = (e) => {
     e.preventDefault();
-    // Search functionality can be implemented here
-    console.log('Searching for:', searchQuery);
+    if (searchQuery.trim()) {
+      navigate(`/matches?search=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchQuery('');
+      setShowSuggestions(false);
+      onClose(); // Close sidebar on mobile
+    }
+  };
+
+  const handleSuggestionClick = (suggestion) => {
+    navigate(`/matches?search=${encodeURIComponent(suggestion.value)}`);
+    setSearchQuery('');
+    setShowSuggestions(false);
+    onClose();
+  };
+
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    setShowSuggestions(value.trim().length >= 2);
   };
 
   return (
@@ -40,22 +122,62 @@ const Sidebar = ({ isOpen, onClose }) => {
         }`}
       >
         <ScrollArea className="h-full">
-          <div className="p-4">
+          <div className="p-4 relative">
             {/* Search Bar */}
-            <div className="mb-6">
+            <div className="mb-6 relative z-50" ref={searchRef}>
               <form onSubmit={handleSearch} className="relative">
                 <Search 
                   size={18} 
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" 
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none z-10" 
                 />
                 <Input
                   type="text"
                   placeholder="Maç, takım veya lig ara..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={handleInputChange}
+                  onFocus={() => searchQuery.trim().length >= 2 && setShowSuggestions(true)}
                   className="pl-10 bg-[#1a2332] border-[#2a3a4d] text-white placeholder:text-gray-500 focus:border-amber-500/50 focus:ring-amber-500/20"
                 />
               </form>
+
+              {/* Search Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div
+                  ref={suggestionsRef}
+                  className="absolute top-full left-0 right-0 mt-1 bg-[#0d1117] border border-[#1e2736] rounded-lg shadow-2xl z-[100] max-h-64 overflow-y-auto"
+                >
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full px-4 py-2.5 text-left hover:bg-[#1a2332] transition-colors flex items-center gap-3 border-b border-[#1e2736] last:border-b-0"
+                    >
+                      <Search size={14} className="text-gray-500 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm font-medium truncate">
+                          {suggestion.label}
+                        </div>
+                        <div className="text-xs text-gray-500 capitalize">
+                          {suggestion.type === 'team' ? 'Takım' : 'Lig'}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* No results message */}
+              {showSuggestions && searchQuery.trim().length >= 2 && suggestions.length === 0 && (
+                <div
+                  ref={suggestionsRef}
+                  className="absolute top-full left-0 right-0 mt-1 bg-[#0d1117] border border-[#1e2736] rounded-lg shadow-2xl z-[100] p-4"
+                >
+                  <div className="text-gray-500 text-sm text-center">
+                    "{searchQuery}" için sonuç bulunamadı
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Main Navigation */}

@@ -9,7 +9,8 @@ const LiveMatchCard = ({ match }) => {
   const handleOddsClick = (e, opt) => {
     e.preventDefault();
     e.stopPropagation();
-    addSelection(match, mainMarket.name, opt.label, opt.value);
+    const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+    addSelection(match, mainMarket.name, opt.label, oddsValue);
   };
 
   return (
@@ -50,6 +51,7 @@ const LiveMatchCard = ({ match }) => {
           <div className="flex gap-0.5">
             {mainMarket.options.map((opt) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
+              const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               return (
                 <button
                   key={opt.label}
@@ -61,7 +63,7 @@ const LiveMatchCard = ({ match }) => {
                   }`}
                 >
                   <span className="text-[9px] text-gray-500 block leading-tight">{opt.label}</span>
-                  <span className="font-bold text-xs">{opt.value.toFixed(2)}</span>
+                  <span className="font-bold text-xs">{oddsValue.toFixed(2)}</span>
                 </button>
               );
             })}
