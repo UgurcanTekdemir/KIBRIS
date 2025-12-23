@@ -105,6 +105,30 @@ const Sidebar = ({ isOpen, onClose }) => {
     setShowSuggestions(value.trim().length >= 2);
   };
 
+  const isActiveRoute = (path) => {
+    if (path === '/') {
+      return location.pathname === '/';
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  const handleNavClick = (path, e) => {
+    e.preventDefault();
+    
+    // Check if we're already on this page
+    const isCurrentlyActive = isActiveRoute(path);
+    
+    if (isCurrentlyActive) {
+      // If already on this page, scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      onClose(); // Close sidebar on mobile
+    } else {
+      // If on different page, navigate
+      navigate(path);
+      onClose(); // Close sidebar on mobile
+    }
+  };
+
   return (
     <>
       {/* Overlay for mobile */}
@@ -184,13 +208,13 @@ const Sidebar = ({ isOpen, onClose }) => {
             <nav className="space-y-1 mb-6">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname === item.path;
+                const isActive = isActiveRoute(item.path);
                 return (
-                  <Link
+                  <a
                     key={item.path}
-                    to={item.path}
-                    onClick={onClose}
-                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
+                    href={item.path}
+                    onClick={(e) => handleNavClick(item.path, e)}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg transition-all cursor-pointer ${
                       isActive
                         ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
                         : 'text-gray-400 hover:bg-[#1a2332] hover:text-white'
@@ -205,7 +229,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                         {item.badge}
                       </span>
                     )}
-                  </Link>
+                  </a>
                 );
               })}
             </nav>

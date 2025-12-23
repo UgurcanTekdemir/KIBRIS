@@ -1,11 +1,12 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Zap, Calendar, FileText, User } from 'lucide-react';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { useAuth } from '../../context/AuthContext';
 
 const MobileNavigation = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { selections } = useBetSlip();
   const { user } = useAuth();
 
@@ -24,6 +25,21 @@ const MobileNavigation = () => {
     return location.pathname.startsWith(path);
   };
 
+  const handleNavClick = (path, e) => {
+    e.preventDefault();
+    
+    // Check if we're already on this page
+    const isCurrentlyActive = isActive(path);
+    
+    if (isCurrentlyActive) {
+      // If already on this page, scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      // If on different page, navigate
+      navigate(path);
+    }
+  };
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a0e14] border-t border-[#1e2736] lg:hidden safe-area-bottom">
       {/* Magic Navigation Bar - Mobile */}
@@ -35,7 +51,11 @@ const MobileNavigation = () => {
             
             return (
               <li key={item.path} className={active ? 'active' : ''}>
-                <Link to={item.path}>
+                <a 
+                  href={item.path} 
+                  onClick={(e) => handleNavClick(item.path, e)}
+                  className="cursor-pointer"
+                >
                   <span className="icon" style={{ position: 'relative' }}>
                     <Icon size={20} />
                     {item.isLive && (
@@ -48,7 +68,7 @@ const MobileNavigation = () => {
                     )}
                   </span>
                   <span className="text">{item.label}</span>
-                </Link>
+                </a>
               </li>
             );
           })}

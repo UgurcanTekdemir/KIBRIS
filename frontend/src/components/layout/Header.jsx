@@ -1,8 +1,21 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 
 const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogoClick = (e) => {
+    e.preventDefault();
+    // Always navigate to home page
+    navigate('/');
+    // Scroll to top after navigation
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 100);
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 lg:hidden">
       {/* Mobile Header with Menu Button, Logo and Site Name */}
@@ -15,7 +28,11 @@ const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
         </button>
         
         {/* Logo & Site Name */}
-        <Link to="/" className="flex items-center gap-2 logo-container mobile-logo-shift">
+        <a 
+          href="/" 
+          onClick={handleLogoClick}
+          className="flex items-center gap-2 logo-container mobile-logo-shift cursor-pointer"
+        >
           <img 
             src="https://img.icons8.com/?size=100&id=9ESZMOeUioJS&format=png&color=f59e0b" 
             alt="GuessBet Logo" 
@@ -24,7 +41,7 @@ const Header = ({ onMenuToggle, isMobileMenuOpen }) => {
           <span className="text-xl font-bold text-white site-name">
             Guess<span className="text-orange-500">Bet</span>
           </span>
-        </Link>
+        </a>
         
         {/* Spacer for centering */}
         <div className="w-10"></div>

@@ -49,12 +49,40 @@ const MagicNavigation = () => {
     return location.pathname.startsWith(path);
   };
 
+  const handleNavClick = (path, e) => {
+    e.preventDefault();
+    
+    // Special handling for home page (logo click)
+    if (path === '/') {
+      navigate('/');
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 100);
+      return;
+    }
+    
+    // Check if we're already on this page
+    const isCurrentlyActive = isActive(path);
+    
+    if (isCurrentlyActive) {
+      // If already on this page, scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      // If on different page, navigate
+      navigate(path);
+    }
+  };
+
   return (
     <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-[#0a0e14] to-[#141b27] border-b border-[#1e2736]">
       {/* Magic Navigation Bar - Desktop Only - Integrated Header */}
       <div className="hidden md:flex justify-between items-center py-4 px-4 w-full magic-nav-wrapper">
         {/* Logo & Site Name - Left Side */}
-        <Link to="/" className="flex items-center gap-2 logo-container flex-shrink-0">
+        <a 
+          href="/" 
+          onClick={(e) => handleNavClick('/', e)}
+          className="flex items-center gap-2 logo-container flex-shrink-0 cursor-pointer"
+        >
           <img 
             src="https://img.icons8.com/?size=100&id=9ESZMOeUioJS&format=png&color=f59e0b" 
             alt="GuessBet Logo" 
@@ -63,7 +91,7 @@ const MagicNavigation = () => {
           <span className="text-xl font-bold text-white hidden sm:block site-name">
             Guess<span className="text-orange-500">Bet</span>
           </span>
-        </Link>
+        </a>
 
         {/* Magic Navigation Items - Center */}
         <div className="flex-1 flex justify-center items-center">
@@ -74,7 +102,11 @@ const MagicNavigation = () => {
               
               return (
                 <li key={item.path} className={active ? 'active' : ''}>
-                  <Link to={item.path}>
+                  <a 
+                    href={item.path} 
+                    onClick={(e) => handleNavClick(item.path, e)}
+                    className="cursor-pointer"
+                  >
                     <span className="icon" style={{ position: 'relative' }}>
                       <Icon size={24} />
                       {item.isLive && (
@@ -87,7 +119,7 @@ const MagicNavigation = () => {
                       )}
                     </span>
                     <span className="text">{item.label}</span>
-                  </Link>
+                  </a>
                 </li>
               );
             })}
