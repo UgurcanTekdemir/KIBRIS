@@ -20,7 +20,7 @@ const MatchesPage = () => {
     if (urlSearchQuery && urlSearchQuery !== searchTerm) {
       setSearchTerm(urlSearchQuery);
     }
-  }, [urlSearchQuery]);
+  }, [urlSearchQuery, searchTerm]);
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
   const dayAfterTomorrow = new Date(Date.now() + 172800000).toISOString().split('T')[0];
 

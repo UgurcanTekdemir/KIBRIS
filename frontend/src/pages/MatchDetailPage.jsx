@@ -39,7 +39,7 @@ const MatchDetailPage = () => {
   const dateTimeDisplay = useMemo(() => {
     if (!match) return '';
     return formatMatchDateTime(match.date, match.time);
-  }, [match?.date, match?.time]);
+  }, [match]);
 
   // Group markets by category
   const marketsByCategory = useMemo(() => {

@@ -10,19 +10,19 @@ import { ScrollArea, ScrollBar } from '../components/ui/scroll-area';
 import { useMatches } from '../hooks/useMatches';
 
 // Popular Leagues Component
-function PopularLeagues({ allMatches }) {
-  const leagues = [
-    { id: 1, name: 'Süper Lig', flag: '🇹🇷', searchTerms: ['süper lig', 'super league', 'turkey'] },
-    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', searchTerms: ['premier', 'epl', 'england'] },
-    { id: 3, name: 'La Liga', flag: '🇪🇸', searchTerms: ['la liga', 'spain', 'ispanya'] },
-    { id: 4, name: 'Serie A', flag: '🇮🇹', searchTerms: ['serie a', 'italy', 'italya'] },
-    { id: 5, name: 'Bundesliga', flag: '🇩🇪', searchTerms: ['bundesliga', 'germany', 'almanya'] },
-    { id: 6, name: 'Ligue 1', flag: '🇫🇷', searchTerms: ['ligue 1', 'france', 'fransa'] },
-  ];
+const LEAGUES = [
+  { id: 1, name: 'Süper Lig', flag: '🇹🇷', searchTerms: ['süper lig', 'super league', 'turkey'] },
+  { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', searchTerms: ['premier', 'epl', 'england'] },
+  { id: 3, name: 'La Liga', flag: '🇪🇸', searchTerms: ['la liga', 'spain', 'ispanya'] },
+  { id: 4, name: 'Serie A', flag: '🇮🇹', searchTerms: ['serie a', 'italy', 'italya'] },
+  { id: 5, name: 'Bundesliga', flag: '🇩🇪', searchTerms: ['bundesliga', 'germany', 'almanya'] },
+  { id: 6, name: 'Ligue 1', flag: '🇫🇷', searchTerms: ['ligue 1', 'france', 'fransa'] },
+];
 
+function PopularLeagues({ allMatches }) {
   const leagueCounts = useMemo(() => {
     const counts = {};
-    leagues.forEach(league => {
+    LEAGUES.forEach(league => {
       counts[league.id] = allMatches.filter(match => {
         const matchLeague = match.league?.toLowerCase() || '';
         return league.searchTerms.some(term => matchLeague.includes(term.toLowerCase()));
@@ -33,7 +33,7 @@ function PopularLeagues({ allMatches }) {
 
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-      {leagues.map((league) => (
+      {LEAGUES.map((league) => (
         <Link
           key={league.id}
           to={`/league/${league.id}`}

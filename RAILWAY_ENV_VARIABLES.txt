@@ -1,0 +1,13 @@
+# Railway Environment Variables
+# Bu değişkenleri Railway Dashboard > Settings > Variables bölümüne ekleyin
+
+THE_ODDS_API_KEY=1506840105ed45a22668cdec6147f2e7
+
+DB_NAME=kibris_db
+
+CORS_ORIGINS=https://my-kibris-project.vercel.app,http://localhost:3000,http://localhost:3001
+
+# MongoDB URL - Railway MongoDB Plugin kullanıyorsanız otomatik eklenir
+# Veya MongoDB Atlas kullanıyorsanız şu formatta ekleyin:
+# MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/kibris_db?retryWrites=true&w=majority
+

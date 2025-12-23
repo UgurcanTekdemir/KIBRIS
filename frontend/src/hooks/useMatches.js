@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { matchAPI } from '../services/api';
 import { mapApiMatchesToInternal } from '../utils/matchMapper';
 
@@ -9,6 +9,9 @@ export function useMatches(filters = {}) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Memoize filters to avoid unnecessary re-renders
+  const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +44,7 @@ export function useMatches(filters = {}) {
     return () => {
       cancelled = true;
     };
-  }, [JSON.stringify(filters)]); // Re-fetch when filters change
+  }, [filtersKey, filters]); // Re-fetch when filters change
 
   return { matches, loading, error, refetch: () => {
     setLoading(true);
