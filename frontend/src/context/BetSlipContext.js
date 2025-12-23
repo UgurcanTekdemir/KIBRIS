@@ -7,13 +7,29 @@ export const BetSlipProvider = ({ children }) => {
   const [stake, setStake] = useState(0);
 
   const addSelection = (match, marketName, option, odds) => {
-    const existingIndex = selections.findIndex(
+    // Check if the exact same selection already exists (toggle off)
+    const existingSelectionIndex = selections.findIndex(
+      (s) =>
+        s.matchId === match.id &&
+        s.marketName === marketName &&
+        s.option === option
+    );
+
+    if (existingSelectionIndex > -1) {
+      // Toggle off: Remove the selection
+      setSelections(selections.filter((_, index) => index !== existingSelectionIndex));
+      return;
+    }
+
+    // Check if there's another selection for the same market (replace it)
+    const existingMarketIndex = selections.findIndex(
       (s) => s.matchId === match.id && s.marketName === marketName
     );
 
-    if (existingIndex > -1) {
+    if (existingMarketIndex > -1) {
+      // Replace existing selection in the same market
       const updated = [...selections];
-      updated[existingIndex] = {
+      updated[existingMarketIndex] = {
         matchId: match.id,
         matchName: `${match.homeTeam} vs ${match.awayTeam}`,
         league: match.league,
@@ -23,6 +39,7 @@ export const BetSlipProvider = ({ children }) => {
       };
       setSelections(updated);
     } else {
+      // Add new selection
       setSelections([
         ...selections,
         {

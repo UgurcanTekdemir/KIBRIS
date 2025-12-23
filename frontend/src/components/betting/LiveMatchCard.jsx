@@ -32,11 +32,15 @@ const LiveMatchCard = ({ match }) => {
       <Link to={`/match/${match.id}`} className="block p-2">
         <div className="flex items-center justify-between mb-0.5">
           <span className="text-white font-medium text-xs flex-1 truncate pr-1">{match.homeTeam}</span>
-          <span className="text-lg font-bold text-white">{match.homeScore}</span>
+          {match.homeScore !== null && match.awayScore !== null && (
+            <span className="text-lg font-bold text-white">{match.homeScore}</span>
+          )}
         </div>
         <div className="flex items-center justify-between">
           <span className="text-white font-medium text-xs flex-1 truncate pr-1">{match.awayTeam}</span>
-          <span className="text-lg font-bold text-white">{match.awayScore}</span>
+          {match.homeScore !== null && match.awayScore !== null && (
+            <span className="text-lg font-bold text-white">{match.awayScore}</span>
+          )}
         </div>
       </Link>
 

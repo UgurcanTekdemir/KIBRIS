@@ -44,13 +44,13 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             <div className="flex-1 min-w-0 mr-1 sm:mr-2">
               <div className="flex items-center justify-between mb-0.5 sm:mb-1">
                 <span className="text-white text-xs sm:text-sm truncate pr-1">{match.homeTeam}</span>
-                {match.isLive && (
+                {match.isLive && match.homeScore !== null && match.awayScore !== null && (
                   <span className="text-base sm:text-lg font-bold text-white ml-1 sm:ml-2">{match.homeScore}</span>
                 )}
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-white text-xs sm:text-sm truncate pr-1">{match.awayTeam}</span>
-                {match.isLive && (
+                {match.isLive && match.homeScore !== null && match.awayScore !== null && (
                   <span className="text-base sm:text-lg font-bold text-white ml-1 sm:ml-2">{match.awayScore}</span>
                 )}
               </div>
@@ -92,7 +92,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
       {/* Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-[#0a0e14] border-b border-[#1e2736]">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-base">{match.leagueFlag}</span>
+          {match.leagueFlag && match.leagueFlag.startsWith('http') ? (
+            <img src={match.leagueFlag} alt={match.league} className="w-4 h-4 object-contain flex-shrink-0" />
+          ) : (
+            <span className="text-base flex-shrink-0">{match.leagueFlag || '🏆'}</span>
+          )}
           <span className="text-xs text-gray-400 font-medium truncate">{match.league}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -116,13 +120,13 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           <div className="flex-1 min-w-0 mr-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-white font-medium truncate">{match.homeTeam}</span>
-              {match.isLive && (
+              {match.isLive && match.homeScore !== null && match.awayScore !== null && (
                 <span className="text-xl font-bold text-white ml-2">{match.homeScore}</span>
               )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-white font-medium truncate">{match.awayTeam}</span>
-              {match.isLive && (
+              {match.isLive && match.homeScore !== null && match.awayScore !== null && (
                 <span className="text-xl font-bold text-white ml-2">{match.awayScore}</span>
               )}
             </div>

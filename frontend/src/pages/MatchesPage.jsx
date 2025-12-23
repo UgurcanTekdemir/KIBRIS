@@ -1,27 +1,64 @@
-import React, { useState } from 'react';
-import { liveMatches, upcomingMatches } from '../data/mockData';
+import React, { useState, useMemo } from 'react';
 import MatchCard from '../components/betting/MatchCard';
-import { Calendar, Filter, Search } from 'lucide-react';
+import { Calendar, Filter, Search, AlertCircle } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Skeleton } from '../components/ui/skeleton';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import { useMatches } from '../hooks/useMatches';
 
 const MatchesPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const allMatches = [...liveMatches, ...upcomingMatches];
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  const dayAfterTomorrow = new Date(Date.now() + 172800000).toISOString().split('T')[0];
 
-  const filteredMatches = allMatches.filter(
-    (match) =>
-      match.homeTeam.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      match.awayTeam.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      match.league.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Fetch matches for today, tomorrow, and future
+  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
 
-  const todayMatches = filteredMatches.filter(
-    (m) => m.isLive || m.date === '2025-07-15'
+  const filteredMatches = useMemo(() => {
+    if (!allMatches || allMatches.length === 0) return [];
+    
+    return allMatches.filter(
+      (match) =>
+        match.homeTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        match.awayTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        match.league?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [allMatches, searchTerm]);
+
+  const todayMatches = useMemo(() => {
+    return filteredMatches.filter(
+      (m) => m.isLive || m.date === today
+    );
+  }, [filteredMatches, today]);
+
+  const tomorrowMatches = useMemo(() => {
+    return filteredMatches.filter((m) => m.date === tomorrow);
+  }, [filteredMatches, tomorrow]);
+
+  const futureMatches = useMemo(() => {
+    return filteredMatches.filter((m) => m.date && m.date > tomorrow);
+  }, [filteredMatches, tomorrow]);
+
+  // Loading skeleton component
+  const MatchCardSkeleton = () => (
+    <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
+      <div className="px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736]">
+        <Skeleton className="h-4 w-32 bg-[#1a2332]" />
+      </div>
+      <div className="p-4 space-y-3">
+        <Skeleton className="h-6 w-full bg-[#1a2332]" />
+        <Skeleton className="h-6 w-full bg-[#1a2332]" />
+        <div className="flex gap-2">
+          <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
+          <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
+          <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
+        </div>
+      </div>
+    </div>
   );
-  const tomorrowMatches = filteredMatches.filter((m) => m.date === '2025-07-16');
-  const futureMatches = filteredMatches.filter((m) => m.date === '2025-07-17');
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -33,7 +70,9 @@ const MatchesPage = () => {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">Tüm Maçlar</h1>
-            <p className="text-sm text-gray-400">{allMatches.length} maç listeleniyor</p>
+            <p className="text-sm text-gray-400">
+              {loading ? 'Yükleniyor...' : `${filteredMatches.length} maç listeleniyor`}
+            </p>
           </div>
         </div>
 
@@ -47,11 +86,33 @@ const MatchesPage = () => {
               className="pl-9 bg-[#0d1117] border-[#1e2736] text-white"
             />
           </div>
-          <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]">
+          <Button 
+            variant="outline" 
+            className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
+            onClick={refetch}
+            disabled={loading}
+          >
             <Filter size={16} />
           </Button>
         </div>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/30">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-white">
+            {error}
+            <Button
+              variant="link"
+              onClick={refetch}
+              className="ml-2 text-amber-500 hover:text-amber-400 p-0 h-auto"
+            >
+              Tekrar dene
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="today" className="w-full">
@@ -77,41 +138,71 @@ const MatchesPage = () => {
         </TabsList>
 
         <TabsContent value="today" className="mt-0">
-          <div className="grid gap-4 md:grid-cols-2">
-            {todayMatches.map((match) => (
-              <MatchCard key={match.id} match={match} />
-            ))}
-          </div>
-          {todayMatches.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              Bugün için maç bulunamadı
+          {loading ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {[...Array(4)].map((_, i) => (
+                <MatchCardSkeleton key={i} />
+              ))}
             </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                {todayMatches.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+              {todayMatches.length === 0 && !loading && (
+                <div className="text-center py-16 text-gray-500">
+                  Bugün için maç bulunamadı
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
 
         <TabsContent value="tomorrow" className="mt-0">
-          <div className="grid gap-4 md:grid-cols-2">
-            {tomorrowMatches.map((match) => (
-              <MatchCard key={match.id} match={match} />
-            ))}
-          </div>
-          {tomorrowMatches.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              Yarın için maç bulunamadı
+          {loading ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {[...Array(4)].map((_, i) => (
+                <MatchCardSkeleton key={i} />
+              ))}
             </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                {tomorrowMatches.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+              {tomorrowMatches.length === 0 && !loading && (
+                <div className="text-center py-16 text-gray-500">
+                  Yarın için maç bulunamadı
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
 
         <TabsContent value="future" className="mt-0">
-          <div className="grid gap-4 md:grid-cols-2">
-            {futureMatches.map((match) => (
-              <MatchCard key={match.id} match={match} />
-            ))}
-          </div>
-          {futureMatches.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              Gelecek maç bulunamadı
+          {loading ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {[...Array(4)].map((_, i) => (
+                <MatchCardSkeleton key={i} />
+              ))}
             </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                {futureMatches.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+              {futureMatches.length === 0 && !loading && (
+                <div className="text-center py-16 text-gray-500">
+                  Gelecek maç bulunamadı
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>

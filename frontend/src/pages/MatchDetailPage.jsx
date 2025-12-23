@@ -1,28 +1,54 @@
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { liveMatches, upcomingMatches } from '../data/mockData';
 import { useBetSlip } from '../context/BetSlipContext';
-import { ArrowLeft, Clock, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, TrendingUp, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
+import { Skeleton } from '../components/ui/skeleton';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import { useMatchDetails } from '../hooks/useMatches';
 
 const MatchDetailPage = () => {
   const { id } = useParams();
   const { addSelection, isSelected } = useBetSlip();
-  
-  const allMatches = [...liveMatches, ...upcomingMatches];
-  const match = allMatches.find((m) => m.id === parseInt(id));
+  const { match, loading, error } = useMatchDetails(id);
 
-  if (!match) {
+  if (loading) {
     return (
-      <div className="max-w-4xl mx-auto text-center py-16">
-        <h2 className="text-xl font-semibold text-white mb-4">Maç bulunamadı</h2>
-        <Link to="/">
-          <Button variant="outline" className="border-[#2a3a4d] text-white">
-            <ArrowLeft size={16} className="mr-2" />
-            Ana Sayfaya Dön
-          </Button>
+      <div className="max-w-4xl mx-auto">
+        <Skeleton className="h-10 w-32 mb-6 bg-[#1a2332]" />
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-2xl overflow-hidden">
+          <div className="p-6 space-y-4">
+            <Skeleton className="h-8 w-48 bg-[#1a2332]" />
+            <Skeleton className="h-32 w-full bg-[#1a2332]" />
+            <Skeleton className="h-64 w-full bg-[#1a2332]" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !match) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
+          <ArrowLeft size={18} />
+          <span>Geri</span>
         </Link>
+        <Alert variant="destructive" className="bg-red-500/10 border-red-500/30">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-white">
+            {error || 'Maç bulunamadı'}
+          </AlertDescription>
+        </Alert>
+        <div className="text-center py-8">
+          <Link to="/">
+            <Button variant="outline" className="border-[#2a3a4d] text-white">
+              <ArrowLeft size={16} className="mr-2" />
+              Ana Sayfaya Dön
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -40,7 +66,11 @@ const MatchDetailPage = () => {
         {/* League */}
         <div className="px-6 py-3 border-b border-[#1e2736] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xl">{match.leagueFlag}</span>
+            {match.leagueFlag && match.leagueFlag.startsWith('http') ? (
+              <img src={match.leagueFlag} alt={match.league} className="w-6 h-6 object-contain" />
+            ) : (
+              <span className="text-xl">{match.leagueFlag || '🏆'}</span>
+            )}
             <span className="text-gray-400 font-medium">{match.league}</span>
           </div>
           {match.isLive ? (
@@ -67,14 +97,22 @@ const MatchDetailPage = () => {
               <h3 className="text-white font-bold text-lg">{match.homeTeam}</h3>
             </div>
 
-            {/* Score */}
+            {/* Score or Date/Time */}
             <div className="text-center">
-              {match.isLive ? (
+              {match.isLive && match.homeScore !== null && match.awayScore !== null ? (
                 <div className="text-5xl font-bold text-white">
                   {match.homeScore} - {match.awayScore}
                 </div>
               ) : (
-                <div className="text-3xl font-bold text-gray-500">VS</div>
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-gray-500 mb-2">VS</div>
+                  <div className="text-sm text-gray-400">
+                    <div className="flex items-center justify-center gap-1">
+                      <Clock size={14} />
+                      <span>{match.date} {match.time}</span>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
