@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.local
+.git
+.gitignore
+README.md
+*.md
+backend
+tests
+__pycache__
+*.pyc
+.vscode
+.idea
+
