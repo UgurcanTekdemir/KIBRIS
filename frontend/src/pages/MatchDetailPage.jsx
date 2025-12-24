@@ -73,13 +73,16 @@ const MatchDetailPage = () => {
   const calculatedStats = useMemo(() => {
     if (!match) return null;
     
+    // Get original StatPal data if available
+    const originalData = match.originalData || match;
+    
     // Match details from StatPal API has events nested
     let events = [];
-    if (match.events) {
-      if (Array.isArray(match.events)) {
-        events = match.events;
-      } else if (match.events.event) {
-        events = Array.isArray(match.events.event) ? match.events.event : [match.events.event];
+    if (originalData.events) {
+      if (Array.isArray(originalData.events)) {
+        events = originalData.events;
+      } else if (originalData.events.event) {
+        events = Array.isArray(originalData.events.event) ? originalData.events.event : [originalData.events.event];
       }
     }
     

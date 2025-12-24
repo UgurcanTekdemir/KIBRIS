@@ -151,12 +151,22 @@ export function useMatchDetails(matchId) {
         setLoading(true);
         setError(null);
         
-        const apiMatch = await matchAPI.getMatchDetails(matchId);
+        // Use StatPal API for match details
+        const { statpalAPI } = await import('../services/api');
+        const { mapStatPalMatchToInternal } = await import('../utils/matchMapper');
+        
+        const apiMatch = await statpalAPI.getMatchDetails(matchId);
         
         if (!cancelled) {
-          const { mapApiMatchToInternal } = await import('../utils/matchMapper');
-          const mappedMatch = mapApiMatchToInternal(apiMatch);
-          setMatch(mappedMatch);
+          if (apiMatch) {
+            // Map StatPal match to internal format, but keep original data for events
+            const mappedMatch = mapStatPalMatchToInternal(apiMatch);
+            // Preserve original StatPal data for events and other details
+            mappedMatch.originalData = apiMatch;
+            setMatch(mappedMatch);
+          } else {
+            setError('Maç bulunamadı');
+          }
         }
       } catch (err) {
         if (!cancelled) {
