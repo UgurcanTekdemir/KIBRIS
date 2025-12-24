@@ -168,7 +168,8 @@ const MatchDetailPage = () => {
 
             {/* Score or Date/Time */}
             <div className="text-center">
-              {match.isLive && match.homeScore !== null && match.awayScore !== null ? (
+              {(match.isLive || match.homeScore > 0 || match.awayScore > 0) && 
+               match.homeScore !== null && match.awayScore !== null ? (
                 <div className="text-5xl font-bold text-white">
                   {match.homeScore} - {match.awayScore}
                 </div>
@@ -235,7 +236,8 @@ const MatchDetailPage = () => {
         )}
       </div>
 
-      {/* Markets */}
+      {/* Markets - Only show if markets exist */}
+      {match.markets && match.markets.length > 0 && (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -326,6 +328,18 @@ const MatchDetailPage = () => {
           )}
         </div>
       </div>
+      )}
+      
+      {/* Info message if no markets available */}
+      {(!match.markets || match.markets.length === 0) && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
+          <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
+          <h3 className="text-white font-semibold mb-2">Bahis Oranları Mevcut Değil</h3>
+          <p className="text-gray-400 text-sm">
+            Bu maç için bahis oranları şu anda mevcut değildir. Maç bilgileri ve skorları yukarıda gösterilmektedir.
+          </p>
+        </div>
+      )}
     </div>
   );
 };

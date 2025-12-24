@@ -565,18 +565,57 @@ function mapStatPalMatchToInternal(statpalMatch) {
   let homeScore = null;
   let awayScore = null;
   
+  // Determine if match is live (status is a number between 1-120)
+  const isLiveMatch = status && !isNaN(parseInt(status)) && parseInt(status) > 0 && parseInt(status) <= 120;
+  const isFinished = status === 'FT';
+  const isFutureMatch = status.match(/^\d{2}:\d{2}$/); // Time like "13:00"
+  
   // Priority 1: Use ft (full-time) scores if match is finished
-  if (status === 'FT' && statpalMatch.ft) {
+  if (isFinished && statpalMatch.ft) {
     homeScore = parseScore(statpalMatch.ft.home_goals);
     awayScore = parseScore(statpalMatch.ft.away_goals);
   }
-  // Priority 2: Use ht (half-time) scores if available (for live matches)
+  // Priority 2: For live matches, try home/away.goals first (they're usually more up-to-date)
+  else if (isLiveMatch) {
+    // Try home/away.goals first (current live score)
+    const homeGoalsStr = statpalMatch.home?.goals;
+    const awayGoalsStr = statpalMatch.away?.goals;
+    
+    // If goals are not "?" and not empty, use them
+    if (homeGoalsStr && homeGoalsStr !== '?' && homeGoalsStr.trim() !== '') {
+      const parsed = parseScore(homeGoalsStr);
+      if (parsed !== null) {
+        homeScore = parsed;
+      }
+    }
+    if (awayGoalsStr && awayGoalsStr !== '?' && awayGoalsStr.trim() !== '') {
+      const parsed = parseScore(awayGoalsStr);
+      if (parsed !== null) {
+        awayScore = parsed;
+      }
+    }
+    
+    // If still null, try ht scores (half-time scores are reliable)
+    if (homeScore === null && statpalMatch.ht) {
+      const htHome = parseScore(statpalMatch.ht.home_goals);
+      if (htHome !== null) {
+        homeScore = htHome;
+      }
+    }
+    if (awayScore === null && statpalMatch.ht) {
+      const htAway = parseScore(statpalMatch.ht.away_goals);
+      if (htAway !== null) {
+        awayScore = htAway;
+      }
+    }
+  }
+  // Priority 3: Use ht (half-time) scores if available
   else if (statpalMatch.ht) {
     homeScore = parseScore(statpalMatch.ht.home_goals);
     awayScore = parseScore(statpalMatch.ht.away_goals);
   }
   
-  // Priority 3: Fallback to home/away.goals if ht/ft not available
+  // Priority 4: Fallback to home/away.goals if still null
   if (homeScore === null) {
     homeScore = parseScore(statpalMatch.home?.goals);
   }
@@ -585,11 +624,15 @@ function mapStatPalMatchToInternal(statpalMatch) {
   }
   
   // Final fallback: default to 0 if still null
-  homeScore = homeScore === null ? 0 : homeScore;
-  awayScore = awayScore === null ? 0 : awayScore;
+  // For future matches (status is time like "13:00"), we don't have scores yet
+  if (homeScore === null) {
+    homeScore = 0;
+  }
+  if (awayScore === null) {
+    awayScore = 0;
+  }
   
-  // Determine if match is live
-  const status = String(statpalMatch.status || '').trim();
+  // Determine if match is live (already determined above, but we need it for the return object)
   let isLive = false;
   let minute = null;
   

@@ -66,13 +66,15 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             <div className="flex-1 min-w-0 mr-1 sm:mr-2">
               <div className="flex items-center justify-between mb-0.5 sm:mb-1">
                 <span className="text-white text-xs sm:text-sm truncate pr-1">{match.homeTeam}</span>
-                {match.isLive && match.homeScore !== null && match.awayScore !== null && (
+                {(match.isLive || match.homeScore > 0 || match.awayScore > 0) && 
+                 match.homeScore !== null && match.awayScore !== null && (
                   <span className="text-base sm:text-lg font-bold text-white ml-1 sm:ml-2">{match.homeScore}</span>
                 )}
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-white text-xs sm:text-sm truncate pr-1">{match.awayTeam}</span>
-                {match.isLive && match.homeScore !== null && match.awayScore !== null && (
+                {(match.isLive || match.homeScore > 0 || match.awayScore > 0) && 
+                 match.homeScore !== null && match.awayScore !== null && (
                   <span className="text-base sm:text-lg font-bold text-white ml-1 sm:ml-2">{match.awayScore}</span>
                 )}
               </div>
