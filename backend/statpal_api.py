@@ -184,44 +184,94 @@ class StatPalAPIService:
     async def get_live_matches(self) -> List[Dict[str, Any]]:
         """
         Get live soccer matches with scores
+        Per StatPal API: GET /soccer/matches/live
+        Returns matches for today and live matches
         Uses 30-second cache per StatPal documentation
         
         Returns:
             List of live matches in flattened format
         """
         try:
+            logger.info("Fetching live matches from StatPal API: soccer/matches/live")
             result = await self._make_request(
                 "soccer/matches/live",
                 use_cache=True,
                 cache_ttl=LIVE_SCORES_CACHE_TTL
             )
+            
+            logger.info(f"StatPal API response type: {type(result)}")
+            if isinstance(result, dict):
+                logger.info(f"StatPal API response keys: {list(result.keys())}")
+                logger.info(f"StatPal API response preview: {str(result)[:1000]}")
+            
             # StatPal API returns: {"live_matches": {"league": [{"id": ..., "name": ..., "match": [...]}]}}
+            # Or might return directly: {"league": [...]}
             matches = []
             
             # Handle live_matches wrapper
             if isinstance(result, dict) and "live_matches" in result:
                 result = result["live_matches"]
+                logger.info("Found 'live_matches' wrapper, extracted inner structure")
             
-            if isinstance(result, dict) and "league" in result:
-                # Parse league structure
-                for league_data in result.get("league", []):
-                    league_name = league_data.get("name", "Unknown League")
-                    league_id = league_data.get("id")
-                    country = league_data.get("country", "")
-                    
-                    # Get matches from this league
-                    league_matches = league_data.get("match", [])
+            if isinstance(result, dict):
+                # Check for "league" key (nested structure)
+                if "league" in result:
+                    logger.info(f"Found 'league' key with {len(result.get('league', []))} leagues")
+                    # Parse league structure
+                    for league_data in result.get("league", []):
+                        league_name = league_data.get("name", "Unknown League")
+                        league_id = league_data.get("id")
+                        country = league_data.get("country", "")
+                        
+                        # Get matches from this league
+                        league_matches = league_data.get("match", [])
+                        if not isinstance(league_matches, list):
+                            league_matches = [league_matches] if league_matches else []
+                        
+                        logger.info(f"League '{league_name}' has {len(league_matches)} matches")
+                        
+                        # Flatten matches and add league info
+                        for match in league_matches:
+                            if isinstance(match, dict):
+                                match["league_name"] = league_name
+                                match["league_id"] = league_id
+                                match["country"] = country
+                                match["is_live"] = True  # Mark as live match
+                                matches.append(match)
+                # Check if result has direct "match" key
+                elif "match" in result:
+                    league_matches = result.get("match", [])
                     if not isinstance(league_matches, list):
                         league_matches = [league_matches] if league_matches else []
-                    
-                    # Flatten matches and add league info
+                    logger.info(f"Found direct 'match' key with {len(league_matches)} matches")
                     for match in league_matches:
                         if isinstance(match, dict):
-                            match["league_name"] = league_name
-                            match["league_id"] = league_id
-                            match["country"] = country
+                            match["is_live"] = True
                             matches.append(match)
+                # Check if result is a list of matches
+                elif isinstance(result, list):
+                    logger.info(f"Response is direct list with {len(result)} matches")
+                    matches = result
+                # Try to find any list in the result
+                else:
+                    for key, value in result.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a match
+                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
+                                logger.info(f"Found matches in field '{key}': {len(value)}")
+                                matches = value
+                                for match in matches:
+                                    if isinstance(match, dict):
+                                        match["is_live"] = True
+                                break
+            elif isinstance(result, list):
+                logger.info(f"Response is list with {len(result)} matches")
+                matches = result
+                for match in matches:
+                    if isinstance(match, dict):
+                        match["is_live"] = True
             
+            logger.info(f"Extracted {len(matches)} live matches")
             return matches
         except Exception as e:
             logger.error(f"Error fetching live matches: {e}")

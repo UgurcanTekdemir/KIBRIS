@@ -176,10 +176,14 @@ async def get_live_matches(
 ):
     """
     Get live matches (matches currently in progress) from StatPal API.
+    Per StatPal API: GET /soccer/matches/live
+    Returns matches for today and live matches.
     """
     try:
+        logger.info("Fetching live matches from StatPal API")
         live_matches = await statpal_api_service.get_live_matches()
-        return {"success": True, "data": live_matches, "is_live": True, "source": "statpal"}
+        logger.info(f"StatPal API returned {len(live_matches) if live_matches else 0} live matches")
+        return {"success": True, "data": live_matches if live_matches else [], "is_live": True, "source": "statpal"}
     except Exception as e:
         logger.error(f"Error fetching live matches from StatPal API: {e}")
         logger.exception(e)
