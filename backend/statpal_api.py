@@ -762,22 +762,27 @@ class StatPalAPIService:
             endpoints_to_try = []
             
             if inplay:
-                # Try live markets endpoints - correct format: /soccer/odds/live/markets
+                # Per StatPal API documentation: /soccer/odds/live/markets returns market list
+                # For specific match odds, try different endpoints
                 endpoints_to_try = [
-                    ("soccer/odds/live/markets", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/live/markets", {}),  # Get all live odds
+                    # First try to get odds directly for the match
+                    (f"soccer/odds/live", {"match_id": match_id} if match_id else {}),
+                    (f"soccer/odds/live/{match_id}", {}),
                     (f"soccer/matches/{match_id}/odds/live", {}),
-                    (f"soccer/odds/inplay/{match_id}", {}),
+                    # Then try market list (which we know works)
+                    ("soccer/odds/live/markets", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/live/markets", {}),  # Get all live markets
                 ]
             else:
-                # Try pre-match endpoints - likely format: /soccer/odds/pre-match/markets
+                # Pre-match endpoints
                 endpoints_to_try = [
-                    ("soccer/odds/pre-match/markets", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/pre-match/markets", {}),  # Get all pre-match odds
-                    ("soccer/odds/pre-match", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/pre-match", {}),
+                    # First try to get odds directly for the match
+                    (f"soccer/odds/pre-match", {"match_id": match_id} if match_id else {}),
+                    (f"soccer/odds/pre-match/{match_id}", {}),
                     (f"soccer/matches/{match_id}/odds", {}),
-                    (f"soccer/odds/{match_id}", {}),
+                    # Then try market list
+                    ("soccer/odds/pre-match/markets", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/pre-match/markets", {}),  # Get all pre-match markets
                     ("soccer/odds", {"match_id": match_id} if match_id else {}),
                 ]
             
