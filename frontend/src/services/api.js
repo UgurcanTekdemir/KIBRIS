@@ -383,6 +383,152 @@ export const statpalAPI = {
     const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
     return response.data || null;
   },
+
+  /**
+   * Get available seasons from StatPal API
+   * @returns {Promise<Array>} List of seasons
+   */
+  async getSeasons() {
+    const response = await fetchAPI(`/seasons/statpal`);
+    return response.data || [];
+  },
+
+  /**
+   * Get daily matches (recent/upcoming) from StatPal API
+   * @param {string} date - Date filter (YYYY-MM-DD, optional)
+   * @returns {Promise<Array>} List of matches
+   */
+  async getDailyMatches(date = null) {
+    const url = date 
+      ? `/matches/statpal/daily?date=${date}`
+      : `/matches/statpal/daily`;
+    const response = await fetchAPI(url);
+    return response.data || [];
+  },
+
+  /**
+   * Get matches by league and season from StatPal API
+   * @param {number} leagueId - League ID
+   * @param {string} season - Season filter (optional)
+   * @returns {Promise<Array>} List of matches
+   */
+  async getLeagueMatches(leagueId, season = null) {
+    const url = season
+      ? `/leagues/statpal/${leagueId}/matches?season=${season}`
+      : `/leagues/statpal/${leagueId}/matches`;
+    const response = await fetchAPI(url);
+    return response.data || [];
+  },
+
+  /**
+   * Get match details/stats by league from StatPal API
+   * @param {number} leagueId - League ID
+   * @returns {Promise<Object>} League match statistics
+   */
+  async getLeagueMatchStats(leagueId) {
+    const response = await fetchAPI(`/leagues/statpal/${leagueId}/matches/stats`);
+    return response.data || null;
+  },
+
+  /**
+   * Get league statistics from StatPal API
+   * @param {number} leagueId - League ID
+   * @returns {Promise<Object>} League statistics
+   */
+  async getLeagueStats(leagueId) {
+    const response = await fetchAPI(`/leagues/statpal/${leagueId}/stats`);
+    return response.data || null;
+  },
+
+  /**
+   * Get coach information from StatPal API
+   * @param {number} coachId - Coach ID
+   * @returns {Promise<Object>} Coach information
+   */
+  async getCoach(coachId) {
+    const response = await fetchAPI(`/coaches/statpal/${coachId}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get image data from StatPal API
+   * @param {string} imageType - Image type filter (optional)
+   * @param {string} imageId - Image ID filter (optional)
+   * @returns {Promise<Object>} Image data
+   */
+  async getImage(imageType = null, imageId = null) {
+    const params = [];
+    if (imageType) params.push(`image_type=${imageType}`);
+    if (imageId) params.push(`image_id=${imageId}`);
+    const url = params.length > 0
+      ? `/images/statpal?${params.join('&')}`
+      : `/images/statpal`;
+    const response = await fetchAPI(url);
+    return response.data || null;
+  },
+
+  /**
+   * Get pre-match odds by league from StatPal API
+   * @param {number} leagueId - League ID
+   * @returns {Promise<Array>} List of pre-match odds
+   */
+  async getLeaguePreMatchOdds(leagueId) {
+    const response = await fetchAPI(`/leagues/statpal/${leagueId}/odds/prematch`);
+    return response.data || [];
+  },
+
+  /**
+   * Get live odds match states from StatPal API
+   * @returns {Promise<Array>} List of match states with odds
+   */
+  async getLiveOddsMatchStates() {
+    const response = await fetchAPI(`/odds/statpal/live/match-states`);
+    return response.data || [];
+  },
+
+  /**
+   * Get team information from StatPal API
+   * @param {number} teamId - Team ID
+   * @returns {Promise<Object>} Team information
+   */
+  async getTeam(teamId) {
+    const response = await fetchAPI(`/teams/statpal/${teamId}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get player information from StatPal API
+   * @param {number} playerId - Player ID
+   * @returns {Promise<Object>} Player information
+   */
+  async getPlayer(playerId) {
+    const response = await fetchAPI(`/players/statpal/${playerId}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get injuries and suspensions from StatPal API
+   * @param {number} teamId - Team ID filter (optional)
+   * @returns {Promise<Array>} List of injuries and suspensions
+   */
+  async getInjuriesSuspensions(teamId = null) {
+    const url = teamId
+      ? `/injuries-suspensions/statpal?team_id=${teamId}`
+      : `/injuries-suspensions/statpal`;
+    const response = await fetchAPI(url);
+    return response.data || [];
+  },
+
+  /**
+   * Get head-to-head statistics from StatPal API
+   * @param {number} team1Id - First team ID
+   * @param {number} team2Id - Second team ID
+   * @returns {Promise<Object>} Head-to-head statistics
+   */
+  async getHeadToHead(team1Id, team2Id) {
+    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
+    return response.data || null;
+  },
 };
 
 /**

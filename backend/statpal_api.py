@@ -915,6 +915,647 @@ class StatPalAPIService:
             logger.error(f"Error fetching match odds: {e}")
             logger.exception(e)
             return {}
+    
+    async def get_seasons(self) -> List[Dict[str, Any]]:
+        """
+        Get available seasons
+        Per StatPal API: GET /soccer/leagues/seasons
+        
+        Returns:
+            List of seasons
+        """
+        try:
+            result = await self._make_request(
+                "soccer/leagues/seasons",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("seasons", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching seasons: {e}")
+            return []
+    
+    async def get_matches_daily(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get matches for today or specific date (recent/upcoming)
+        Per StatPal API: GET /soccer/matches/daily
+        
+        Args:
+            date: Date filter in YYYY-MM-DD format (optional, defaults to today)
+            
+        Returns:
+            List of matches
+        """
+        params = {}
+        if date:
+            params["date"] = date
+        
+        try:
+            result = await self._make_request(
+                "soccer/matches/daily",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL
+            )
+            # Parse similar to live matches structure
+            matches = []
+            if isinstance(result, dict):
+                if "daily" in result:
+                    result = result["daily"]
+                if "matches" in result:
+                    result = result["matches"]
+                if "league" in result:
+                    for league_data in result.get("league", []):
+                        league_name = league_data.get("name", "Unknown League")
+                        league_id = league_data.get("id")
+                        country = league_data.get("country", "")
+                        
+                        league_matches = league_data.get("match", [])
+                        if not isinstance(league_matches, list):
+                            league_matches = [league_matches] if league_matches else []
+                        
+                        for match in league_matches:
+                            if isinstance(match, dict):
+                                match["league_name"] = league_name
+                                match["league_id"] = league_id
+                                match["country"] = country
+                                matches.append(match)
+            elif isinstance(result, list):
+                matches = result
+            return matches
+        except Exception as e:
+            logger.error(f"Error fetching daily matches: {e}")
+            return []
+    
+    async def get_league_matches(self, league_id: int, season: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get matches by league and season
+        Per StatPal API: GET /soccer/leagues/{league-id}/matches
+        
+        Args:
+            league_id: League ID
+            season: Season filter (optional)
+            
+        Returns:
+            List of matches
+        """
+        params = {}
+        if season:
+            params["season"] = season
+        
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/matches",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            # Parse similar to live matches structure
+            matches = []
+            if isinstance(result, dict):
+                if "matches" in result:
+                    result = result["matches"]
+                if "league" in result:
+                    for league_data in result.get("league", []):
+                        league_matches = league_data.get("match", [])
+                        if not isinstance(league_matches, list):
+                            league_matches = [league_matches] if league_matches else []
+                        matches.extend(league_matches)
+            elif isinstance(result, list):
+                matches = result
+            return matches
+        except Exception as e:
+            logger.error(f"Error fetching league matches: {e}")
+            return []
+    
+    async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:
+        """
+        Get match details/stats by league
+        Per StatPal API: GET /soccer/leagues/{league-id}/matches/stats
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            League match statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/matches/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching league match stats: {e}")
+            return {}
+    
+    async def get_league_stats(self, league_id: int) -> Dict[str, Any]:
+        """
+        Get league statistics
+        Per StatPal API: GET /soccer/leagues/{league-id}/stats
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            League statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching league stats: {e}")
+            return {}
+    
+    async def get_coach(self, coach_id: int) -> Dict[str, Any]:
+        """
+        Get coach information
+        Per StatPal API: GET /soccer/coaches/{coach_id}
+        
+        Args:
+            coach_id: Coach ID
+            
+        Returns:
+            Coach information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/coaches/{coach_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching coach: {e}")
+            return {}
+    
+    async def get_image(self, image_type: Optional[str] = None, image_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get image data
+        Per StatPal API: GET /soccer/images
+        
+        Args:
+            image_type: Type of image (optional)
+            image_id: Image ID (optional)
+            
+        Returns:
+            Image data
+        """
+        params = {}
+        if image_type:
+            params["type"] = image_type
+        if image_id:
+            params["id"] = image_id
+        
+        try:
+            result = await self._make_request(
+                "soccer/images",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching image: {e}")
+            return {}
+    
+    async def get_league_prematch_odds(self, league_id: int) -> List[Dict[str, Any]]:
+        """
+        Get pre-match odds by league
+        Per StatPal API: GET /soccer/leagues/{league-id}/odds/prematch
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            List of pre-match odds
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/odds/prematch",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("odds", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching league prematch odds: {e}")
+            return []
+    
+    async def get_live_odds_match_states(self) -> List[Dict[str, Any]]:
+        """
+        Get live odds match states
+        Per StatPal API: GET /soccer/odds/live/match-states
+        
+        Returns:
+            List of match states with odds
+        """
+        try:
+            result = await self._make_request(
+                "soccer/odds/live/match-states",
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("states", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching live odds match states: {e}")
+            return []
+    
+    async def get_team(self, team_id: int) -> Dict[str, Any]:
+        """
+        Get team information
+        Per StatPal API: GET /soccer/teams/{team_id}
+        
+        Args:
+            team_id: Team ID
+            
+        Returns:
+            Team information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/teams/{team_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching team: {e}")
+            return {}
+    
+    async def get_player(self, player_id: int) -> Dict[str, Any]:
+        """
+        Get player information
+        Per StatPal API: GET /soccer/players/{player_id}
+        
+        Args:
+            player_id: Player ID
+            
+        Returns:
+            Player information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/players/{player_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching player: {e}")
+            return {}
+    
+    async def get_seasons(self) -> List[Dict[str, Any]]:
+        """
+        Get available seasons
+        Per StatPal API: GET /soccer/leagues/seasons
+        
+        Returns:
+            List of seasons
+        """
+        try:
+            result = await self._make_request(
+                "soccer/leagues/seasons",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("seasons", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching seasons: {e}")
+            return []
+    
+    async def get_matches_daily(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get matches for today or specific date (recent/upcoming)
+        Per StatPal API: GET /soccer/matches/daily
+        
+        Args:
+            date: Date filter in YYYY-MM-DD format (optional, defaults to today)
+            
+        Returns:
+            List of matches
+        """
+        params = {}
+        if date:
+            params["date"] = date
+        
+        try:
+            result = await self._make_request(
+                "soccer/matches/daily",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL
+            )
+            # Parse similar to live matches structure
+            matches = []
+            if isinstance(result, dict):
+                if "daily" in result:
+                    result = result["daily"]
+                if "matches" in result:
+                    result = result["matches"]
+                if "league" in result:
+                    for league_data in result.get("league", []):
+                        league_name = league_data.get("name", "Unknown League")
+                        league_id = league_data.get("id")
+                        country = league_data.get("country", "")
+                        
+                        league_matches = league_data.get("match", [])
+                        if not isinstance(league_matches, list):
+                            league_matches = [league_matches] if league_matches else []
+                        
+                        for match in league_matches:
+                            if isinstance(match, dict):
+                                match["league_name"] = league_name
+                                match["league_id"] = league_id
+                                match["country"] = country
+                                matches.append(match)
+            elif isinstance(result, list):
+                matches = result
+            return matches
+        except Exception as e:
+            logger.error(f"Error fetching daily matches: {e}")
+            return []
+    
+    async def get_league_matches(self, league_id: int, season: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get matches by league and season
+        Per StatPal API: GET /soccer/leagues/{league-id}/matches
+        
+        Args:
+            league_id: League ID
+            season: Season filter (optional)
+            
+        Returns:
+            List of matches
+        """
+        params = {}
+        if season:
+            params["season"] = season
+        
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/matches",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            # Parse similar to live matches structure
+            matches = []
+            if isinstance(result, dict):
+                if "matches" in result:
+                    result = result["matches"]
+                if "league" in result:
+                    for league_data in result.get("league", []):
+                        league_matches = league_data.get("match", [])
+                        if not isinstance(league_matches, list):
+                            league_matches = [league_matches] if league_matches else []
+                        matches.extend(league_matches)
+            elif isinstance(result, list):
+                matches = result
+            return matches
+        except Exception as e:
+            logger.error(f"Error fetching league matches: {e}")
+            return []
+    
+    async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:
+        """
+        Get match details/stats by league
+        Per StatPal API: GET /soccer/leagues/{league-id}/matches/stats
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            League match statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/matches/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching league match stats: {e}")
+            return {}
+    
+    async def get_league_stats(self, league_id: int) -> Dict[str, Any]:
+        """
+        Get league statistics
+        Per StatPal API: GET /soccer/leagues/{league-id}/stats
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            League statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching league stats: {e}")
+            return {}
+    
+    async def get_coach(self, coach_id: int) -> Dict[str, Any]:
+        """
+        Get coach information
+        Per StatPal API: GET /soccer/coaches/{coach_id}
+        
+        Args:
+            coach_id: Coach ID
+            
+        Returns:
+            Coach information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/coaches/{coach_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching coach: {e}")
+            return {}
+    
+    async def get_image(self, image_type: Optional[str] = None, image_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get image data
+        Per StatPal API: GET /soccer/images
+        
+        Args:
+            image_type: Type of image (optional)
+            image_id: Image ID (optional)
+            
+        Returns:
+            Image data
+        """
+        params = {}
+        if image_type:
+            params["type"] = image_type
+        if image_id:
+            params["id"] = image_id
+        
+        try:
+            result = await self._make_request(
+                "soccer/images",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching image: {e}")
+            return {}
+    
+    async def get_league_prematch_odds(self, league_id: int) -> List[Dict[str, Any]]:
+        """
+        Get pre-match odds by league
+        Per StatPal API: GET /soccer/leagues/{league-id}/odds/prematch
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            List of pre-match odds
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/leagues/{league_id}/odds/prematch",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("odds", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching league prematch odds: {e}")
+            return []
+    
+    async def get_live_odds_match_states(self) -> List[Dict[str, Any]]:
+        """
+        Get live odds match states
+        Per StatPal API: GET /soccer/odds/live/match-states
+        
+        Returns:
+            List of match states with odds
+        """
+        try:
+            result = await self._make_request(
+                "soccer/odds/live/match-states",
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("states", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching live odds match states: {e}")
+            return []
+    
+    async def get_team(self, team_id: int) -> Dict[str, Any]:
+        """
+        Get team information
+        Per StatPal API: GET /soccer/teams/{team_id}
+        
+        Args:
+            team_id: Team ID
+            
+        Returns:
+            Team information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/teams/{team_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching team: {e}")
+            return {}
+    
+    async def get_player(self, player_id: int) -> Dict[str, Any]:
+        """
+        Get player information
+        Per StatPal API: GET /soccer/players/{player_id}
+        
+        Args:
+            player_id: Player ID
+            
+        Returns:
+            Player information
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/players/{player_id}",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching player: {e}")
+            return {}
+    
+    async def get_injuries_suspensions(self, team_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get injuries and suspensions
+        Per StatPal API: GET /soccer/injuries-suspensions
+        
+        Args:
+            team_id: Team ID filter (optional)
+            
+        Returns:
+            List of injuries and suspensions
+        """
+        params = {}
+        if team_id:
+            params["team_id"] = team_id
+        
+        try:
+            result = await self._make_request(
+                "soccer/injuries-suspensions",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("injuries", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching injuries-suspensions: {e}")
+            return []
 
 
 # Global instance

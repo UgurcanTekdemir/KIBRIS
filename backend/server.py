@@ -529,6 +529,162 @@ async def get_statpal_match_odds(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/seasons/statpal")
+async def get_statpal_seasons():
+    """Get available seasons from StatPal API"""
+    try:
+        seasons = await statpal_api_service.get_seasons()
+        return {"success": True, "data": seasons, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal seasons: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/statpal/daily")
+async def get_statpal_daily_matches(
+    date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD, optional)")
+):
+    """Get daily matches (recent/upcoming) from StatPal API"""
+    try:
+        matches = await statpal_api_service.get_matches_daily(date=date)
+        return {"success": True, "data": matches, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal daily matches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/statpal/{league_id}/matches")
+async def get_statpal_league_matches(
+    league_id: int,
+    season: Optional[str] = Query(None, description="Season filter (optional)")
+):
+    """Get matches by league and season from StatPal API"""
+    try:
+        matches = await statpal_api_service.get_league_matches(league_id, season=season)
+        return {"success": True, "data": matches, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal league matches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/statpal/{league_id}/matches/stats")
+async def get_statpal_league_match_stats(league_id: int):
+    """Get match details/stats by league from StatPal API"""
+    try:
+        stats = await statpal_api_service.get_league_match_stats(league_id)
+        return {"success": True, "data": stats, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal league match stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/statpal/{league_id}/stats")
+async def get_statpal_league_stats(league_id: int):
+    """Get league statistics from StatPal API"""
+    try:
+        stats = await statpal_api_service.get_league_stats(league_id)
+        return {"success": True, "data": stats, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal league stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/coaches/statpal/{coach_id}")
+async def get_statpal_coach(coach_id: int):
+    """Get coach information from StatPal API"""
+    try:
+        coach = await statpal_api_service.get_coach(coach_id)
+        return {"success": True, "data": coach, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal coach: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/images/statpal")
+async def get_statpal_images(
+    image_type: Optional[str] = Query(None, description="Image type filter"),
+    image_id: Optional[str] = Query(None, description="Image ID filter")
+):
+    """Get image data from StatPal API"""
+    try:
+        images = await statpal_api_service.get_image(image_type=image_type, image_id=image_id)
+        return {"success": True, "data": images, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal images: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/statpal/{league_id}/odds/prematch")
+async def get_statpal_league_prematch_odds(league_id: int):
+    """Get pre-match odds by league from StatPal API"""
+    try:
+        odds = await statpal_api_service.get_league_prematch_odds(league_id)
+        return {"success": True, "data": odds, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal league prematch odds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/odds/statpal/live/match-states")
+async def get_statpal_live_odds_match_states():
+    """Get live odds match states from StatPal API"""
+    try:
+        states = await statpal_api_service.get_live_odds_match_states()
+        return {"success": True, "data": states, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal live odds match states: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/teams/statpal/{team_id}")
+async def get_statpal_team(team_id: int):
+    """Get team information from StatPal API"""
+    try:
+        team = await statpal_api_service.get_team(team_id)
+        return {"success": True, "data": team, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal team: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/players/statpal/{player_id}")
+async def get_statpal_player(player_id: int):
+    """Get player information from StatPal API"""
+    try:
+        player = await statpal_api_service.get_player(player_id)
+        return {"success": True, "data": player, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal player: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/injuries-suspensions/statpal")
+async def get_statpal_injuries_suspensions(
+    team_id: Optional[int] = Query(None, description="Team ID filter")
+):
+    """Get injuries and suspensions from StatPal API"""
+    try:
+        injuries = await statpal_api_service.get_injuries_suspensions(team_id=team_id)
+        return {"success": True, "data": injuries, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal injuries-suspensions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/head-to-head/statpal")
+async def get_statpal_head_to_head(
+    team1_id: int = Query(..., description="First team ID"),
+    team2_id: int = Query(..., description="Second team ID")
+):
+    """Get head-to-head statistics from StatPal API"""
+    try:
+        h2h = await statpal_api_service.get_head_to_head(team1_id, team2_id)
+        return {"success": True, "data": h2h, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal head-to-head: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/test-statpal")
 async def test_statpal_api():
     """Test StatPal API connection and configuration"""
