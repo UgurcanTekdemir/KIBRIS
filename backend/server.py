@@ -726,14 +726,17 @@ async def test_statpal_api():
         leagues = await statpal_api_service.get_leagues()
         leagues_test = {
             "success": True,
-            "leagues_count": len(leagues),
-            "sample_leagues": leagues[:2] if leagues else []
+            "leagues_count": len(leagues) if leagues else 0,
+            "leagues_type": type(leagues).__name__,
+            "sample_leagues": leagues[:2] if leagues and isinstance(leagues, list) and len(leagues) > 0 else [],
+            "raw_response_preview": str(leagues)[:200] if leagues else "None"
         }
     except Exception as e:
         leagues_test = {
             "success": False,
             "error": str(e),
-            "error_type": type(e).__name__
+            "error_type": type(e).__name__,
+            "traceback": str(e.__traceback__) if hasattr(e, '__traceback__') else None
         }
     
     return {

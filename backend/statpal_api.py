@@ -39,6 +39,8 @@ class StatPalAPIService:
         self.api_key = STATPAL_API_KEY
         if not self.api_key:
             logger.warning("STATPAL_API_KEY is not set. Requests will fail.")
+        else:
+            logger.info(f"StatPal API key configured: {self.api_key[:8]}...{self.api_key[-4:] if len(self.api_key) > 12 else '***'}")
         
         # Simple in-memory cache: {endpoint: (data, timestamp)}
         self._cache: Dict[str, tuple] = {}
@@ -102,10 +104,19 @@ class StatPalAPIService:
         
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         
-        # Add access_key to params
-        request_params = {"access_key": self.api_key}
+        # Add access_key to params (StatPal API uses 'access_key' parameter)
+        request_params = {}
+        if self.api_key:
+            request_params["access_key"] = self.api_key
+        else:
+            logger.error("STATPAL_API_KEY is not set! Cannot make request.")
+            raise Exception("STATPAL_API_KEY is not configured")
+        
         if params:
             request_params.update(params)
+        
+        logger.info(f"Making request to: {url}")
+        logger.info(f"Request params (key masked): {list(request_params.keys())}")
         
         # Rate limiting: Check last request time
         current_time = time.time()
