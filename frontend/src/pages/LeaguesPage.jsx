@@ -24,7 +24,6 @@ const LeaguesPage = () => {
         const data = await statpalAPI.getLeagues();
         // Ensure data is an array
         const leaguesArray = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
-        console.log('Leagues data received:', leaguesArray);
         setLeagues(leaguesArray);
       } catch (err) {
         console.error('Error fetching leagues:', err);

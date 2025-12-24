@@ -260,7 +260,6 @@ export function mapApiMatchToInternal(apiMatch) {
  */
 function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
   if (!Array.isArray(bookmakers) || bookmakers.length === 0) {
-    console.debug('extractH2HMarket: No bookmakers array');
     return null;
   }
   
@@ -274,12 +273,6 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
     if (!h2hMarket || !h2hMarket.outcomes) {
       continue;
     }
-    
-    console.debug('extractH2HMarket: Found h2h market', {
-      homeTeam,
-      awayTeam,
-      outcomes: h2hMarket.outcomes.map(o => ({ name: o.name, price: o.price }))
-    });
     
     // Map outcomes to home/draw/away
     const result = { home: null, draw: null, away: null };
@@ -433,14 +426,10 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
     
     // Return result only if at least one odds value is found
     if (result.home !== null || result.draw !== null || result.away !== null) {
-      console.debug('extractH2HMarket: Success', result);
       return result;
-    } else {
-      console.debug('extractH2HMarket: No odds found', { homeTeam, awayTeam, outcomes: h2hMarket.outcomes });
     }
   }
   
-  console.debug('extractH2HMarket: No h2h market found');
   return null;
 }
 

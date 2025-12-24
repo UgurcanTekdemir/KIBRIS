@@ -35,13 +35,7 @@ const MatchDetailPage = () => {
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
   const [activeTab, setActiveTab] = useState('markets'); // 'markets', 'events', 'stats'
   
-  // Debug log
-  useEffect(() => {
-    console.log('MatchDetailPage: match:', match);
-    console.log('MatchDetailPage: loading:', loading);
-    console.log('MatchDetailPage: error:', error);
-    console.log('MatchDetailPage: match?.markets:', match?.markets);
-  }, [match, loading, error]);
+  // Debug logs removed for production optimization
   
   // Fetch events and statistics only for live or finished matches
   const shouldFetchEvents = match?.isLive || match?.isFinished;

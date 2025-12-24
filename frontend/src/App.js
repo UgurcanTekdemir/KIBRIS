@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import "./App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { BetSlipProvider } from "./context/BetSlipContext";
 import Layout from "./components/layout/Layout";
@@ -163,6 +164,18 @@ function AppContent() {
   );
 }
 
+// Create a client for React Query with optimized settings
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60000, // Data is fresh for 1 minute
+      cacheTime: 300000, // Cache unused data for 5 minutes
+      refetchOnWindowFocus: false, // Don't refetch on window focus
+      retry: 1, // Only retry once on failure
+    },
+  },
+});
+
 function App() {
   // Enable browser's native scroll restoration
   useEffect(() => {
@@ -174,17 +187,19 @@ function App() {
   return (
     <>
       <Loader />
-      <AuthProvider>
-        <BetSlipProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<AuthPage />} />
-              <Route path="/register" element={<AuthPage />} />
-              <Route path="/*" element={<AppContent />} />
-            </Routes>
-          </BrowserRouter>
-        </BetSlipProvider>
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <BetSlipProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<AuthPage />} />
+                <Route path="/register" element={<AuthPage />} />
+                <Route path="/*" element={<AppContent />} />
+              </Routes>
+            </BrowserRouter>
+          </BetSlipProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     </>
   );
 }

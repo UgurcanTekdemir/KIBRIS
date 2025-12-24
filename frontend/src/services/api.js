@@ -22,12 +22,14 @@ if (isProduction && !rawApiUrl) {
 const cleanApiUrl = rawApiUrl ? rawApiUrl.replace(/\/api\/?$/, '') : null;
 const API_BASE_URL = cleanApiUrl ? `${cleanApiUrl}/api` : 'http://localhost:8000/api';
 
-// Debug: Log API URL (always log to help debug production issues)
-console.log('🔧 API Configuration:');
-console.log('  - REACT_APP_API_URL:', process.env.REACT_APP_API_URL || 'NOT SET');
-console.log('  - Raw API URL:', rawApiUrl);
-console.log('  - Clean API URL:', cleanApiUrl);
-console.log('  - Final API_BASE_URL:', API_BASE_URL);
+// Log API URL only in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('🔧 API Configuration:');
+  console.log('  - REACT_APP_API_URL:', process.env.REACT_APP_API_URL || 'NOT SET');
+  console.log('  - Raw API URL:', rawApiUrl);
+  console.log('  - Clean API URL:', cleanApiUrl);
+  console.log('  - Final API_BASE_URL:', API_BASE_URL);
+}
 
 class ApiError extends Error {
   constructor(message, status, data) {
@@ -44,8 +46,10 @@ class ApiError extends Error {
 async function fetchAPI(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
   
-  // Debug: Log the full URL being called
-  console.log('🌐 API Call:', url);
+  // Log API calls only in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🌐 API Call:', url);
+  }
   
   const config = {
     ...options,
@@ -136,8 +140,6 @@ export const matchAPI = {
     const endpoint = `/matches${queryString ? `?${queryString}` : ''}`;
     
     const response = await fetchAPI(endpoint);
-    console.log('📊 matchAPI.getMatches response:', response);
-    console.log('📊 matchAPI.getMatches data:', response.data);
     return response.data || [];
   },
 
@@ -148,8 +150,6 @@ export const matchAPI = {
    */
   async getLiveMatches(matchType = 1) {
     const response = await fetchAPI(`/matches/live?match_type=${matchType}`);
-    console.log('📊 matchAPI.getLiveMatches response:', response);
-    console.log('📊 matchAPI.getLiveMatches data:', response.data);
     return response.data || [];
   },
 
@@ -271,7 +271,6 @@ export const statpalAPI = {
   async getMatchDetails(matchId) {
     try {
       const response = await fetchAPI(`/matches/statpal/${matchId}`);
-      console.log('📊 getMatchDetails response:', response);
       // Handle both {success: true, data: {...}} and direct data formats
       if (response && response.data) {
         return response.data;
@@ -281,12 +280,10 @@ export const statpalAPI = {
       }
       return null;
     } catch (error) {
-      console.error('Error in getMatchDetails:', error);
       // If 404, try the generic /matches/{match_id} endpoint as fallback
       if (error.status === 404) {
         try {
           const fallbackResponse = await fetchAPI(`/matches/${matchId}`);
-          console.log('📊 Fallback getMatchDetails response:', fallbackResponse);
           return fallbackResponse?.data || fallbackResponse || null;
         } catch (fallbackError) {
           console.error('Fallback endpoint also failed:', fallbackError);
@@ -342,10 +339,6 @@ export const statpalAPI = {
   async getLeagues() {
     try {
       const response = await fetchAPI('/leagues/statpal');
-      console.log('📊 getLeagues response:', response);
-      console.log('📊 response.data:', response.data);
-      console.log('📊 response.data type:', typeof response.data);
-      console.log('📊 response.data isArray:', Array.isArray(response.data));
       
       // Handle different response formats
       if (response && response.data) {
@@ -456,10 +449,7 @@ export const statpalAPI = {
    */
   async getMatchOdds(matchId, inplay = false) {
     const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
-    console.log('📊 getMatchOdds response:', response);
-    console.log('📊 response.data:', response.data);
     const oddsData = response.data || response; // Fallback: if data doesn't exist, use response itself
-    console.log('📊 Returning oddsData:', oddsData);
     return oddsData;
   },
 
@@ -562,7 +552,6 @@ export const statpalAPI = {
    */
   async getLiveOdds() {
     const response = await fetchAPI('/odds/statpal/live');
-    console.log('📊 getLiveOdds response:', response);
     return response.data || [];
   },
 
