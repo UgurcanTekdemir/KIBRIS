@@ -44,7 +44,7 @@ export function useMatches(filters = {}) {
     return () => {
       cancelled = true;
     };
-  }, [filtersKey, filters]); // Re-fetch when filters change
+  }, [filtersKey]); // Re-fetch when filters change (filtersKey is memoized from filters)
 
   return { matches, loading, error, refetch: () => {
     setLoading(true);
