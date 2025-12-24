@@ -583,7 +583,7 @@ const MatchDetailPage = () => {
                   );
                 }
                 
-                // Check if this is a market list response
+                // Check if this is a market list response (fallback when odds not available)
                 if (matchOdds.is_market_list && Array.isArray(matchOdds.markets)) {
                   return (
                     <div className="space-y-4">
@@ -592,7 +592,9 @@ const MatchDetailPage = () => {
                           ℹ️ Mevcut Bahis Marketleri
                         </p>
                         <p className="text-gray-400 text-xs">
-                          StatPal API'den mevcut market listesi alındı. Belirli bir market için odds almak için market ID'si gerekiyor.
+                          StatPal API'den mevcut market listesi alındı. Bu maç için odds verisi henüz mevcut değil.
+                          <br />
+                          <span className="text-amber-500">Not:</span> Odds verisi genellikle maç başladıktan sonra güncellenir.
                         </p>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
