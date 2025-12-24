@@ -740,6 +740,62 @@ class StatPalAPIService:
         except Exception as e:
             logger.error(f"Error fetching team transfers: {e}")
             return []
+    
+    async def get_match_odds(
+        self,
+        match_id: str,
+        inplay: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get pre-match or inplay odds markets
+        Per StatPal documentation: Pre-Match Odds Markets / Inplay Odds Markets
+        
+        Args:
+            match_id: Match ID
+            inplay: If True, get inplay odds; if False, get pre-match odds
+            
+        Returns:
+            Odds markets data
+        """
+        try:
+            # Try different possible endpoints
+            endpoints_to_try = []
+            
+            if inplay:
+                endpoints_to_try = [
+                    f"soccer/matches/{match_id}/odds/inplay",
+                    f"soccer/matches/{match_id}/odds/live",
+                    f"soccer/odds/inplay/{match_id}",
+                    f"soccer/odds/inplay?match_id={match_id}",
+                ]
+            else:
+                endpoints_to_try = [
+                    f"soccer/matches/{match_id}/odds",
+                    f"soccer/matches/{match_id}/odds/pre-match",
+                    f"soccer/odds/pre-match/{match_id}",
+                    f"soccer/odds/pre-match?match_id={match_id}",
+                    f"soccer/odds?match_id={match_id}",
+                ]
+            
+            for endpoint in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        use_cache=True,
+                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    if result and isinstance(result, dict) and len(result) > 0:
+                        return result
+                except Exception as e:
+                    logger.debug(f"Odds endpoint {endpoint} failed: {e}")
+                    continue
+            
+            # If no endpoint works, return empty dict
+            logger.warning(f"Match odds endpoint not found for match {match_id}, inplay={inplay}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching match odds: {e}")
+            return {}
 
 
 # Global instance

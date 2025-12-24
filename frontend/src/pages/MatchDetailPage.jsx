@@ -38,7 +38,9 @@ const MatchDetailPage = () => {
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
   const [matchStats, setMatchStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stats'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stats', 'odds'
+  const [matchOdds, setMatchOdds] = useState(null);
+  const [oddsLoading, setOddsLoading] = useState(false);
   
   const dateTimeDisplay = useMemo(() => {
     if (!match) return '';
@@ -377,6 +379,33 @@ const MatchDetailPage = () => {
             <BarChart3 size={16} className="inline mr-2" />
             İstatistikler
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('odds');
+              // Fetch odds when tab is clicked
+              if (match?.id && !matchOdds && !oddsLoading) {
+                setOddsLoading(true);
+                const isInplay = match.isLive;
+                statpalAPI.getMatchOdds(match.id, isInplay)
+                  .then(odds => {
+                    setMatchOdds(odds);
+                    setOddsLoading(false);
+                  })
+                  .catch(err => {
+                    console.error('Error fetching odds:', err);
+                    setOddsLoading(false);
+                  });
+              }
+            }}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'odds'
+                ? 'text-amber-500 border-b-2 border-amber-500'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <TrendingUp size={16} className="inline mr-2" />
+            Oranlar
+          </button>
         </div>
       </div>
 
@@ -491,6 +520,41 @@ const MatchDetailPage = () => {
             </div>
           ) : (
             <p className="text-gray-400">Bu maç için istatistik mevcut değil.</p>
+          )}
+        </div>
+      )}
+
+      {/* Odds Tab Content */}
+      {activeTab === 'odds' && (
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6 mb-6">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <TrendingUp className="text-amber-500" />
+            Bahis Oranları {match?.isLive ? '(Canlı)' : '(Maç Öncesi)'}
+          </h3>
+          {oddsLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-20 w-full bg-[#1a2332]" />
+              <Skeleton className="h-20 w-full bg-[#1a2332]" />
+            </div>
+          ) : matchOdds && Object.keys(matchOdds).length > 0 ? (
+            <div className="space-y-4">
+              <pre className="text-xs text-gray-500 overflow-auto bg-[#0a0e14] p-4 rounded">
+                {JSON.stringify(matchOdds, null, 2)}
+              </pre>
+              <p className="text-gray-400 text-sm">
+                StatPal API'den oran verisi alındı. Formatı kontrol edip görüntülemeyi ekleyeceğiz.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
+              <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
+              <h3 className="text-white font-semibold mb-2">Bahis Oranları Mevcut Değil</h3>
+              <p className="text-gray-400 text-sm">
+                Bu maç için bahis oranları şu anda mevcut değildir. StatPal API'den oran verisi çekilemedi.
+                <br />
+                Lütfen StatPal API dokümantasyonunu kontrol edin veya API sağlayıcısı ile iletişime geçin.
+              </p>
+            </div>
           )}
         </div>
       )}

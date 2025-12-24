@@ -372,6 +372,17 @@ export const statpalAPI = {
     const response = await fetchAPI(`/teams/statpal/${teamId}/transfers`);
     return response.data || [];
   },
+
+  /**
+   * Get match odds (pre-match or inplay) from StatPal API
+   * @param {string} matchId - Match ID
+   * @param {boolean} inplay - Get inplay odds if true
+   * @returns {Promise<Object>} Odds data
+   */
+  async getMatchOdds(matchId, inplay = false) {
+    const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
+    return response.data || null;
+  },
 };
 
 /**

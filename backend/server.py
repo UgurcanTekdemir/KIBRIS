@@ -506,6 +506,28 @@ async def get_statpal_team_transfers(team_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/matches/statpal/{match_id}/odds")
+async def get_statpal_match_odds(
+    match_id: str,
+    inplay: bool = Query(False, description="Get inplay odds instead of pre-match")
+):
+    """Get pre-match or inplay odds markets from StatPal API"""
+    try:
+        odds = await statpal_api_service.get_match_odds(match_id, inplay=inplay)
+        if not odds or len(odds) == 0:
+            return {
+                "success": False,
+                "message": "Odds data not available for this match",
+                "data": {},
+                "source": "statpal",
+                "inplay": inplay
+            }
+        return {"success": True, "data": odds, "source": "statpal", "inplay": inplay}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal match odds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/test-statpal")
 async def test_statpal_api():
     """Test StatPal API connection and configuration"""
