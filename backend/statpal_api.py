@@ -762,18 +762,20 @@ class StatPalAPIService:
             endpoints_to_try = []
             
             if inplay:
-                # Try live markets endpoints
+                # Try live markets endpoints - correct format: /soccer/odds/live/markets
                 endpoints_to_try = [
-                    ("soccer/odds/live-markets", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/live-markets", {}),  # Get all live odds
+                    ("soccer/odds/live/markets", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/live/markets", {}),  # Get all live odds
                     (f"soccer/matches/{match_id}/odds/live", {}),
                     (f"soccer/odds/inplay/{match_id}", {}),
                 ]
             else:
-                # Try pre-match endpoints
+                # Try pre-match endpoints - likely format: /soccer/odds/pre-match/markets
                 endpoints_to_try = [
+                    ("soccer/odds/pre-match/markets", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/pre-match/markets", {}),  # Get all pre-match odds
                     ("soccer/odds/pre-match", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/pre-match", {}),  # Get all pre-match odds
+                    ("soccer/odds/pre-match", {}),
                     (f"soccer/matches/{match_id}/odds", {}),
                     (f"soccer/odds/{match_id}", {}),
                     ("soccer/odds", {"match_id": match_id} if match_id else {}),
@@ -815,7 +817,17 @@ class StatPalAPIService:
                             # No match_id filter, return all odds
                             return result
                     elif result and isinstance(result, list) and len(result) > 0:
-                        # If result is a list, find match by ID
+                        # If result is a list, it might be a list of markets
+                        # Check if it's market list (has 'id' and 'name' fields)
+                        if result and isinstance(result[0], dict) and "id" in result[0] and "name" in result[0]:
+                            # This is a list of available markets
+                            # Return the market list - we'll need to fetch odds for each market separately
+                            return {
+                                "markets": result,
+                                "match_id": match_id,
+                                "is_market_list": True
+                            }
+                        # Otherwise, try to find match by ID
                         if match_id:
                             for odds_data in result:
                                 if (odds_data.get("match_id") == match_id or
@@ -826,6 +838,22 @@ class StatPalAPIService:
                 except Exception as e:
                     logger.debug(f"Odds endpoint {endpoint} failed: {e}")
                     continue
+            
+            # If we got market list but no match_id was provided or no match-specific odds found
+            # Try to get odds for a specific market (e.g., Fulltime Result - market ID 3610)
+            if match_id:
+                # Try to get odds for the most common market (Fulltime Result - 3610)
+                try:
+                    market_result = await self._make_request(
+                        "soccer/odds/live/markets/3610" if inplay else "soccer/odds/pre-match/markets/3610",
+                        params={"match_id": match_id},
+                        use_cache=True,
+                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    if market_result:
+                        return market_result
+                except Exception:
+                    pass
             
             # If no endpoint works, return empty dict
             logger.warning(f"Match odds endpoint not found for match {match_id}, inplay={inplay}")
