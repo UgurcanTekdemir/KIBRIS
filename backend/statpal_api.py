@@ -446,6 +446,331 @@ class StatPalAPIService:
         except Exception as e:
             logger.error(f"Error fetching standings: {e}")
             return []
+    
+    async def get_match_stats(self, match_id: str) -> Dict[str, Any]:
+        """
+        Get live in-depth match stats (possession, shots, fouls, corners, etc.)
+        Per StatPal documentation: Live In-Depth Match Stats
+        
+        Args:
+            match_id: Match ID
+            
+        Returns:
+            Detailed match statistics
+        """
+        try:
+            # Try different possible endpoints
+            endpoints_to_try = [
+                f"soccer/matches/{match_id}/stats",
+                f"soccer/matches/{match_id}/live-stats",
+                f"soccer/live-match-stats/{match_id}",
+            ]
+            
+            for endpoint in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        use_cache=True,
+                        cache_ttl=LIVE_SCORES_CACHE_TTL  # Live stats update frequently
+                    )
+                    if result:
+                        return result
+                except Exception:
+                    continue
+            
+            # If no endpoint works, return empty dict
+            logger.warning(f"Match stats endpoint not found for match {match_id}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching match stats: {e}")
+            return {}
+    
+    async def get_upcoming_schedules(
+        self,
+        league_id: Optional[int] = None,
+        date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get upcoming match schedules
+        Per StatPal documentation: Upcoming Schedules
+        
+        Args:
+            league_id: League ID filter (optional)
+            date: Date filter in YYYY-MM-DD format (optional)
+            
+        Returns:
+            List of upcoming matches
+        """
+        params = {}
+        if league_id:
+            params["league_id"] = league_id
+        if date:
+            params["date"] = date
+        
+        try:
+            # Try different possible endpoints
+            endpoints_to_try = [
+                "soccer/matches/upcoming",
+                "soccer/schedules",
+                "soccer/upcoming-schedule",
+            ]
+            
+            for endpoint in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        params=params if params else None,
+                        use_cache=True,
+                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    if result:
+                        # Parse similar to live matches structure
+                        matches = []
+                        if isinstance(result, dict):
+                            if "upcoming" in result:
+                                result = result["upcoming"]
+                            if "schedules" in result:
+                                result = result["schedules"]
+                            if "league" in result:
+                                for league_data in result.get("league", []):
+                                    league_name = league_data.get("name", "Unknown League")
+                                    league_id_data = league_data.get("id")
+                                    country = league_data.get("country", "")
+                                    
+                                    league_matches = league_data.get("match", [])
+                                    if not isinstance(league_matches, list):
+                                        league_matches = [league_matches] if league_matches else []
+                                    
+                                    for match in league_matches:
+                                        if isinstance(match, dict):
+                                            match["league_name"] = league_name
+                                            match["league_id"] = league_id_data
+                                            match["country"] = country
+                                            matches.append(match)
+                        return matches
+                except Exception:
+                    continue
+            
+            logger.warning("Upcoming schedules endpoint not found")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching upcoming schedules: {e}")
+            return []
+    
+    async def get_top_scorers(self, league_id: int) -> List[Dict[str, Any]]:
+        """
+        Get league top scorers
+        Per StatPal documentation: League Top Scorers
+        
+        Args:
+            league_id: League ID
+            
+        Returns:
+            List of top scorers
+        """
+        try:
+            # Try different possible endpoints
+            endpoints_to_try = [
+                f"soccer/leagues/{league_id}/top-scorers",
+                f"soccer/top-scorers/{league_id}",
+                f"soccer/scoring-leaders/{league_id}",
+            ]
+            
+            for endpoint in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        use_cache=True,
+                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    if result:
+                        if isinstance(result, dict):
+                            return result.get("data", result.get("scorers", result.get("players", [])))
+                        elif isinstance(result, list):
+                            return result
+                        return []
+                except Exception:
+                    continue
+            
+            logger.warning(f"Top scorers endpoint not found for league {league_id}")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching top scorers: {e}")
+            return []
+    
+    async def get_injuries(self, team_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get player injuries and suspensions
+        Per StatPal documentation: Injuries and Suspensions
+        
+        Args:
+            team_id: Team ID filter (optional)
+            
+        Returns:
+            List of injured/suspended players
+        """
+        params = {}
+        if team_id:
+            params["team_id"] = team_id
+        
+        try:
+            result = await self._make_request(
+                "soccer/injuries",
+                params=params if params else None,
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("injuries", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching injuries: {e}")
+            return []
+    
+    async def get_head_to_head(
+        self,
+        team1_id: int,
+        team2_id: int
+    ) -> Dict[str, Any]:
+        """
+        Get head-to-head statistics between two teams
+        Per StatPal documentation: Head To Head Stats
+        
+        Args:
+            team1_id: First team ID
+            team2_id: Second team ID
+            
+        Returns:
+            Head-to-head statistics
+        """
+        try:
+            # Try different possible endpoints
+            endpoints_to_try = [
+                f"soccer/teams/{team1_id}/vs/{team2_id}",
+                f"soccer/head-to-head/{team1_id}/{team2_id}",
+                f"soccer/h2h/{team1_id}/{team2_id}",
+            ]
+            
+            for endpoint in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        use_cache=True,
+                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    if result:
+                        return result
+                except Exception:
+                    continue
+            
+            logger.warning(f"Head-to-head endpoint not found for teams {team1_id} vs {team2_id}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching head-to-head stats: {e}")
+            return {}
+    
+    async def get_team_stats(self, team_id: int) -> Dict[str, Any]:
+        """
+        Get detailed team statistics
+        Per StatPal documentation: Detailed Team Stats
+        
+        Args:
+            team_id: Team ID
+            
+        Returns:
+            Team statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/teams/{team_id}/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching team stats: {e}")
+            return {}
+    
+    async def get_player_stats(self, player_id: int) -> Dict[str, Any]:
+        """
+        Get detailed player statistics
+        Per StatPal documentation: Detailed Player Stats
+        
+        Args:
+            player_id: Player ID
+            
+        Returns:
+            Player statistics
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/players/{player_id}/stats",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching player stats: {e}")
+            return {}
+    
+    async def get_match_odds(
+        self,
+        match_id: str,
+        inplay: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get pre-match or inplay odds markets
+        Per StatPal documentation: Pre-Match Odds Markets / Inplay Odds Markets
+        
+        Args:
+            match_id: Match ID
+            inplay: If True, get inplay odds; if False, get pre-match odds
+            
+        Returns:
+            Odds markets data
+        """
+        try:
+            endpoint = f"soccer/matches/{match_id}/odds"
+            if inplay:
+                endpoint = f"soccer/matches/{match_id}/odds/live"
+            
+            result = await self._make_request(
+                endpoint,
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
+            )
+            return result if isinstance(result, dict) else {}
+        except Exception as e:
+            logger.error(f"Error fetching match odds: {e}")
+            return {}
+    
+    async def get_team_transfers(self, team_id: int) -> List[Dict[str, Any]]:
+        """
+        Get team transfer history
+        Per StatPal documentation: Team Transfer History
+        
+        Args:
+            team_id: Team ID
+            
+        Returns:
+            List of transfers
+        """
+        try:
+            result = await self._make_request(
+                f"soccer/teams/{team_id}/transfers",
+                use_cache=True,
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+            )
+            if isinstance(result, dict):
+                return result.get("data", result.get("transfers", []))
+            elif isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching team transfers: {e}")
+            return []
 
 
 # Global instance
