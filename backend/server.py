@@ -514,7 +514,7 @@ async def get_statpal_match_odds(
     """Get pre-match or inplay odds markets from StatPal API"""
     try:
         odds = await statpal_api_service.get_match_odds(match_id, inplay=inplay)
-        if not odds or len(odds) == 0:
+        if not odds or (isinstance(odds, dict) and len(odds) == 0):
             return {
                 "success": False,
                 "message": "Odds data not available for this match",
@@ -522,6 +522,7 @@ async def get_statpal_match_odds(
                 "source": "statpal",
                 "inplay": inplay
             }
+        # Return odds data (could be actual odds or market list)
         return {"success": True, "data": odds, "source": "statpal", "inplay": inplay}
     except Exception as e:
         logger.error(f"Error fetching StatPal match odds: {e}")

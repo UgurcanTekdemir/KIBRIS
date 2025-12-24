@@ -793,6 +793,11 @@ class StatPalAPIService:
                         cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
                     )
                     
+                    # Check for error response
+                    if result and isinstance(result, dict) and "error" in result:
+                        logger.debug(f"StatPal API error for {endpoint}: {result.get('error')}")
+                        continue
+                    
                     if result and isinstance(result, dict) and len(result) > 0:
                         # Check if this is the live_match format with odds (for inplay)
                         if "live_match" in result:
@@ -881,13 +886,13 @@ class StatPalAPIService:
             
             # If no odds data found, try to get market list as fallback
             # This should only happen if the direct odds endpoint doesn't work
-            if not result or (isinstance(result, dict) and len(result) == 0):
+            if not result or (isinstance(result, dict) and (len(result) == 0 or "error" in result)):
                 try:
-                    # Try market list endpoint as last resort
+                    # Try market list endpoint as fallback
                     market_list_endpoint = "soccer/odds/live/markets" if inplay else "soccer/odds/pre-match/markets"
                     market_list_result = await self._make_request(
                         market_list_endpoint,
-                        params={"match_id": match_id} if match_id else {},
+                        params={},  # Market list doesn't need match_id
                         use_cache=True,
                         cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
                     )
@@ -899,7 +904,8 @@ class StatPalAPIService:
                                 "match_id": match_id,
                                 "is_market_list": True
                             }
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to get market list: {e}")
                     pass
             
             # If no endpoint works, return empty dict
