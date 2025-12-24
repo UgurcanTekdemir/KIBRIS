@@ -142,14 +142,23 @@ class StatPalAPIService:
                 if response.status_code == 200:
                     try:
                         data = response.json()
-                        logger.info(f"StatPal API Response type: {type(data)}")
-                        if isinstance(data, dict):
-                            logger.info(f"StatPal API Response keys: {list(data.keys())}")
-                            logger.info(f"StatPal API Response preview: {str(data)[:500]}")
-                        elif isinstance(data, list):
-                            logger.info(f"StatPal API Response is list with {len(data)} items")
-                            if data and len(data) > 0:
-                                logger.info(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'Not a dict'}")
+                logger.info(f"StatPal API Response type: {type(data)}")
+                if isinstance(data, dict):
+                    logger.info(f"StatPal API Response keys: {list(data.keys())}")
+                    logger.info(f"StatPal API Response preview: {str(data)[:1000]}")
+                    # Log nested structure details
+                    for key, value in data.items():
+                        if isinstance(value, dict):
+                            logger.info(f"  - {key} (dict) keys: {list(value.keys()) if isinstance(value, dict) else 'N/A'}")
+                        elif isinstance(value, list):
+                            logger.info(f"  - {key} (list) length: {len(value)}")
+                            if value and len(value) > 0 and isinstance(value[0], dict):
+                                logger.info(f"  - {key} first item keys: {list(value[0].keys())}")
+                elif isinstance(data, list):
+                    logger.info(f"StatPal API Response is list with {len(data)} items")
+                    if data and len(data) > 0:
+                        logger.info(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'Not a dict'}")
+                        logger.info(f"First item preview: {str(data[0])[:500]}")
                         
                         # Check for invalid-request in response
                         if isinstance(data, dict) and data.get("status") == "invalid-request":
@@ -272,6 +281,16 @@ class StatPalAPIService:
                         match["is_live"] = True
             
             logger.info(f"Extracted {len(matches)} live matches")
+            
+            # If no matches found, log the full response structure for debugging
+            if len(matches) == 0:
+                logger.warning("No matches extracted from StatPal API response")
+                logger.warning(f"Full response structure: {result}")
+                if isinstance(result, dict):
+                    logger.warning(f"Response keys: {list(result.keys())}")
+                    for key, value in result.items():
+                        logger.warning(f"  - {key}: {type(value)} - {str(value)[:200] if not isinstance(value, (dict, list)) else f'{len(value) if isinstance(value, list) else \"dict\"} items'}")
+            
             return matches
         except Exception as e:
             logger.error(f"Error fetching live matches: {e}")
