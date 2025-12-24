@@ -389,8 +389,8 @@ const MatchDetailPage = () => {
                 statpalAPI.getMatchOdds(match.id, isInplay)
                   .then(odds => {
                     console.log('Odds data received:', odds);
-                    // Only set if we have actual data (not empty object)
-                    if (odds && (odds.odds || odds.markets || odds.is_market_list || Object.keys(odds).length > 0)) {
+                    // Set odds data if available (including empty object for fallback handling)
+                    if (odds !== null && odds !== undefined) {
                       setMatchOdds(odds);
                     } else {
                       setMatchOdds(null); // Set to null so we show "not available" message
