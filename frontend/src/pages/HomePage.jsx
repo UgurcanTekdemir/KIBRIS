@@ -11,25 +11,40 @@ import { useMatches } from '../hooks/useMatches';
 
 // Popular Leagues Component
 function PopularLeagues({ allMatches }) {
-  const leagues = [
-    { id: 1, name: 'Süper Lig', flag: '🇹🇷', searchTerms: ['süper lig', 'super league', 'turkey'] },
-    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', searchTerms: ['premier', 'epl', 'england'] },
-    { id: 3, name: 'La Liga', flag: '🇪🇸', searchTerms: ['la liga', 'spain', 'ispanya'] },
-    { id: 4, name: 'Serie A', flag: '🇮🇹', searchTerms: ['serie a', 'italy', 'italya'] },
-    { id: 5, name: 'Bundesliga', flag: '🇩🇪', searchTerms: ['bundesliga', 'germany', 'almanya'] },
-    { id: 6, name: 'Ligue 1', flag: '🇫🇷', searchTerms: ['ligue 1', 'france', 'fransa'] },
-  ];
+  const today = new Date().toISOString().split('T')[0];
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  
+  const leagues = useMemo(() => [
+    { id: 1, name: 'Süper Lig', flag: '🇹🇷', sport_key: 'soccer_turkey_super_league' },
+    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', sport_key: 'soccer_epl' },
+    { id: 3, name: 'La Liga', flag: '🇪🇸', sport_key: 'soccer_spain_la_liga' },
+    { id: 4, name: 'Serie A', flag: '🇮🇹', sport_key: 'soccer_italy_serie_a' },
+    { id: 5, name: 'Bundesliga', flag: '🇩🇪', sport_key: 'soccer_germany_bundesliga' },
+    { id: 6, name: 'Ligue 1', flag: '🇫🇷', sport_key: 'soccer_france_ligue_one' },
+  ], []);
 
   const leagueCounts = useMemo(() => {
     const counts = {};
     leagues.forEach(league => {
-      counts[league.id] = allMatches.filter(match => {
-        const matchLeague = match.league?.toLowerCase() || '';
-        return league.searchTerms.some(term => matchLeague.includes(term.toLowerCase()));
-      }).length;
+        // Filter matches by sport_key and date (within 7 days)
+        counts[league.id] = allMatches.filter(match => {
+          // Match by sport_key
+          if (match.sportKey !== league.sport_key) return false;
+          
+          // Only count matches within 7 days
+          const matchDate = match.date || '';
+          const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+          
+          // Exclude finished matches (but not postponed - they should be shown)
+          const status = (match.status || '').toUpperCase();
+          const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+          const isPostponed = status === 'POSTPONED';
+          
+          return isWithin7Days && !isFinished && !isPostponed;
+        }).length;
     });
     return counts;
-  }, [allMatches]);
+  }, [allMatches, today, sevenDaysLater, leagues]);
 
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
@@ -56,16 +71,54 @@ const HomePage = () => {
   const { matches: allMatches, loading, error } = useMatches({ matchType: 1 });
 
   // Filter matches by today and upcoming
-  // Note: The Odds API returns future matches, so we show upcoming matches instead
+  // Exclude past/finished matches explicitly
   const todayMatches = useMemo(() => {
     // Show matches from today onwards (including today)
-    return allMatches.filter(m => m.date >= today).slice(0, 4);
+    // Exclude finished matches (status: FT, FINISHED, etc.)
+    const filtered = allMatches.filter(m => {
+      // Check date
+      if (m.date < today) return false;
+      
+      // Exclude finished matches (but not postponed - they should be shown)
+      const status = (m.status || '').toUpperCase();
+      if (status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED') {
+        return false;
+      }
+      // POSTPONED matches are excluded from homepage
+      if (status === 'POSTPONED') {
+        return false;
+      }
+      
+      // Exclude live matches (they're handled separately)
+      // Actually, we can show live matches too, so keep them
+      
+      return true;
+    });
+    
+    return filtered.slice(0, 4);
   }, [allMatches, today]);
 
   const upcomingMatches = useMemo(() => {
     // Show next 8 upcoming matches (excluding the ones shown in todayMatches)
+    const filtered = allMatches.filter(m => {
+      // Check date
+      if (m.date < today) return false;
+      
+      // Exclude finished matches (but not postponed - they should be shown)
+      const status = (m.status || '').toUpperCase();
+      if (status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED') {
+        return false;
+      }
+      // POSTPONED matches are excluded from homepage
+      if (status === 'POSTPONED') {
+        return false;
+      }
+      
+      return true;
+    });
+    
     const todayCount = todayMatches.length;
-    return allMatches.filter(m => m.date >= today).slice(todayCount, todayCount + 8);
+    return filtered.slice(todayCount, todayCount + 8);
   }, [allMatches, today, todayMatches.length]);
 
   const filteredTodayMatches = useMemo(() => {

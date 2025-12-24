@@ -1,23 +1,28 @@
 /**
  * Match Data Mapper
- * Transforms The Odds API response format to our internal match structure
+ * Transforms API response format (The Odds API or StatPal API) to our internal match structure
  */
 
 /**
  * Map API response to internal match structure
- * @param {Object} apiMatch - Match object from The Odds API
+ * Supports both The Odds API and StatPal API formats (StatPal is transformed to The Odds API format in backend)
+ * @param {Object} apiMatch - Match object from API (The Odds API format or StatPal transformed format)
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
   if (!apiMatch) return null;
   
-  // The Odds API response structure:
+  // The Odds API / StatPal (transformed) response structure:
   // {
   //   id, sport_key, commence_time, home_team, away_team,
-  //   bookmakers: [{ key, title, markets: [{ key: "h2h", outcomes: [{ name, price }] }] }]
+  //   bookmakers: [{ key, title, markets: [{ key: "h2h", outcomes: [{ name, price }] }] }] (The Odds API)
+  //   scores: [{ name, score }] (StatPal or The Odds API Scores)
+  //   is_live: boolean (StatPal or The Odds API Scores)
+  //   minute: number (StatPal)
   // }
   
   // Extract h2h market from first bookmaker (or best available)
+  // StatPal API provides odds in bookmakers array
   const h2hMarket = extractH2HMarket(apiMatch.bookmakers, apiMatch.home_team, apiMatch.away_team);
   
   // Parse commence_time (ISO 8601 format: "2021-09-10T00:20:00Z")
@@ -30,8 +35,10 @@ export function mapApiMatchToInternal(apiMatch) {
   const drawOdds = h2hMarket?.draw || null;
   const awayOdds = h2hMarket?.away || null;
   
-  // Build markets array
+  // Build markets array from all bookmakers
   const markets = [];
+  
+  // Add h2h market (Maç Sonucu)
   if (homeOdds || drawOdds || awayOdds) {
     markets.push({
       name: 'Maç Sonucu',
@@ -43,19 +50,124 @@ export function mapApiMatchToInternal(apiMatch) {
     });
   }
   
-  // Get league name from sport_key
-  const league = getLeagueNameFromSportKey(apiMatch.sport_key);
+  // Extract all other markets from bookmakers
+  if (apiMatch.bookmakers && Array.isArray(apiMatch.bookmakers)) {
+    for (const bookmaker of apiMatch.bookmakers) {
+      if (!bookmaker.markets || !Array.isArray(bookmaker.markets)) {
+        continue;
+      }
+      
+      // Process all markets (not just h2h, totals, btts)
+      for (const market of bookmaker.markets) {
+        // Skip h2h as it's already processed above
+        if (market.key === 'h2h') {
+          continue;
+        }
+        
+        if (!market.outcomes || !Array.isArray(market.outcomes) || market.outcomes.length === 0) {
+          continue;
+        }
+        
+        // Get market display name (from backend or use key-based name)
+        let marketName = market.name;
+        if (!marketName) {
+          // Map market keys to Turkish names
+          const marketNameMap = {
+            'totals': 'Toplam Gol',
+            'btts': 'Karşılıklı Gol',
+            'h2h_1h': 'İlk Yarı Sonucu',
+            'totals_1h': 'İlk Yarı Toplam Gol',
+            'h2h_2h': 'İkinci Yarı Sonucu',
+            'totals_2h': 'İkinci Yarı Toplam Gol',
+            'handicap_3way': 'Handikap (3 Yönlü)',
+            'handicap_asian': 'Asya Handikapı',
+            'double_chance': 'Çifte Şans',
+            'draw_no_bet': 'Beraberlik Yok',
+            'penalty': 'Penaltı',
+            'corners': 'Korner',
+            'cards': 'Kartlar',
+            'player': 'Oyuncu Bahisleri',
+          };
+          marketName = marketNameMap[market.key] || market.key;
+        }
+        
+        // Extract options from outcomes
+        const marketOptions = market.outcomes
+          .filter(outcome => outcome.price && outcome.price > 0)
+          .map(outcome => {
+            let label = outcome.name || 'N/A';
+            
+            // Translate common outcome names to Turkish
+            const labelLower = label.toLowerCase();
+            
+            // General translations
+            if (label === 'Home' || labelLower === 'home') {
+              // For h2h markets, use team name, otherwise use "Ev Sahibi"
+              label = market.key === 'h2h' ? apiMatch.home_team || 'Ev Sahibi' : 'Ev Sahibi';
+            } else if (label === 'Away' || labelLower === 'away') {
+              label = market.key === 'h2h' ? apiMatch.away_team || 'Deplasman' : 'Deplasman';
+            } else if (label === 'Draw' || label === 'X' || labelLower.includes('draw')) {
+              label = 'Beraberlik';
+            } else if (label === 'Yes' || label === 'Evet' || labelLower === 'yes') {
+              label = 'Var';
+            } else if (label === 'No' || label === 'Hayır' || labelLower === 'no') {
+              label = 'Yok';
+            } else if (label === 'Odd' || labelLower === 'odd') {
+              label = 'Tek';
+            } else if (label === 'Even' || labelLower === 'even') {
+              label = 'Çift';
+            } else if (label.includes('/')) {
+              // Handle combinations like "Home/Draw", "Home/Away", "Draw/Away"
+              if (label.includes('Home') && label.includes('Draw')) {
+                label = '1X';
+              } else if (label.includes('Home') && label.includes('Away')) {
+                label = '12';
+              } else if (label.includes('Draw') && label.includes('Away')) {
+                label = 'X2';
+              } else {
+                label = label
+                  .replace(/Home/gi, '1')
+                  .replace(/Away/gi, '2')
+                  .replace(/Draw/gi, 'X');
+              }
+            }
+            
+            return {
+              label: label,
+              value: parseFloat(outcome.price) || 0,
+            };
+          })
+          .filter(opt => opt.value > 0);
+        
+        if (marketOptions.length > 0) {
+          markets.push({
+            name: marketName,
+            options: marketOptions,
+          });
+        }
+      }
+    }
+  }
+  
+  // Get league name from sport_key or league field (StatPal provides league field)
+  const league = apiMatch.league || getLeagueNameFromSportKey(apiMatch.sport_key);
   const leagueFlag = getLeagueFlagFromSportKey(apiMatch.sport_key);
   
-  // Extract live scores if available (from Scores API - paid plans only)
+  // Extract live scores if available (from StatPal API or The Odds API Scores)
   let homeScore = 0;
   let awayScore = 0;
   let isLive = false;
   let minute = null;
   
-  // Check if this is a live match with scores (from Scores API)
+  // Check if minute is directly provided (StatPal API)
+  if (apiMatch.minute !== undefined && apiMatch.minute !== null) {
+    minute = parseInt(apiMatch.minute, 10);
+    if (isNaN(minute)) minute = null;
+  }
+  
+  // Check if this is a live match with scores
   if (apiMatch.scores && Array.isArray(apiMatch.scores)) {
-    // Scores API format: [{ name: "Team Name", score: 2 }]
+    // Scores format: [{ name: "Team Name", score: 2 }]
     const homeTeamName = apiMatch.home_team?.toLowerCase() || '';
     const awayTeamName = apiMatch.away_team?.toLowerCase() || '';
     
@@ -71,12 +183,13 @@ export function mapApiMatchToInternal(apiMatch) {
     }
     
     // Determine if match is live
-    // Scores API provides: completed (false = live, true = finished)
-    // or is_live flag from merged data
+    // StatPal API provides: is_live flag
+    // The Odds API Scores provides: completed (false = live, true = finished) or is_live flag
     if (apiMatch.is_live === true || apiMatch.completed === false) {
       isLive = true;
-      // Try to extract minute from last_update or estimate from commence_time
-      if (apiMatch.last_update && commenceTime) {
+      
+      // If minute not already set, try to extract from last_update or estimate from commence_time
+      if (minute === null && apiMatch.last_update && commenceTime) {
         const lastUpdate = new Date(apiMatch.last_update);
         if (!isNaN(commenceTime.getTime()) && !isNaN(lastUpdate.getTime())) {
           const diffMinutes = Math.floor((lastUpdate - commenceTime) / (1000 * 60));
@@ -86,6 +199,32 @@ export function mapApiMatchToInternal(apiMatch) {
         }
       }
     }
+  } else if (apiMatch.is_live === true || apiMatch.isLive === true) {
+    // StatPal API: is_live flag without scores array (match just started)
+    isLive = true;
+  }
+  
+  // Check if match is finished FIRST (before using it in conditions)
+  // POSTPONED is NOT considered finished - it's a separate status
+  const status = (apiMatch.status || '').toUpperCase();
+  const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELLED' || status === 'CANCELED';
+  const isPostponed = status === 'POSTPONED';
+  
+  // Also check status field for live indicators (1H, 2H, HT, LIVE, INPLAY, etc.)
+  const statusUpper = (apiMatch.status || '').toUpperCase();
+  if (!isLive && !isFinished) {
+    // Live statuses: LIVE, HT, 1H, 2H, INPLAY, IN_PLAY, etc.
+    if (statusUpper === 'LIVE' || statusUpper === 'HT' || statusUpper === '1H' || statusUpper === '2H' || 
+        statusUpper === 'INPLAY' || statusUpper === 'IN_PLAY' || statusUpper === 'IN PLAY') {
+      isLive = true;
+    }
+  }
+  
+  // IMPORTANT: If backend explicitly sets is_live to true, trust it
+  // BUT: If match is finished (FT), don't show it as live even if backend says is_live=true
+  // (StatPal /live endpoint returns recently finished matches, but we only want truly live ones)
+  if ((apiMatch.is_live === true || apiMatch.isLive === true) && !isFinished) {
+    isLive = true;
   }
   
   return {
@@ -95,12 +234,14 @@ export function mapApiMatchToInternal(apiMatch) {
     sportKey: apiMatch.sport_key || '', // Add sport_key for filtering
     homeTeam: apiMatch.home_team || 'Home Team',
     awayTeam: apiMatch.away_team || 'Away Team',
-    homeTeamLogo: null, // The Odds API doesn't provide logos
-    awayTeamLogo: null,
+    homeTeamLogo: apiMatch.home_team_logo || null, // StatPal API may provide logos
+    awayTeamLogo: apiMatch.away_team_logo || null,
     homeScore: homeScore,
     awayScore: awayScore,
     minute: minute,
-    isLive: isLive,
+    isLive: isLive, // Use the final isLive value (respects backend's is_live flag)
+    isFinished: isFinished, // Add finished flag
+    status: apiMatch.status || '', // Add status for display
     time: time,
     date: date,
     odds: {
@@ -119,6 +260,7 @@ export function mapApiMatchToInternal(apiMatch) {
  */
 function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
   if (!Array.isArray(bookmakers) || bookmakers.length === 0) {
+    console.debug('extractH2HMarket: No bookmakers array');
     return null;
   }
   
@@ -132,6 +274,12 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
     if (!h2hMarket || !h2hMarket.outcomes) {
       continue;
     }
+    
+    console.debug('extractH2HMarket: Found h2h market', {
+      homeTeam,
+      awayTeam,
+      outcomes: h2hMarket.outcomes.map(o => ({ name: o.name, price: o.price }))
+    });
     
     // Map outcomes to home/draw/away
     const result = { home: null, draw: null, away: null };
@@ -147,21 +295,31 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
       const name = outcome.name || '';
       const price = outcome.price;
       
-      // Check if it's a draw outcome
+      // Check if it's a draw outcome (StatPal uses "Draw", The Odds API uses team names or "Draw")
       if (name.toLowerCase().includes('draw') || name === 'X' || name === 'Draw') {
         result.draw = price;
         break;
       }
     }
     
-    // Then match team names - The Odds API outcomes order is NOT guaranteed
-    // We MUST match by team names, not by position
+    // Then match team names or StatPal format (Home/Away)
+    // StatPal API uses "Home" and "Away" as outcome names
     for (const outcome of h2hMarket.outcomes) {
       const name = outcome.name || '';
       const price = outcome.price;
       
       // Skip if already identified as draw
       if (name.toLowerCase().includes('draw') || name === 'X' || name === 'Draw') {
+        continue;
+      }
+      
+      // StatPal format: "Home" and "Away"
+      if (name === 'Home' || name.toLowerCase() === 'home') {
+        result.home = price;
+        continue;
+      }
+      if (name === 'Away' || name.toLowerCase() === 'away') {
+        result.away = price;
         continue;
       }
       
@@ -233,10 +391,26 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
       );
       
       if (result.home === null && result.away === null && result.draw === null) {
-        // Complete failure - use position as last resort
-        result.home = h2hMarket.outcomes[0]?.price || null;
-        result.draw = h2hMarket.outcomes[1]?.price || null;
-        result.away = h2hMarket.outcomes[2]?.price || null;
+        // Complete failure - try exact name matching one more time (case-sensitive)
+        for (const outcome of h2hMarket.outcomes) {
+          const name = (outcome.name || '').trim();
+          const price = outcome.price;
+          
+          if (homeTeam && name === homeTeam) {
+            result.home = price;
+          } else if (awayTeam && name === awayTeam) {
+            result.away = price;
+          } else if (name.toLowerCase().includes('draw') || name === 'X' || name === 'Draw') {
+            result.draw = price;
+          }
+        }
+        
+        // If still null, use position as last resort
+        if (result.home === null && result.away === null && result.draw === null) {
+          result.home = h2hMarket.outcomes[0]?.price || null;
+          result.draw = h2hMarket.outcomes[1]?.price || null;
+          result.away = h2hMarket.outcomes[2]?.price || null;
+        }
       } else {
         // Fill missing ones
         if (result.home === null && nonDrawOutcomes.length >= 1) {
@@ -244,13 +418,29 @@ function extractH2HMarket(bookmakers, homeTeam, awayTeam) {
         }
         if (result.away === null && nonDrawOutcomes.length >= 2) {
           result.away = nonDrawOutcomes[nonDrawOutcomes.length - 1]?.price || null;
+        } else if (result.away === null && nonDrawOutcomes.length === 1 && result.home !== null) {
+          // Only one non-draw outcome and home is already set, try to find away from all outcomes
+          const awayCandidate = h2hMarket.outcomes.find(o => {
+            const oName = (o.name || '').toLowerCase();
+            return !oName.includes('draw') && o.name !== 'X' && o.name !== 'Draw' && o.price !== result.home;
+          });
+          if (awayCandidate) {
+            result.away = awayCandidate.price;
+          }
         }
       }
     }
     
-    return result;
+    // Return result only if at least one odds value is found
+    if (result.home !== null || result.draw !== null || result.away !== null) {
+      console.debug('extractH2HMarket: Success', result);
+      return result;
+    } else {
+      console.debug('extractH2HMarket: No odds found', { homeTeam, awayTeam, outcomes: h2hMarket.outcomes });
+    }
   }
   
+  console.debug('extractH2HMarket: No h2h market found');
   return null;
 }
 

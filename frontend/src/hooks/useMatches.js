@@ -10,6 +10,12 @@ export function useMatches(filters = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Extract filter values for dependency array
+  const matchType = filters.matchType;
+  const sports = filters.sports;
+  const date = filters.date;
+  const league = filters.league;
+
   useEffect(() => {
     let cancelled = false;
 
@@ -22,6 +28,12 @@ export function useMatches(filters = {}) {
         
         if (!cancelled) {
           const mappedMatches = mapApiMatchesToInternal(apiMatches);
+          console.log('useMatches Debug:', {
+            apiMatchesCount: apiMatches.length,
+            mappedMatchesCount: mappedMatches.length,
+            firstApiMatch: apiMatches[0],
+            firstMappedMatch: mappedMatches[0]
+          });
           setMatches(mappedMatches);
         }
       } catch (err) {
@@ -41,7 +53,7 @@ export function useMatches(filters = {}) {
     return () => {
       cancelled = true;
     };
-  }, [JSON.stringify(filters)]); // Re-fetch when filters change
+  }, [matchType, sports, date, league, filters]); // Re-fetch when filters change
 
   return { matches, loading, error, refetch: () => {
     setLoading(true);
@@ -77,10 +89,28 @@ export function useLiveMatches(matchType = 1) {
         
         const apiMatches = await matchAPI.getLiveMatches(matchType);
         
+        console.log('useLiveMatches Debug:', {
+          apiMatchesCount: apiMatches?.length || 0,
+          apiMatches: apiMatches,
+          firstMatch: apiMatches?.[0]
+        });
+        
         if (!cancelled) {
-          const mappedMatches = mapApiMatchesToInternal(apiMatches);
-          // Filter only live matches (in case API returns all matches for today)
-          const liveMatches = mappedMatches.filter(m => m.isLive);
+          const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
+          console.log('useLiveMatches Mapped:', {
+            mappedCount: mappedMatches.length,
+            firstMapped: mappedMatches[0],
+            allIsLive: mappedMatches.map(m => ({ id: m.id, isLive: m.isLive, isFinished: m.isFinished, status: m.status }))
+          });
+          
+          // Filter only live matches that are NOT finished
+          // Backend might return recently finished matches from /live endpoint, but we only want truly live ones
+          const liveMatches = mappedMatches.filter(m => m.isLive === true && m.isFinished !== true);
+          console.log('useLiveMatches Filtered:', {
+            liveCount: liveMatches.length,
+            liveMatches: liveMatches.map(m => ({ id: m.id, isLive: m.isLive, isFinished: m.isFinished, status: m.status }))
+          });
+          
           setMatches(liveMatches);
         }
       } catch (err) {
@@ -151,8 +181,21 @@ export function useMatchDetails(matchId) {
         const apiMatch = await matchAPI.getMatchDetails(matchId);
         
         if (!cancelled) {
+          console.log('useMatchDetails: API response:', apiMatch);
+          if (!apiMatch) {
+            setError('Maç bulunamadı');
+            setLoading(false);
+            return;
+          }
           const { mapApiMatchToInternal } = await import('../utils/matchMapper');
           const mappedMatch = mapApiMatchToInternal(apiMatch);
+          console.log('useMatchDetails: Mapped match:', mappedMatch);
+          console.log('useMatchDetails: Markets:', mappedMatch?.markets);
+          if (!mappedMatch) {
+            setError('Maç verileri işlenemedi');
+            setLoading(false);
+            return;
+          }
           setMatch(mappedMatch);
         }
       } catch (err) {

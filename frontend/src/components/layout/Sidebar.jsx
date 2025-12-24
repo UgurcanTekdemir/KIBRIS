@@ -1,21 +1,40 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { sportsCategories, leagues } from '../../data/mockData';
 import { Home, Zap, Calendar, Trophy, ChevronRight, Search } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
 import { useMatches } from '../../hooks/useMatches';
+import { matchAPI } from '../../services/api';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [leagues, setLeagues] = useState([]);
+  const [loadingLeagues, setLoadingLeagues] = useState(true);
   const searchRef = useRef(null);
   const suggestionsRef = useRef(null);
 
   // Fetch matches for search suggestions
   const { matches: allMatches } = useMatches({ matchType: 1 });
+
+  // Fetch leagues from API
+  useEffect(() => {
+    async function fetchLeagues() {
+      try {
+        setLoadingLeagues(true);
+        const leaguesData = await matchAPI.getLeagues({ matchType: 1 });
+        setLeagues(leaguesData || []);
+      } catch (error) {
+        console.error('Error fetching leagues:', error);
+        setLeagues([]);
+      } finally {
+        setLoadingLeagues(false);
+      }
+    }
+    fetchLeagues();
+  }, []);
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },
@@ -23,7 +42,13 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/matches', label: 'Tüm Maçlar', icon: Calendar },
   ];
 
-  const footballLeagues = leagues.filter((l) => l.sportId === 1);
+  // Filter football leagues (soccer)
+  const footballLeagues = useMemo(() => {
+    return leagues.filter((l) => {
+      const sportKey = l.sport_key || '';
+      return sportKey.includes('soccer') || !sportKey || sportKey === 'soccer_unknown';
+    }).slice(0, 6);
+  }, [leagues]);
 
   // Generate search suggestions
   const suggestions = useMemo(() => {
@@ -234,51 +259,57 @@ const Sidebar = ({ isOpen, onClose }) => {
               })}
             </nav>
 
-            {/* Sports Categories */}
-            <div className="mb-6">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">
-                Spor Dalları
-              </h3>
-              <div className="space-y-1">
-                {sportsCategories.map((sport) => (
-                  <Link
-                    key={sport.id}
-                    to={`/sport/${sport.id}`}
-                    onClick={onClose}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg text-gray-400 hover:bg-[#1a2332] hover:text-white transition-all group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg">{sport.icon}</span>
-                      <span className="font-medium">{sport.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500 bg-[#1a2332] px-2 py-0.5 rounded">
-                        {sport.count}
-                      </span>
-                      <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
             {/* Popular Leagues */}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">
                 Popüler Ligler
               </h3>
               <div className="space-y-1">
-                {footballLeagues.slice(0, 6).map((league) => (
-                  <Link
-                    key={league.id}
-                    to={`/league/${league.id}`}
-                    onClick={onClose}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-400 hover:bg-[#1a2332] hover:text-white transition-all"
-                  >
-                    <span className="text-base">{league.flag}</span>
-                    <span className="font-medium text-sm">{league.name}</span>
-                  </Link>
-                ))}
+                {[
+                  { id: 1, name: 'Süper Lig', flag: '🇹🇷' },
+                  { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+                  { id: 3, name: 'La Liga', flag: '🇪🇸' },
+                  { id: 4, name: 'Serie A', flag: '🇮🇹' },
+                  { id: 5, name: 'Bundesliga', flag: '🇩🇪' },
+                  { id: 6, name: 'Ligue 1', flag: '🇫🇷' },
+                ].map((league) => {
+                  // Count matches for this league (within 7 days, not finished)
+                  const today = new Date().toISOString().split('T')[0];
+                  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                  const sportKeys = {
+                    1: 'soccer_turkey_super_league',
+                    2: 'soccer_epl',
+                    3: 'soccer_spain_la_liga',
+                    4: 'soccer_italy_serie_a',
+                    5: 'soccer_germany_bundesliga',
+                    6: 'soccer_france_ligue_one',
+                  };
+                  const matchCount = allMatches.filter(match => {
+                    if (match.sportKey !== sportKeys[league.id]) return false;
+                    const matchDate = match.date || '';
+                    const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+                    const status = (match.status || '').toUpperCase();
+                    const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED' || status === 'POSTPONED';
+                    return isWithin7Days && !isFinished;
+                  }).length;
+                  
+                  return (
+                    <Link
+                      key={league.id}
+                      to={`/league/${league.id}`}
+                      onClick={onClose}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg text-gray-400 hover:bg-[#1a2332] hover:text-white transition-all group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-base">{league.flag}</span>
+                        <span className="font-medium text-sm truncate">{league.name}</span>
+                      </div>
+                      <span className="text-xs text-gray-500 bg-[#1a2332] px-2 py-0.5 rounded">
+                        {matchCount}
+                      </span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>

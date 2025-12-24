@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from nosy_api import nosy_api_service
-from the_odds_api import the_odds_service
+from statpal_api import statpal_service
 
 
 ROOT_DIR = Path(__file__).parent
@@ -131,14 +131,22 @@ async def get_status_checks():
 @api_router.get("/matches")
 async def get_matches(
     match_type: int = Query(1, description="Match type (1=Futbol, 2=Basketbol, etc.)"),
-    league: Optional[str] = Query(None, description="League name filter"),
+    league: Optional[str] = Query(None, description="League name or ID filter"),
     date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD)"),
     country: Optional[str] = Query(None, description="Country filter")
 ):
-    """Get betting program matches"""
+    """Get all matches (live + daily + fixtures)"""
     try:
-        # Use The Odds API service instead of NosyAPI
-        matches = await the_odds_service.get_matches()
+        matches = await statpal_service.get_matches(
+            date=date,
+            league=league
+        )
+        
+        # Filter by country if provided
+        if country:
+            matches = [m for m in matches if 
+                     country.lower() in m.get("country", "").lower()]
+        
         return {"success": True, "data": matches}
     except Exception as e:
         logger.error(f"Error fetching matches: {e}")
@@ -152,38 +160,31 @@ async def get_live_matches(
     """
     Get live matches (matches currently in progress).
     
-    Note: Requires a paid The Odds API plan. Free plan doesn't provide live scores.
-    With paid plan, this uses the Scores API to get live matches with scores.
+    Uses StatPal API to get live soccer matches with scores and statistics.
     """
     try:
-        # Try to get live matches with scores (requires paid plan)
-        live_matches = await the_odds_service.get_live_matches()
+        # Get live matches from StatPal API
+        live_matches = await statpal_service.get_live_matches()
         
         if not live_matches:
-            # If no live matches found (could be free plan or no live matches at the moment)
-            # Return upcoming matches sorted by commence_time as fallback
-            all_matches = await the_odds_service.get_matches()
-            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
-            return {"success": True, "data": sorted_matches[:20], "is_live": False}
+            # If no live matches found, return empty list
+            return {"success": True, "data": [], "is_live": False}
         
         return {"success": True, "data": live_matches, "is_live": True}
     except Exception as e:
         logger.error(f"Error fetching live matches: {e}")
-        # Fallback to upcoming matches if Scores API fails (free plan)
-        try:
-            all_matches = await the_odds_service.get_matches()
-            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
-            return {"success": True, "data": sorted_matches[:20], "is_live": False}
-        except Exception as fallback_error:
-            logger.error(f"Fallback also failed: {fallback_error}")
-            raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.get("/matches/{match_id}")
 async def get_match_details(match_id: str):
     """Get detailed information for a specific match"""
     try:
-        match_data = await the_odds_service.get_match_by_id(match_id)
+        # Try new get_match_details first, fallback to get_match_by_id
+        match_data = await statpal_service.get_match_details(match_id)
+        if not match_data:
+            # Fallback to old method
+            match_data = await statpal_service.get_match_by_id(match_id)
         if not match_data:
             raise HTTPException(status_code=404, detail="Match not found")
         return {"success": True, "data": match_data}
@@ -194,13 +195,114 @@ async def get_match_details(match_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/matches/{match_id}/details")
+async def get_match_details_endpoint(match_id: str):
+    """Get detailed information for a specific match"""
+    try:
+        match_data = await statpal_service.get_match_details(match_id)
+        if not match_data:
+            raise HTTPException(status_code=404, detail="Match not found")
+        return {"success": True, "data": match_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching match details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/{match_id}/lineups")
+async def get_match_lineups(match_id: str):
+    """Get match lineups (starting XI and substitutes)"""
+    try:
+        lineups = await statpal_service.get_match_lineups(match_id)
+        if lineups is None:
+            raise HTTPException(status_code=404, detail="Match lineups not found")
+        return {"success": True, "data": lineups}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching match lineups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/{match_id}/events")
+async def get_match_events(match_id: str):
+    """Get match events (goals, cards, substitutions)"""
+    try:
+        events = await statpal_service.get_match_events(match_id)
+        return {"success": True, "data": events}
+    except Exception as e:
+        logger.error(f"Error fetching match events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/{match_id}/statistics")
+async def get_match_statistics(match_id: str):
+    """Get match statistics (possession, shots, etc.)"""
+    try:
+        statistics = await statpal_service.get_match_statistics(match_id)
+        if statistics is None:
+            raise HTTPException(status_code=404, detail="Match statistics not found")
+        return {"success": True, "data": statistics}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching match statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/{match_id}/odds")
+async def get_match_odds(match_id: str):
+    """Get odds for a specific match"""
+    try:
+        # Get live odds map
+        live_odds_map = await statpal_service.get_live_odds()
+        
+        if match_id in live_odds_map:
+            return {"success": True, "data": live_odds_map[match_id]}
+        else:
+            # Return empty if no odds available
+            return {"success": True, "data": []}
+    except Exception as e:
+        logger.error(f"Error fetching match odds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/images/team/{team_name}")
+async def get_team_logo(team_name: str):
+    """Get team logo URL from StatPal Images API"""
+    try:
+        logo_url = await statpal_service.get_team_logo(team_name)
+        if logo_url:
+            return {"success": True, "data": {"logo_url": logo_url}}
+        else:
+            return {"success": False, "data": None, "message": "Logo not found"}
+    except Exception as e:
+        logger.error(f"Error fetching team logo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/{league_id}/matches")
+async def get_league_matches(
+    league_id: str,
+    season: Optional[str] = Query(None, description="Season filter (e.g., 2025/2026)")
+):
+    """Get all matches for a specific league"""
+    try:
+        matches = await statpal_service.get_league_matches(league_id, season=season)
+        return {"success": True, "data": matches}
+    except Exception as e:
+        logger.error(f"Error fetching league matches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/matches/popular")
 async def get_popular_matches(
     match_type: int = Query(1, description="Match type (1=Futbol, 2=Basketbol, etc.)")
 ):
-    """Get popular matches (matches with most bookmakers)"""
+    """Get popular matches (prioritized live matches)"""
     try:
-        matches = await the_odds_service.get_popular_matches(limit=20)
+        matches = await statpal_service.get_popular_matches(limit=20)
         return {"success": True, "data": matches}
     except Exception as e:
         logger.error(f"Error fetching popular matches: {e}")
@@ -212,9 +314,9 @@ async def get_leagues(
     match_type: int = Query(1, description="Match type"),
     country: Optional[str] = Query(None, description="Country filter")
 ):
-    """Get available leagues from The Odds API"""
+    """Get available leagues from StatPal API"""
     try:
-        leagues = await the_odds_service.get_available_leagues()
+        leagues = await statpal_service.get_available_leagues()
         # Filter by country if provided
         if country:
             leagues = [l for l in leagues if l.get("country", "").lower() == country.lower()]
@@ -228,9 +330,9 @@ async def get_leagues(
 async def get_countries(
     match_type: int = Query(1, description="Match type")
 ):
-    """Get available countries from The Odds API leagues"""
+    """Get available countries from StatPal API leagues"""
     try:
-        countries = await the_odds_service.get_available_countries()
+        countries = await statpal_service.get_available_countries()
         return {"success": True, "data": countries}
     except Exception as e:
         logger.error(f"Error fetching countries: {e}")

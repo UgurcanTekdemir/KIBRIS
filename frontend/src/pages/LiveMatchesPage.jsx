@@ -1,30 +1,14 @@
 import React, { useMemo } from 'react';
-import MatchCard from '../components/betting/MatchCard';
-import { Zap, RefreshCw, AlertCircle, Calendar } from 'lucide-react';
+import LiveMatchCard from '../components/betting/LiveMatchCard';
+import { Zap, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { useMatches } from '../hooks/useMatches';
+import { useLiveMatches } from '../hooks/useMatches';
 
 const LiveMatchesPage = () => {
-  // Since The Odds API free plan doesn't have live scores,
-  // we show upcoming matches that start soon (next 20 matches)
-  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
-  const today = new Date().toISOString().split('T')[0];
-  
-  // Show next 20 upcoming matches (sorted by date)
-  const matches = useMemo(() => {
-    return allMatches
-      .filter(m => m.date >= today) // Only future matches
-      .sort((a, b) => {
-        // Sort by date, then by time
-        if (a.date !== b.date) {
-          return a.date.localeCompare(b.date);
-        }
-        return (a.time || '').localeCompare(b.time || '');
-      })
-      .slice(0, 20);
-  }, [allMatches, today]);
+  // Get only live matches (isLive === true)
+  const { matches, loading, error, refetch } = useLiveMatches(1);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -58,7 +42,7 @@ const LiveMatchesPage = () => {
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             </h1>
             <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${matches.length} yakın maç bulundu`}
+              {loading ? 'Yükleniyor...' : `${matches.length} canlı maç bulundu`}
             </p>
           </div>
         </div>
@@ -74,12 +58,12 @@ const LiveMatchesPage = () => {
       </div>
 
       {/* Info bar */}
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-6">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6">
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-amber-500" />
-          <span className="text-amber-500 font-medium">YAKIN MAÇLAR</span>
+          <Zap className="w-4 h-4 text-red-500" />
+          <span className="text-red-500 font-medium">CANLI MAÇLAR</span>
           <span className="text-gray-400 text-sm ml-2">
-            The Odds API free plan'da canlı skor desteği bulunmamaktadır. Bugün ve yarın başlayacak maçlar gösterilmektedir.
+            Şu anda oynanan canlı maçlar, skorlar, olaylar ve istatistikler gösterilmektedir. Veriler gerçek zamanlı güncellenir.
           </span>
         </div>
       </div>
@@ -112,7 +96,7 @@ const LiveMatchesPage = () => {
         <>
           <div className="grid gap-4 md:grid-cols-2">
             {matches.map((match) => (
-              <MatchCard key={match.id} match={match} showFullMarkets />
+              <LiveMatchCard key={match.id} match={match} />
             ))}
           </div>
 
@@ -124,10 +108,10 @@ const LiveMatchesPage = () => {
               </div>
               <h3 className="text-xl font-semibold text-white mb-2">Şu anda canlı maç yok</h3>
               <p className="text-gray-500 mb-4">
-                The Odds API free plan'da canlı skor desteği bulunmamaktadır.
+                Şu anda oynanan canlı maç bulunmamaktadır.
               </p>
               <p className="text-gray-400 text-sm">
-                Yakında başlayacak maçları görmek için <a href="/matches" className="text-amber-500 hover:text-amber-400">Maçlar</a> sayfasını ziyaret edin.
+                Tüm maçları görmek için <a href="/matches" className="text-amber-500 hover:text-amber-400">Maçlar</a> sayfasını ziyaret edin.
               </p>
             </div>
           )}

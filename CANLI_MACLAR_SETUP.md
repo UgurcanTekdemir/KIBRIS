@@ -108,3 +108,6 @@ Mapper, Scores API'den gelen veriyi parse eder:
 - [The Odds API Documentation](https://the-odds-api.com/liveapi/guides/v4/#scores-endpoint)
 - [Scores API Endpoint](https://the-odds-api.com/liveapi/guides/v4/#get-scores)
 
+
+
+

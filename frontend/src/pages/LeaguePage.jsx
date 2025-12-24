@@ -21,24 +21,38 @@ const LeaguePage = () => {
   const { id } = useParams();
   const leagueId = parseInt(id, 10);
   const leagueInfo = LEAGUE_MAP[leagueId];
+  const today = new Date().toISOString().split('T')[0];
+  // Calculate 7 days (1 week) from today
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Fetch all matches and filter by league
   const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
 
-  // Filter matches by league sport_key
+  // Filter matches by league sport_key and date (only show upcoming matches within 7 days, exclude finished)
   const leagueMatches = useMemo(() => {
     if (!leagueInfo || !allMatches) return [];
     
     return allMatches
       .filter(match => {
         // Match by sport_key first (most accurate)
-        if (match.sportKey === leagueInfo.sport_key) {
-          return true;
-        }
-        // Fallback: match by league name
-        const matchLeague = match.league?.toLowerCase() || '';
-        const targetLeague = leagueInfo.name.toLowerCase();
-        return matchLeague.includes(targetLeague);
+        const matchesLeague = match.sportKey === leagueInfo.sport_key || 
+          (match.league?.toLowerCase() || '').includes(leagueInfo.name.toLowerCase());
+        
+        if (!matchesLeague) return false;
+        
+        // Exclude finished matches
+        const status = (match.status || '').toUpperCase();
+        const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+        if (isFinished) return false;
+        
+        // Exclude postponed matches (they should only appear in MatchesPage)
+        if (status === 'POSTPONED') return false;
+        
+        // Only show matches within 7 days (1 week) from today
+        const matchDate = match.date || '';
+        const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+        
+        return isWithin7Days;
       })
       .sort((a, b) => {
         // Sort by date, then by time
@@ -47,7 +61,7 @@ const LeaguePage = () => {
         }
         return (a.time || '').localeCompare(b.time || '');
       });
-  }, [allMatches, leagueInfo]);
+  }, [allMatches, leagueInfo, today, sevenDaysLater]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (

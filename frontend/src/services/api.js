@@ -132,6 +132,36 @@ export const matchAPI = {
     const response = await fetchAPI(`/countries?match_type=${matchType}`);
     return response.data || [];
   },
+
+  /**
+   * Get match events (goals, cards, substitutions)
+   * @param {string} matchId - Match ID
+   * @returns {Promise<Array>} List of match events
+   */
+  async getMatchEvents(matchId) {
+    const response = await fetchAPI(`/matches/${matchId}/events`);
+    return response.data || [];
+  },
+
+  /**
+   * Get match statistics (possession, shots, etc.)
+   * @param {string} matchId - Match ID
+   * @returns {Promise<Object>} Match statistics
+   */
+  async getMatchStatistics(matchId) {
+    const response = await fetchAPI(`/matches/${matchId}/statistics`);
+    return response.data || null;
+  },
+
+  /**
+   * Get match lineups (starting XI and substitutes)
+   * @param {string} matchId - Match ID
+   * @returns {Promise<Object>} Match lineups
+   */
+  async getMatchLineups(matchId) {
+    const response = await fetchAPI(`/matches/${matchId}/lineups`);
+    return response.data || null;
+  },
 };
 
 export { ApiError };
