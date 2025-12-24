@@ -984,6 +984,72 @@ class StatPalAPIService:
             logger.exception(e)
             return {}
     
+    async def get_live_odds(self) -> List[Dict[str, Any]]:
+        """
+        Get all live matches with live odds available
+        Per StatPal API: GET /soccer/odds/live
+        This endpoint returns all live matches with live odds available.
+        
+        Returns:
+            List of live matches with odds data
+        """
+        try:
+            logger.info("Fetching all live odds from StatPal API: soccer/odds/live")
+            result = await self._make_request(
+                "soccer/odds/live",
+                use_cache=True,
+                cache_ttl=LIVE_SCORES_CACHE_TTL  # Use live cache TTL (30 seconds)
+            )
+            
+            logger.info(f"StatPal live odds response type: {type(result)}")
+            
+            # Handle different response formats
+            if isinstance(result, dict):
+                # Check for error responses
+                if result.get("status") == "error" or result.get("status") == "invalid-request":
+                    error_msg = result.get("message", "Unknown error")
+                    logger.error(f"StatPal API error response: {error_msg}")
+                    return []
+                
+                # Try different possible field names
+                matches = None
+                for field_name in ["data", "matches", "live_matches", "odds", "results", "items"]:
+                    if field_name in result:
+                        matches = result[field_name]
+                        logger.info(f"Found live odds in field '{field_name}': {len(matches) if isinstance(matches, list) else 'Not a list'}")
+                        break
+                
+                if matches is None:
+                    # If no known field, check if all values are lists
+                    for key, value in result.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a match with odds
+                            if isinstance(value[0], dict):
+                                matches = value
+                                logger.info(f"Found live odds in field '{key}': {len(matches)}")
+                                break
+                
+                if matches is None:
+                    logger.warning(f"No live odds found in response. Available keys: {list(result.keys())}")
+                    return []
+                
+                if isinstance(matches, list):
+                    logger.info(f"Extracted {len(matches)} live matches with odds")
+                    return matches
+                else:
+                    logger.warning(f"Live odds field is not a list: {type(matches)}")
+                    return []
+            elif isinstance(result, list):
+                logger.info(f"Received list response with {len(result)} live matches with odds")
+                return result
+            else:
+                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:200]}")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching live odds: {e}")
+            logger.exception(e)
+            return []
+    
     async def get_seasons(self) -> List[Dict[str, Any]]:
         """
         Get available seasons

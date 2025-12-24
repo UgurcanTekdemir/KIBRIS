@@ -635,6 +635,20 @@ async def get_statpal_league_prematch_odds(league_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/odds/statpal/live")
+async def get_statpal_live_odds():
+    """Get all live matches with live odds available from StatPal API"""
+    try:
+        logger.info("Fetching all live odds from StatPal API")
+        live_odds = await statpal_api_service.get_live_odds()
+        logger.info(f"StatPal API returned {len(live_odds) if live_odds else 0} live matches with odds")
+        return {"success": True, "data": live_odds if live_odds else [], "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal live odds: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/odds/statpal/live/match-states")
 async def get_statpal_live_odds_match_states():
     """Get live odds match states from StatPal API"""

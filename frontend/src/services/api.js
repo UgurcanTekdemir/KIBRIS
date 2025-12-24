@@ -522,6 +522,16 @@ export const statpalAPI = {
   },
 
   /**
+   * Get all live matches with live odds available from StatPal API
+   * @returns {Promise<Array>} List of live matches with odds
+   */
+  async getLiveOdds() {
+    const response = await fetchAPI('/odds/statpal/live');
+    console.log('📊 getLiveOdds response:', response);
+    return response.data || [];
+  },
+
+  /**
    * Get live odds match states from StatPal API
    * @returns {Promise<Array>} List of match states with odds
    */
