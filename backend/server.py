@@ -187,6 +187,23 @@ async def get_live_matches(
 
 
 # StatPal specific endpoints - must be defined before generic /matches/{match_id} route
+# IMPORTANT: Specific routes (like /daily, /live, /results) must come BEFORE parameterized routes (like /{match_id})
+@api_router.get("/matches/statpal/daily")
+async def get_statpal_daily_matches(
+    date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD, optional)")
+):
+    """Get daily matches (recent/upcoming) from StatPal API"""
+    try:
+        logger.info(f"Fetching StatPal daily matches - date: {date}")
+        matches = await statpal_api_service.get_matches_daily(date=date)
+        logger.info(f"StatPal API returned {len(matches) if matches else 0} daily matches")
+        return {"success": True, "data": matches if matches else [], "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal daily matches: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/matches/statpal/{match_id}")
 async def get_statpal_match_details(match_id: str):
     """Get detailed information for a specific match from StatPal API"""
@@ -561,19 +578,6 @@ async def get_statpal_seasons():
         return {"success": True, "data": seasons, "source": "statpal"}
     except Exception as e:
         logger.error(f"Error fetching StatPal seasons: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@api_router.get("/matches/statpal/daily")
-async def get_statpal_daily_matches(
-    date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD, optional)")
-):
-    """Get daily matches (recent/upcoming) from StatPal API"""
-    try:
-        matches = await statpal_api_service.get_matches_daily(date=date)
-        return {"success": True, "data": matches, "source": "statpal"}
-    except Exception as e:
-        logger.error(f"Error fetching StatPal daily matches: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
