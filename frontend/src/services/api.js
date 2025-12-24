@@ -7,23 +7,20 @@
 const isProduction = process.env.NODE_ENV === 'production';
 const rawApiUrl = process.env.REACT_APP_API_URL || (isProduction ? null : 'http://localhost:8000');
 
-// Helper function to get API base URL
-function getApiBaseUrl() {
-  if (!rawApiUrl) {
-    const errorMsg = 
-      'REACT_APP_API_URL environment variable is not set. ' +
-      'Please set it to your backend URL (e.g., https://your-backend.railway.app) ' +
-      'in your Vercel/Railway environment variables. ' +
-      'The URL should NOT include /api suffix.';
-    console.error('❌ API Configuration Error:', errorMsg);
-    throw new Error(errorMsg);
-  }
-  
-  const cleanApiUrl = rawApiUrl.replace(/\/api\/?$/, '');
-  return `${cleanApiUrl}/api`;
+// Validate and construct API base URL
+if (isProduction && !rawApiUrl) {
+  const errorMsg = 
+    'REACT_APP_API_URL environment variable is not set in production. ' +
+    'Please set it to your backend URL (e.g., https://your-backend.railway.app) ' +
+    'in your Vercel/Railway environment variables. ' +
+    'The URL should NOT include /api suffix.';
+  console.error('❌ API Configuration Error:', errorMsg);
+  throw new Error(errorMsg);
 }
 
-const API_BASE_URL = getApiBaseUrl();
+// Clean the URL (remove trailing /api if present) and add /api
+const cleanApiUrl = rawApiUrl ? rawApiUrl.replace(/\/api\/?$/, '') : null;
+const API_BASE_URL = cleanApiUrl ? `${cleanApiUrl}/api` : 'http://localhost:8000/api';
 
 // Debug: Log API URL (always log to help debug production issues)
 console.log('🔧 API Configuration:');
