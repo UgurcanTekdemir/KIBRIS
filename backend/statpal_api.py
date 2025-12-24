@@ -384,22 +384,31 @@ class StatPalAPIService:
     
     async def get_leagues(self) -> List[Dict[str, Any]]:
         """
-        Get available leagues
-        Uses 5-minute cache per StatPal documentation
+        Get available leagues from StatPal API
+        Per StatPal API: GET /soccer/leagues
+        Returns list of soccer leagues with details including id, country, season, and date ranges.
+        This endpoint data is updated every 12 hours.
         
         Returns:
-            List of leagues
+            List of leagues with id, country, season, start_date, end_date
         """
         try:
             logger.info("Making request to StatPal API: soccer/leagues")
             result = await self._make_request(
                 "soccer/leagues",
                 use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
+                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL  # 5 minutes cache
             )
             logger.info(f"StatPal API response type: {type(result)}")
-            logger.info(f"StatPal API response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-            logger.info(f"StatPal API response (first 500 chars): {str(result)[:500]}")
+            
+            # Log full response structure for debugging
+            if isinstance(result, dict):
+                logger.info(f"StatPal API response keys: {list(result.keys())}")
+                logger.info(f"StatPal API response preview: {str(result)[:1000]}")
+            elif isinstance(result, list):
+                logger.info(f"StatPal API response is list with {len(result)} items")
+                if result and len(result) > 0:
+                    logger.info(f"First item: {result[0]}")
             
             # Check for error responses
             if isinstance(result, dict):
@@ -409,43 +418,63 @@ class StatPalAPIService:
                     logger.error(f"StatPal API error response: {error_msg}")
                     return []
                 
-                # Try different possible field names
+                # StatPal API returns: {"leagues": {"sport": "soccer", "league": [...]}}
+                # Check for nested structure first
                 leagues = None
-                for field_name in ["data", "leagues", "league", "results", "items"]:
-                    if field_name in result:
-                        leagues = result[field_name]
-                        logger.info(f"Found leagues in field '{field_name}': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
-                        break
                 
+                # Check if "leagues" key exists and contains "league" array
+                if "leagues" in result:
+                    leagues_obj = result["leagues"]
+                    if isinstance(leagues_obj, dict) and "league" in leagues_obj:
+                        leagues = leagues_obj["league"]
+                        logger.info(f"Found leagues in nested structure 'leagues.league': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
+                
+                # If not found, try direct field names
                 if leagues is None:
-                    # If no known field, check if all values are lists
+                    for field_name in ["data", "league", "results", "items", "response"]:
+                        if field_name in result:
+                            leagues = result[field_name]
+                            logger.info(f"Found leagues in field '{field_name}': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
+                            break
+                
+                # If still not found, check if all values are lists
+                if leagues is None:
                     for key, value in result.items():
                         if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a league (has id, name, etc.)
-                            if isinstance(value[0], dict) and any(k in value[0] for k in ["id", "league_id", "name", "league_name"]):
-                                leagues = value
-                                logger.info(f"Found leagues in field '{key}': {len(leagues)}")
-                                break
+                            # Check if first item looks like a league (has id, name, country, etc.)
+                            if isinstance(value[0], dict):
+                                # Check for league-like fields
+                                first_item = value[0]
+                                if any(k in first_item for k in ["id", "league_id", "name", "league_name", "country", "season"]):
+                                    leagues = value
+                                    logger.info(f"Found leagues in field '{key}': {len(leagues)}")
+                                    break
                 
                 if leagues is None:
                     logger.warning(f"No leagues found in response. Available keys: {list(result.keys())}")
+                    if "leagues" in result:
+                        logger.warning(f"Leagues object keys: {list(result['leagues'].keys()) if isinstance(result['leagues'], dict) else 'Not a dict'}")
                     return []
                 
                 if isinstance(leagues, list):
                     logger.info(f"Extracted {len(leagues)} leagues from dict response")
                     if leagues and len(leagues) > 0:
-                        logger.debug(f"Sample league keys: {list(leagues[0].keys()) if isinstance(leagues[0], dict) else 'N/A'}")
+                        sample_league = leagues[0]
+                        logger.info(f"Sample league structure: {list(sample_league.keys()) if isinstance(sample_league, dict) else 'Not a dict'}")
+                        logger.info(f"Sample league data: {sample_league}")
                     return leagues
                 else:
-                    logger.warning(f"Leagues field is not a list: {type(leagues)}")
+                    logger.warning(f"Leagues field is not a list: {type(leagues)}, value: {leagues}")
                     return []
             elif isinstance(result, list):
                 logger.info(f"Received list response with {len(result)} leagues")
                 if result and len(result) > 0:
-                    logger.debug(f"Sample league keys: {list(result[0].keys()) if isinstance(result[0], dict) else 'N/A'}")
+                    sample_league = result[0]
+                    logger.info(f"Sample league keys: {list(sample_league.keys()) if isinstance(sample_league, dict) else 'Not a dict'}")
+                    logger.info(f"Sample league data: {sample_league}")
                 return result
             else:
-                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:200]}")
+                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:500]}")
                 return []
         except Exception as e:
             logger.error(f"Error fetching leagues: {e}")
