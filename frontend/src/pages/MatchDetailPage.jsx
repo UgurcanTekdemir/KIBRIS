@@ -540,6 +540,44 @@ const MatchDetailPage = () => {
             <div className="space-y-4">
               {/* Parse and display odds data */}
               {(() => {
+                // Check if this is StatPal API odds format (live_match.odds)
+                if (matchOdds.odds && Array.isArray(matchOdds.odds)) {
+                  // StatPal API format: { odds: [{ market_id, market_name, lines: [{ name, odd, handicap }] }] }
+                  return (
+                    <div className="space-y-4">
+                      {matchOdds.odds.map((market, idx) => (
+                        <div key={idx} className="bg-[#0a0e14] rounded-lg p-4 border border-[#1e2736]">
+                          <h4 className="text-white font-semibold mb-3 flex items-center justify-between">
+                            <span>{market.market_name || `Market ${market.market_id}`}</span>
+                            {market.suspended === "1" && (
+                              <span className="text-xs text-red-500 bg-red-500/10 px-2 py-1 rounded">Askıya Alındı</span>
+                            )}
+                          </h4>
+                          {market.lines && market.lines.length > 0 ? (
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              {market.lines
+                                .filter(line => line.suspended !== "1")
+                                .map((line, lineIdx) => (
+                                <div key={lineIdx} className="bg-[#1a2332] rounded-lg p-3 text-center hover:bg-[#2a3a4d] transition-colors cursor-pointer">
+                                  <div className="text-xs text-gray-400 mb-1">
+                                    {line.name}
+                                    {line.handicap && ` (${line.handicap})`}
+                                  </div>
+                                  <div className="text-xl font-bold text-white">
+                                    {parseFloat(line.odd || 0).toFixed(2)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-400 text-sm">Bu market için oran bulunmuyor.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                
                 // Check if this is a market list response
                 if (matchOdds.is_market_list && Array.isArray(matchOdds.markets)) {
                   return (
@@ -560,18 +598,11 @@ const MatchDetailPage = () => {
                           </div>
                         ))}
                       </div>
-                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                        <p className="text-blue-500 text-sm">
-                          💡 Not: Belirli bir market için odds almak için StatPal API dokümantasyonunu kontrol edin.
-                          <br />
-                          Örnek: <code className="text-xs">/soccer/odds/live/markets/{matchOdds.markets[0]?.id}?match_id={matchOdds.match_id}</code>
-                        </p>
-                      </div>
                     </div>
                   );
                 }
                 
-                // Try to extract markets from StatPal API response
+                // Try to extract markets from other API response formats
                 const markets = matchOdds.markets || matchOdds.bookmakers || matchOdds.data || [];
                 const oddsData = matchOdds.odds || matchOdds;
                 

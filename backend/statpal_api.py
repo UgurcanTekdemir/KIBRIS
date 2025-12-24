@@ -796,8 +796,27 @@ class StatPalAPIService:
                     )
                     
                     if result and isinstance(result, dict) and len(result) > 0:
-                        # Parse response - StatPal API might return odds in different formats
-                        # If match_id was provided, filter by match_id
+                        # Check if this is the live_match format with odds
+                        if "live_match" in result:
+                            live_match = result.get("live_match", {})
+                            # Verify match_id matches
+                            match_info = live_match.get("match_info", {})
+                            if (match_id and 
+                                (match_info.get("main_id") == match_id or
+                                 match_info.get("fallback_id_1") == match_id or
+                                 match_info.get("fallback_id_2") == match_id or
+                                 match_info.get("fallback_id_3") == match_id)):
+                                # Return the odds data
+                                return {
+                                    "match_info": match_info,
+                                    "odds": live_match.get("odds", []),
+                                    "stats": live_match.get("stats", {}),
+                                    "team_info": live_match.get("team_info", {}),
+                                }
+                            elif not match_id:
+                                # No match_id filter, return the whole result
+                                return result
+                        # Parse other response formats
                         if match_id:
                             # Check if result has matches/odds array
                             if "matches" in result:
