@@ -694,3 +694,6 @@ function mapStatPalMatchToInternal(statpalMatch) {
   };
 }
 
+// Export the StatPal mapper function
+export { mapStatPalMatchToInternal };
+
