@@ -715,37 +715,6 @@ class StatPalAPIService:
             logger.error(f"Error fetching player stats: {e}")
             return {}
     
-    async def get_match_odds(
-        self,
-        match_id: str,
-        inplay: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Get pre-match or inplay odds markets
-        Per StatPal documentation: Pre-Match Odds Markets / Inplay Odds Markets
-        
-        Args:
-            match_id: Match ID
-            inplay: If True, get inplay odds; if False, get pre-match odds
-            
-        Returns:
-            Odds markets data
-        """
-        try:
-            endpoint = f"soccer/matches/{match_id}/odds"
-            if inplay:
-                endpoint = f"soccer/matches/{match_id}/odds/live"
-            
-            result = await self._make_request(
-                endpoint,
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching match odds: {e}")
-            return {}
-    
     async def get_team_transfers(self, team_id: int) -> List[Dict[str, Any]]:
         """
         Get team transfer history

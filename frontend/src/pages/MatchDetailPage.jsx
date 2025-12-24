@@ -38,7 +38,7 @@ const MatchDetailPage = () => {
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
   const [matchStats, setMatchStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stats', 'odds'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stats'
   
   const dateTimeDisplay = useMemo(() => {
     if (!match) return '';
@@ -377,17 +377,6 @@ const MatchDetailPage = () => {
             <BarChart3 size={16} className="inline mr-2" />
             İstatistikler
           </button>
-          <button
-            onClick={() => setActiveTab('odds')}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === 'odds'
-                ? 'text-amber-500 border-b-2 border-amber-500'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            <TrendingUp size={16} className="inline mr-2" />
-            Oranlar
-          </button>
         </div>
       </div>
 
@@ -502,32 +491,6 @@ const MatchDetailPage = () => {
             </div>
           ) : (
             <p className="text-gray-400">Bu maç için istatistik mevcut değil.</p>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'odds' && (
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6 mb-6">
-          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            <TrendingUp className="text-amber-500" />
-            Bahis Oranları
-          </h3>
-          {match?.inplay_odds_running === 'True' ? (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
-              <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
-              <h3 className="text-white font-semibold mb-2">Canlı Oranlar Aktif</h3>
-              <p className="text-gray-400 text-sm">
-                Bu maç için canlı bahis oranları mevcuttur, ancak StatPal API'den oran verisi şu anda yüklenemiyor.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
-              <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
-              <h3 className="text-white font-semibold mb-2">Bahis Oranları Mevcut Değil</h3>
-              <p className="text-gray-400 text-sm">
-                Bu maç için bahis oranları şu anda mevcut değildir. Maç bilgileri ve skorları yukarıda gösterilmektedir.
-              </p>
-            </div>
           )}
         </div>
       )}
