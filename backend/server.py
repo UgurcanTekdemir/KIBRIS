@@ -146,10 +146,24 @@ async def get_matches(
     date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD)"),
     country: Optional[str] = Query(None, description="Country filter")
 ):
-    """Get betting program matches from StatPal API"""
+    """Get matches from StatPal API (uses daily matches endpoint for general matches)"""
     try:
-        matches = await statpal_api_service.get_matches(date=date)
-        return {"success": True, "data": matches, "source": "statpal"}
+        logger.info(f"Fetching matches from StatPal API - date: {date}")
+        # Use daily matches endpoint which returns matches for today or specified date
+        matches = await statpal_api_service.get_matches_daily(date=date)
+        logger.info(f"StatPal API returned {len(matches) if matches else 0} matches")
+        
+        # Filter by league if provided
+        if league and matches:
+            matches = [m for m in matches if m.get("league_name", "").lower() == league.lower()]
+            logger.info(f"After league filter: {len(matches)} matches")
+        
+        # Filter by country if provided
+        if country and matches:
+            matches = [m for m in matches if m.get("country", "").lower() == country.lower()]
+            logger.info(f"After country filter: {len(matches)} matches")
+        
+        return {"success": True, "data": matches if matches else [], "source": "statpal"}
     except Exception as e:
         logger.error(f"Error fetching matches from StatPal API: {e}")
         logger.exception(e)

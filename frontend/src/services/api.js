@@ -124,6 +124,7 @@ export const matchAPI = {
    * @returns {Promise<Array>} List of matches
    */
   async getMatches(filters = {}) {
+    // Use StatPal API daily matches endpoint
     const params = new URLSearchParams();
     
     if (filters.matchType) params.append('match_type', filters.matchType);
@@ -135,6 +136,8 @@ export const matchAPI = {
     const endpoint = `/matches${queryString ? `?${queryString}` : ''}`;
     
     const response = await fetchAPI(endpoint);
+    console.log('📊 matchAPI.getMatches response:', response);
+    console.log('📊 matchAPI.getMatches data:', response.data);
     return response.data || [];
   },
 
@@ -145,6 +148,8 @@ export const matchAPI = {
    */
   async getLiveMatches(matchType = 1) {
     const response = await fetchAPI(`/matches/live?match_type=${matchType}`);
+    console.log('📊 matchAPI.getLiveMatches response:', response);
+    console.log('📊 matchAPI.getLiveMatches data:', response.data);
     return response.data || [];
   },
 
