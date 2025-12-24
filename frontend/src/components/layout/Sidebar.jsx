@@ -21,6 +21,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/', label: 'Ana Sayfa', icon: Home },
     { path: '/live', label: 'Canlı Maçlar', icon: Zap, badge: 'CANLI' },
     { path: '/matches', label: 'Tüm Maçlar', icon: Calendar },
+    { path: '/leagues', label: 'Ligler', icon: Trophy },
   ];
 
   const footballLeagues = leagues.filter((l) => l.sportId === 1);

@@ -1,13 +1,14 @@
-import React, { useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import MatchCard from '../components/betting/MatchCard';
 import { ArrowLeft, Trophy, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { useMatches } from '../hooks/useMatches';
+import { statpalAPI } from '../services/api';
+import { mapApiMatchesToInternal } from '../utils/matchMapper';
 
-// League ID to sport_key mapping
+// Fallback League ID to sport_key mapping (for backward compatibility)
 const LEAGUE_MAP = {
   1: { sport_key: 'soccer_turkey_super_league', name: 'Süper Lig', flag: '🇹🇷', country: 'Türkiye' },
   2: { sport_key: 'soccer_epl', name: 'Premier League', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', country: 'İngiltere' },
@@ -17,37 +18,116 @@ const LEAGUE_MAP = {
   6: { sport_key: 'soccer_france_ligue_one', name: 'Ligue 1', flag: '🇫🇷', country: 'Fransa' },
 };
 
+// Get league flag emoji based on country
+const getCountryFlag = (country) => {
+  if (!country) return '🏆';
+  
+  const flagMap = {
+    'Turkey': '🇹🇷',
+    'Türkiye': '🇹🇷',
+    'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    'İngiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    'Spain': '🇪🇸',
+    'İspanya': '🇪🇸',
+    'Italy': '🇮🇹',
+    'İtalya': '🇮🇹',
+    'Germany': '🇩🇪',
+    'Almanya': '🇩🇪',
+    'France': '🇫🇷',
+    'Fransa': '🇫🇷',
+    'Netherlands': '🇳🇱',
+    'Hollanda': '🇳🇱',
+    'Portugal': '🇵🇹',
+    'Portekiz': '🇵🇹',
+  };
+
+  for (const [key, flag] of Object.entries(flagMap)) {
+    if (country.toLowerCase().includes(key.toLowerCase())) {
+      return flag;
+    }
+  }
+
+  return '🏆';
+};
+
 const LeaguePage = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const leagueId = parseInt(id, 10);
-  const leagueInfo = LEAGUE_MAP[leagueId];
+  
+  const [leagueInfo, setLeagueInfo] = useState(null);
+  const [leagueMatches, setLeagueMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch all matches and filter by league
-  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
+  // Fetch league info and matches from StatPal API
+  useEffect(() => {
+    const fetchLeagueData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-  // Filter matches by league sport_key
-  const leagueMatches = useMemo(() => {
-    if (!leagueInfo || !allMatches) return [];
-    
-    return allMatches
-      .filter(match => {
-        // Match by sport_key first (most accurate)
-        if (match.sportKey === leagueInfo.sport_key) {
-          return true;
+        // First, try to get league info from StatPal API
+        const allLeagues = await statpalAPI.getLeagues();
+        const league = allLeagues.find(l => {
+          const lid = l.id || l.league_id || l.main_id;
+          return lid === leagueId || lid === id;
+        });
+
+        if (league) {
+          // Found league in StatPal API
+          const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
+          const country = league.country || '';
+          const flag = getCountryFlag(country);
+          
+          setLeagueInfo({
+            id: league.id || league.league_id || league.main_id,
+            name: leagueName,
+            country: country,
+            flag: flag,
+            season: league.season || '',
+          });
+
+          // Fetch matches for this league
+          try {
+            const matches = await statpalAPI.getLeagueMatches(leagueId);
+            const mappedMatches = mapApiMatchesToInternal(matches || []);
+            setLeagueMatches(mappedMatches);
+          } catch (matchError) {
+            console.error('Error fetching league matches:', matchError);
+            // Continue without matches
+            setLeagueMatches([]);
+          }
+        } else {
+          // Fallback to hardcoded league map
+          const fallbackLeague = LEAGUE_MAP[leagueId];
+          if (fallbackLeague) {
+            setLeagueInfo(fallbackLeague);
+            // For fallback leagues, we can't fetch from StatPal, so show empty
+            setLeagueMatches([]);
+          } else {
+            setError('Lig bulunamadı');
+          }
         }
-        // Fallback: match by league name
-        const matchLeague = match.league?.toLowerCase() || '';
-        const targetLeague = leagueInfo.name.toLowerCase();
-        return matchLeague.includes(targetLeague);
-      })
-      .sort((a, b) => {
-        // Sort by date, then by time
-        if (a.date !== b.date) {
-          return a.date.localeCompare(b.date);
+      } catch (err) {
+        console.error('Error fetching league data:', err);
+        setError(err.message || 'Lig bilgileri yüklenirken bir hata oluştu');
+        
+        // Fallback to hardcoded league map
+        const fallbackLeague = LEAGUE_MAP[leagueId];
+        if (fallbackLeague) {
+          setLeagueInfo(fallbackLeague);
+          setLeagueMatches([]);
         }
-        return (a.time || '').localeCompare(b.time || '');
-      });
-  }, [allMatches, leagueInfo]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchLeagueData();
+    }
+  }, [id, leagueId]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -67,21 +147,30 @@ const LeaguePage = () => {
     </div>
   );
 
-  if (!leagueInfo) {
+  if (!loading && !leagueInfo) {
     return (
       <div className="max-w-6xl mx-auto">
         <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/30">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-white">
-            Lig bulunamadı. Geçerli bir lig ID'si girin.
+            {error || 'Lig bulunamadı. Geçerli bir lig ID\'si girin.'}
           </AlertDescription>
         </Alert>
-        <Link to="/">
-          <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white">
+        <div className="flex gap-4">
+          <Button 
+            variant="outline" 
+            onClick={() => navigate(-1)}
+            className="border-[#2a3a4d] text-gray-400 hover:text-white"
+          >
             <ArrowLeft size={16} className="mr-2" />
-            Ana Sayfaya Dön
+            Geri
           </Button>
-        </Link>
+          <Link to="/leagues">
+            <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white">
+              Tüm Ligler
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -90,43 +179,38 @@ const LeaguePage = () => {
     <div className="max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/">
-          <Button 
-            variant="outline" 
-            className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
-          >
-            <ArrowLeft size={16} />
-          </Button>
-        </Link>
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-            <Trophy size={24} className="text-amber-500" />
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 text-gray-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        {leagueInfo && (
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
+              <Trophy size={24} className="text-amber-500" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">{leagueInfo.flag}</span>
+                {leagueInfo.name}
+              </h1>
+              <p className="text-sm text-gray-400">
+                {loading ? 'Yükleniyor...' : `${leagueMatches.length} maç bulundu`}
+                {leagueInfo.country && ` • ${leagueInfo.country}`}
+                {leagueInfo.season && ` • ${leagueInfo.season}`}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <span className="text-2xl">{leagueInfo.flag}</span>
-              {leagueInfo.name}
-            </h1>
-            <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${leagueMatches.length} maç bulundu`}
-            </p>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Error Alert */}
-      {error && (
+      {error && !loading && (
         <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/30">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-white">
             {error}
-            <Button
-              variant="link"
-              onClick={refetch}
-              className="ml-2 text-amber-500 hover:text-amber-400 p-0 h-auto"
-            >
-              Tekrar dene
-            </Button>
           </AlertDescription>
         </Alert>
       )}
@@ -147,7 +231,7 @@ const LeaguePage = () => {
           </div>
 
           {/* Empty State */}
-          {leagueMatches.length === 0 && !loading && (
+          {leagueMatches.length === 0 && !loading && leagueInfo && (
             <div className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
                 <Trophy size={40} className="text-gray-600" />
@@ -155,9 +239,14 @@ const LeaguePage = () => {
               <h3 className="text-xl font-semibold text-white mb-2">
                 {leagueInfo.name} için maç bulunamadı
               </h3>
-              <p className="text-gray-500">
+              <p className="text-gray-500 mb-4">
                 Bu lig için şu anda maç bulunmamaktadır.
               </p>
+              <Link to="/leagues">
+                <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white">
+                  Tüm Ligleri Gör
+                </Button>
+              </Link>
             </div>
           )}
         </>
