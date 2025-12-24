@@ -906,36 +906,43 @@ async def delete_banner(banner_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # CORS Configuration
-# Default allowed origins (can be overridden by CORS_ORIGINS env var)
+# Default allowed origins including Vercel
 default_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
-    "https://my-kibris-project.vercel.app",  # Vercel production frontend
+    "https://my-kibris-project.vercel.app",
+    "https://*.vercel.app",  # All Vercel preview deployments
 ]
 
 cors_origins_str = os.environ.get('CORS_ORIGINS', '')
-if cors_origins_str and cors_origins_str != '*':
-    # If CORS_ORIGINS is set, use it (comma-separated list)
-    cors_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
-else:
-    # Otherwise use default origins or allow all if set to '*'
-    if cors_origins_str == '*':
-        cors_origins = ['*']
-    else:
-        cors_origins = default_origins
 
-logger.info(f"CORS Origins configured: {cors_origins}")
+if cors_origins_str == '*':
+    # Allow all origins but disable credentials (required by CORS spec)
+    cors_origins = ["*"]
+    allow_creds = False
+    logger.info("CORS configured to allow all origins (*) - credentials disabled")
+elif cors_origins_str:
+    # Use specific origins from env
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+    allow_creds = True
+    logger.info(f"CORS Origins configured from env: {cors_origins}")
+else:
+    # Use default origins
+    cors_origins = default_origins
+    allow_creds = True
+    logger.info(f"CORS Origins configured (defaults): {cors_origins}")
 
 # Add CORS middleware BEFORE including the router (order matters!)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_credentials=allow_creds,
+    allow_methods=["*"],  # Allow all methods including OPTIONS
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Include the router in the main app (after CORS middleware)
