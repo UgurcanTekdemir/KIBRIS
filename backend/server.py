@@ -172,9 +172,29 @@ async def get_live_matches(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# StatPal specific endpoints - must be defined before generic /matches/{match_id} route
+@api_router.get("/matches/statpal/{match_id}")
+async def get_statpal_match_details(match_id: str):
+    """Get detailed information for a specific match from StatPal API"""
+    try:
+        logger.info(f"Fetching StatPal match details for match_id: {match_id}")
+        match_data = await statpal_api_service.get_match_details(match_id)
+        if not match_data:
+            logger.warning(f"Match not found in StatPal API: {match_id}")
+            raise HTTPException(status_code=404, detail="Match not found")
+        logger.info(f"Successfully fetched match details for {match_id}")
+        return {"success": True, "data": match_data, "source": "statpal"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching StatPal match details for {match_id}: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/matches/{match_id}")
 async def get_match_details(match_id: str):
-    """Get detailed information for a specific match from StatPal API"""
+    """Get detailed information for a specific match from StatPal API (alias for /matches/statpal/{match_id})"""
     try:
         match_data = await statpal_api_service.get_match_details(match_id)
         if not match_data:
@@ -345,21 +365,6 @@ async def get_statpal_live_matches():
         return {"success": True, "data": matches, "is_live": True}
     except Exception as e:
         logger.error(f"Error fetching StatPal live matches: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@api_router.get("/matches/statpal/{match_id}")
-async def get_statpal_match_details(match_id: str):
-    """Get detailed information for a specific match from StatPal API"""
-    try:
-        match_data = await statpal_api_service.get_match_details(match_id)
-        if not match_data:
-            raise HTTPException(status_code=404, detail="Match not found")
-        return {"success": True, "data": match_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching StatPal match details: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

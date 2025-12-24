@@ -234,8 +234,32 @@ export const statpalAPI = {
    * @returns {Promise<Object>} Match details
    */
   async getMatchDetails(matchId) {
-    const response = await fetchAPI(`/matches/statpal/${matchId}`);
-    return response.data || null;
+    try {
+      const response = await fetchAPI(`/matches/statpal/${matchId}`);
+      console.log('📊 getMatchDetails response:', response);
+      // Handle both {success: true, data: {...}} and direct data formats
+      if (response && response.data) {
+        return response.data;
+      } else if (response && !response.success && response.data === undefined) {
+        // If response exists but no data field, return the response itself
+        return response;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error in getMatchDetails:', error);
+      // If 404, try the generic /matches/{match_id} endpoint as fallback
+      if (error.status === 404) {
+        try {
+          const fallbackResponse = await fetchAPI(`/matches/${matchId}`);
+          console.log('📊 Fallback getMatchDetails response:', fallbackResponse);
+          return fallbackResponse?.data || fallbackResponse || null;
+        } catch (fallbackError) {
+          console.error('Fallback endpoint also failed:', fallbackError);
+          throw error; // Throw original error
+        }
+      }
+      throw error;
+    }
   },
 
   /**

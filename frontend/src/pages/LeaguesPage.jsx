@@ -22,10 +22,14 @@ const LeaguesPage = () => {
         setLoading(true);
         setError(null);
         const data = await statpalAPI.getLeagues();
-        setLeagues(data || []);
+        // Ensure data is an array
+        const leaguesArray = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
+        console.log('Leagues data received:', leaguesArray);
+        setLeagues(leaguesArray);
       } catch (err) {
         console.error('Error fetching leagues:', err);
         setError(err.message || 'Ligler yüklenirken bir hata oluştu');
+        setLeagues([]); // Set empty array on error
       } finally {
         setLoading(false);
       }
@@ -36,9 +40,10 @@ const LeaguesPage = () => {
 
   // Get unique countries from leagues
   const countries = useMemo(() => {
+    if (!Array.isArray(leagues)) return [];
     const countrySet = new Set();
     leagues.forEach(league => {
-      if (league.country) {
+      if (league && league.country) {
         countrySet.add(league.country);
       }
     });
@@ -47,6 +52,7 @@ const LeaguesPage = () => {
 
   // Filter leagues by search query and country
   const filteredLeagues = useMemo(() => {
+    if (!Array.isArray(leagues)) return [];
     let filtered = leagues;
 
     // Filter by country
