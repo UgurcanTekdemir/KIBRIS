@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBetSlip } from '../context/BetSlipContext';
-import { ArrowLeft, Clock, TrendingUp, AlertCircle, ChevronDown, Filter } from 'lucide-react';
+import { ArrowLeft, Clock, TrendingUp, AlertCircle, ChevronDown, Filter, BarChart3, Users, Award } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatchDetails } from '../hooks/useMatches';
 import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategories';
+import { statpalAPI } from '../services/api';
 
 // Format date for display
 function formatMatchDateTime(date, time) {
@@ -35,6 +36,9 @@ const MatchDetailPage = () => {
   const [openMarkets, setOpenMarkets] = useState({});
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
+  const [matchStats, setMatchStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stats', 'odds'
   
   const dateTimeDisplay = useMemo(() => {
     if (!match) return '';
@@ -63,6 +67,22 @@ const MatchDetailPage = () => {
   // Reset logo errors when match changes
   useEffect(() => {
     setLogoErrors({ home: false, away: false });
+  }, [match?.id]);
+
+  // Fetch match stats from StatPal API
+  useEffect(() => {
+    if (match?.id) {
+      setStatsLoading(true);
+      statpalAPI.getMatchStats(match.id)
+        .then(stats => {
+          setMatchStats(stats);
+          setStatsLoading(false);
+        })
+        .catch(err => {
+          console.error('Error fetching match stats:', err);
+          setStatsLoading(false);
+        });
+    }
   }, [match?.id]);
 
   if (loading) {
@@ -205,36 +225,157 @@ const MatchDetailPage = () => {
           </div>
         </div>
 
-        {/* Stats (Live Only) */}
-        {match.isLive && match.stats && (
+        {/* Stats (Live Only) - Use StatPal API stats if available */}
+        {(match.isLive && (matchStats || match.stats)) && (
           <div className="px-6 pb-6">
             <div className="bg-[#0a0e14] rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white font-medium">{match.stats.possession[0]}%</span>
-                <span className="text-gray-500">Topa Sahip Olma</span>
-                <span className="text-white font-medium">{match.stats.possession[1]}%</span>
-              </div>
-              <Progress value={match.stats.possession[0]} className="h-2 bg-[#1a2332]" />
-              
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white font-medium">{match.stats.shots[0]}</span>
-                <span className="text-gray-500">Şut</span>
-                <span className="text-white font-medium">{match.stats.shots[1]}</span>
-              </div>
-              <div className="flex gap-2">
-                <div className="h-2 bg-amber-500 rounded" style={{ width: `${(match.stats.shots[0] / (match.stats.shots[0] + match.stats.shots[1])) * 100}%` }}></div>
-                <div className="h-2 bg-blue-500 rounded flex-1"></div>
-              </div>
+              {statsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-full bg-[#1a2332]" />
+                  <Skeleton className="h-4 w-full bg-[#1a2332]" />
+                  <Skeleton className="h-4 w-full bg-[#1a2332]" />
+                </div>
+              ) : (
+                <>
+                  {/* Use StatPal stats if available, otherwise fallback to match.stats */}
+                  {matchStats ? (
+                    <>
+                      {matchStats.possession && (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-white font-medium">{matchStats.possession.home || 0}%</span>
+                            <span className="text-gray-500">Topa Sahip Olma</span>
+                            <span className="text-white font-medium">{matchStats.possession.away || 0}%</span>
+                          </div>
+                          <Progress value={matchStats.possession.home || 0} className="h-2 bg-[#1a2332]" />
+                        </>
+                      )}
+                      {matchStats.shots && (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-white font-medium">{matchStats.shots.home || 0}</span>
+                            <span className="text-gray-500">Şut</span>
+                            <span className="text-white font-medium">{matchStats.shots.away || 0}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="h-2 bg-amber-500 rounded" style={{ width: `${((matchStats.shots.home || 0) / ((matchStats.shots.home || 0) + (matchStats.shots.away || 0) || 1)) * 100}%` }}></div>
+                            <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                          </div>
+                        </>
+                      )}
+                      {matchStats.corners && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-white font-medium">{matchStats.corners.home || 0}</span>
+                          <span className="text-gray-500">Korner</span>
+                          <span className="text-white font-medium">{matchStats.corners.away || 0}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : match.stats ? (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white font-medium">{match.stats.possession[0]}%</span>
+                        <span className="text-gray-500">Topa Sahip Olma</span>
+                        <span className="text-white font-medium">{match.stats.possession[1]}%</span>
+                      </div>
+                      <Progress value={match.stats.possession[0]} className="h-2 bg-[#1a2332]" />
+                      
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white font-medium">{match.stats.shots[0]}</span>
+                        <span className="text-gray-500">Şut</span>
+                        <span className="text-white font-medium">{match.stats.shots[1]}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${(match.stats.shots[0] / (match.stats.shots[0] + match.stats.shots[1])) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
 
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white font-medium">{match.stats.corners[0]}</span>
-                <span className="text-gray-500">Korner</span>
-                <span className="text-white font-medium">{match.stats.corners[1]}</span>
-              </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white font-medium">{match.stats.corners[0]}</span>
+                        <span className="text-gray-500">Korner</span>
+                        <span className="text-white font-medium">{match.stats.corners[1]}</span>
+                      </div>
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Tabs for Overview, Stats, Odds */}
+      <div className="mb-6">
+        <div className="flex gap-2 border-b border-[#1e2736]">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'overview'
+                ? 'text-amber-500 border-b-2 border-amber-500'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Genel Bakış
+          </button>
+          <button
+            onClick={() => setActiveTab('stats')}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'stats'
+                ? 'text-amber-500 border-b-2 border-amber-500'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <BarChart3 size={16} className="inline mr-2" />
+            İstatistikler
+          </button>
+          <button
+            onClick={() => setActiveTab('odds')}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'odds'
+                ? 'text-amber-500 border-b-2 border-amber-500'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <TrendingUp size={16} className="inline mr-2" />
+            Oranlar
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'stats' && (
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6 mb-6">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <BarChart3 className="text-amber-500" />
+            Detaylı İstatistikler
+          </h3>
+          {statsLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-20 w-full bg-[#1a2332]" />
+              <Skeleton className="h-20 w-full bg-[#1a2332]" />
+            </div>
+          ) : matchStats ? (
+            <div className="space-y-4">
+              <p className="text-gray-400">StatPal API'den detaylı istatistikler yükleniyor...</p>
+              <pre className="text-xs text-gray-500 overflow-auto bg-[#0a0e14] p-4 rounded">
+                {JSON.stringify(matchStats, null, 2)}
+              </pre>
+            </div>
+          ) : (
+            <p className="text-gray-400">Bu maç için istatistik mevcut değil.</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'odds' && (
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6 mb-6">
+          <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <TrendingUp className="text-amber-500" />
+            Bahis Oranları
+          </h3>
+          <p className="text-gray-400">StatPal API'den bahis oranları yükleniyor...</p>
+        </div>
+      )}
 
       {/* Markets - Only show if markets exist */}
       {match.markets && match.markets.length > 0 && (

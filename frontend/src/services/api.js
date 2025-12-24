@@ -239,6 +239,54 @@ export const statpalAPI = {
   },
 
   /**
+   * Get live in-depth match stats from StatPal API
+   * @param {string} matchId - Match ID
+   * @returns {Promise<Object>} Match statistics
+   */
+  async getMatchStats(matchId) {
+    const response = await fetchAPI(`/matches/statpal/${matchId}/stats`);
+    return response.data || null;
+  },
+
+  /**
+   * Get match odds (pre-match or inplay) from StatPal API
+   * @param {string} matchId - Match ID
+   * @param {boolean} inplay - Get inplay odds if true
+   * @returns {Promise<Object>} Odds data
+   */
+  async getMatchOdds(matchId, inplay = false) {
+    const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get match results from StatPal API
+   * @param {string} date - Date filter (YYYY-MM-DD, optional)
+   * @returns {Promise<Array>} List of finished matches
+   */
+  async getResults(date = null) {
+    const params = date ? `?date=${date}` : '';
+    const response = await fetchAPI(`/matches/statpal/results${params}`);
+    return response.data || [];
+  },
+
+  /**
+   * Get upcoming schedules from StatPal API
+   * @param {number} leagueId - League ID filter (optional)
+   * @param {string} date - Date filter (YYYY-MM-DD, optional)
+   * @returns {Promise<Array>} List of upcoming matches
+   */
+  async getUpcomingSchedules(leagueId = null, date = null) {
+    const params = new URLSearchParams();
+    if (leagueId) params.append('league_id', leagueId);
+    if (date) params.append('date', date);
+    const queryString = params.toString();
+    const endpoint = `/matches/statpal/upcoming${queryString ? `?${queryString}` : ''}`;
+    const response = await fetchAPI(endpoint);
+    return response.data || [];
+  },
+
+  /**
    * Get available leagues from StatPal API
    * @returns {Promise<Array>} List of leagues
    */
@@ -270,6 +318,68 @@ export const statpalAPI = {
    */
   async getStandings(leagueId) {
     const response = await fetchAPI(`/standings/statpal/${leagueId}`);
+    return response.data || [];
+  },
+
+  /**
+   * Get league top scorers from StatPal API
+   * @param {number} leagueId - League ID
+   * @returns {Promise<Array>} List of top scorers
+   */
+  async getTopScorers(leagueId) {
+    const response = await fetchAPI(`/leagues/statpal/${leagueId}/top-scorers`);
+    return response.data || [];
+  },
+
+  /**
+   * Get injuries and suspensions from StatPal API
+   * @param {number} teamId - Team ID filter (optional)
+   * @returns {Promise<Array>} List of injuries/suspensions
+   */
+  async getInjuries(teamId = null) {
+    const params = teamId ? `?team_id=${teamId}` : '';
+    const response = await fetchAPI(`/injuries/statpal${params}`);
+    return response.data || [];
+  },
+
+  /**
+   * Get head-to-head statistics from StatPal API
+   * @param {number} team1Id - First team ID
+   * @param {number} team2Id - Second team ID
+   * @returns {Promise<Object>} Head-to-head statistics
+   */
+  async getHeadToHead(team1Id, team2Id) {
+    const response = await fetchAPI(`/teams/statpal/${team1Id}/vs/${team2Id}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get team statistics from StatPal API
+   * @param {number} teamId - Team ID
+   * @returns {Promise<Object>} Team statistics
+   */
+  async getTeamStats(teamId) {
+    const response = await fetchAPI(`/teams/statpal/${teamId}/stats`);
+    return response.data || null;
+  },
+
+  /**
+   * Get player statistics from StatPal API
+   * @param {number} playerId - Player ID
+   * @returns {Promise<Object>} Player statistics
+   */
+  async getPlayerStats(playerId) {
+    const response = await fetchAPI(`/players/statpal/${playerId}/stats`);
+    return response.data || null;
+  },
+
+  /**
+   * Get team transfers from StatPal API
+   * @param {number} teamId - Team ID
+   * @returns {Promise<Array>} List of transfers
+   */
+  async getTeamTransfers(teamId) {
+    const response = await fetchAPI(`/teams/statpal/${teamId}/transfers`);
     return response.data || [];
   },
 };
