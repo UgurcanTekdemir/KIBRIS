@@ -616,11 +616,29 @@ const MatchDetailPage = () => {
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
               <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
               <h3 className="text-white font-semibold mb-2">Bahis Oranları Mevcut Değil</h3>
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-400 text-sm mb-3">
                 Bu maç için bahis oranları şu anda mevcut değildir. StatPal API'den oran verisi çekilemedi.
-                <br />
-                API endpoint: <code className="text-xs bg-[#0a0e14] px-2 py-1 rounded">{match?.isLive ? '/soccer/odds/live-markets' : '/soccer/odds/pre-match'}</code>
               </p>
+              {match?.inplay_odds_running === 'True' && (
+                <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <p className="text-amber-500 text-sm font-medium">
+                    ⚠️ Not: Bu maç için canlı oranlar aktif olarak işaretlenmiş, ancak StatPal API'den oran verisi çekilemedi.
+                  </p>
+                  <p className="text-gray-400 text-xs mt-2">
+                    StatPal API'nin odds endpoint'leri premium plan gerektiriyor olabilir veya farklı bir endpoint formatı kullanılıyor olabilir.
+                    <br />
+                    Lütfen StatPal API dokümantasyonunu kontrol edin veya destek ekibi ile iletişime geçin.
+                  </p>
+                </div>
+              )}
+              <div className="mt-4 text-xs text-gray-500">
+                <p>Denenen endpoint'ler:</p>
+                <code className="block mt-1 bg-[#0a0e14] px-2 py-1 rounded text-left">
+                  {match?.isLive ? '/soccer/odds/live-markets' : '/soccer/odds/pre-match'}
+                  <br />
+                  {match?.isLive ? '/soccer/matches/{id}/odds/live' : '/soccer/matches/{id}/odds'}
+                </code>
+              </div>
             </div>
           )}
         </div>
