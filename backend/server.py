@@ -592,15 +592,20 @@ async def get_statpal_seasons():
 
 @api_router.get("/leagues/statpal/{league_id}/matches")
 async def get_statpal_league_matches(
-    league_id: int,
+    league_id: str,  # Changed to str to support string IDs from StatPal API
     season: Optional[str] = Query(None, description="Season filter (optional)")
 ):
     """Get matches by league and season from StatPal API"""
     try:
-        matches = await statpal_api_service.get_league_matches(league_id, season=season)
-        return {"success": True, "data": matches, "source": "statpal"}
+        logger.info(f"Fetching matches for league ID: {league_id}, season: {season}")
+        # Convert to int if possible, otherwise keep as string
+        league_id_param = int(league_id) if league_id.isdigit() else league_id
+        matches = await statpal_api_service.get_league_matches(league_id_param, season=season)
+        logger.info(f"StatPal API returned {len(matches) if matches else 0} matches for league {league_id}")
+        return {"success": True, "data": matches if matches else [], "source": "statpal"}
     except Exception as e:
         logger.error(f"Error fetching StatPal league matches: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1171,28 +1171,68 @@ class StatPalAPIService:
             params["season"] = season
         
         try:
+            # Convert league_id to string for URL (StatPal API accepts both)
+            league_id_str = str(league_id)
+            logger.info(f"Fetching matches for league ID: {league_id_str}")
+            
             result = await self._make_request(
-                f"soccer/leagues/{league_id}/matches",
+                f"soccer/leagues/{league_id_str}/matches",
                 params=params if params else None,
                 use_cache=True,
                 cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
             )
+            
+            logger.info(f"StatPal API response type: {type(result)}")
+            if isinstance(result, dict):
+                logger.info(f"StatPal API response keys: {list(result.keys())}")
+                logger.info(f"StatPal API response preview: {str(result)[:500]}")
+            
             # Parse similar to live matches structure
             matches = []
             if isinstance(result, dict):
+                # Check for nested structure: {"matches": {...}} or {"league": [...]}
                 if "matches" in result:
                     result = result["matches"]
+                
+                # Check if result is a dict with "league" key (nested structure)
                 if "league" in result:
                     for league_data in result.get("league", []):
                         league_matches = league_data.get("match", [])
                         if not isinstance(league_matches, list):
                             league_matches = [league_matches] if league_matches else []
-                        matches.extend(league_matches)
+                        for match in league_matches:
+                            if isinstance(match, dict):
+                                match["league_id"] = league_id_str
+                                match["league_name"] = league_data.get("name", "")
+                                match["country"] = league_data.get("country", "")
+                                matches.append(match)
+                # Check if result has direct "match" key
+                elif "match" in result:
+                    league_matches = result.get("match", [])
+                    if not isinstance(league_matches, list):
+                        league_matches = [league_matches] if league_matches else []
+                    matches.extend(league_matches)
+                # Check if result has direct array of matches
+                elif isinstance(result, list):
+                    matches = result
+                # Try to find any list in the result
+                else:
+                    for key, value in result.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a match
+                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
+                                matches = value
+                                logger.info(f"Found matches in field '{key}': {len(matches)}")
+                                break
             elif isinstance(result, list):
+                logger.info(f"Received list response with {len(result)} matches")
                 matches = result
+            
+            logger.info(f"Extracted {len(matches)} matches for league {league_id_str}")
             return matches
         except Exception as e:
             logger.error(f"Error fetching league matches: {e}")
+            logger.exception(e)
             return []
     
     async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:
@@ -1476,28 +1516,68 @@ class StatPalAPIService:
             params["season"] = season
         
         try:
+            # Convert league_id to string for URL (StatPal API accepts both)
+            league_id_str = str(league_id)
+            logger.info(f"Fetching matches for league ID: {league_id_str}")
+            
             result = await self._make_request(
-                f"soccer/leagues/{league_id}/matches",
+                f"soccer/leagues/{league_id_str}/matches",
                 params=params if params else None,
                 use_cache=True,
                 cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
             )
+            
+            logger.info(f"StatPal API response type: {type(result)}")
+            if isinstance(result, dict):
+                logger.info(f"StatPal API response keys: {list(result.keys())}")
+                logger.info(f"StatPal API response preview: {str(result)[:500]}")
+            
             # Parse similar to live matches structure
             matches = []
             if isinstance(result, dict):
+                # Check for nested structure: {"matches": {...}} or {"league": [...]}
                 if "matches" in result:
                     result = result["matches"]
+                
+                # Check if result is a dict with "league" key (nested structure)
                 if "league" in result:
                     for league_data in result.get("league", []):
                         league_matches = league_data.get("match", [])
                         if not isinstance(league_matches, list):
                             league_matches = [league_matches] if league_matches else []
-                        matches.extend(league_matches)
+                        for match in league_matches:
+                            if isinstance(match, dict):
+                                match["league_id"] = league_id_str
+                                match["league_name"] = league_data.get("name", "")
+                                match["country"] = league_data.get("country", "")
+                                matches.append(match)
+                # Check if result has direct "match" key
+                elif "match" in result:
+                    league_matches = result.get("match", [])
+                    if not isinstance(league_matches, list):
+                        league_matches = [league_matches] if league_matches else []
+                    matches.extend(league_matches)
+                # Check if result has direct array of matches
+                elif isinstance(result, list):
+                    matches = result
+                # Try to find any list in the result
+                else:
+                    for key, value in result.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a match
+                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
+                                matches = value
+                                logger.info(f"Found matches in field '{key}': {len(matches)}")
+                                break
             elif isinstance(result, list):
+                logger.info(f"Received list response with {len(result)} matches")
                 matches = result
+            
+            logger.info(f"Extracted {len(matches)} matches for league {league_id_str}")
             return matches
         except Exception as e:
             logger.error(f"Error fetching league matches: {e}")
+            logger.exception(e)
             return []
     
     async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:

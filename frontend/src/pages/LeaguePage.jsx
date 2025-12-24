@@ -69,29 +69,39 @@ const LeaguePage = () => {
 
         // First, try to get league info from StatPal API
         const allLeagues = await statpalAPI.getLeagues();
+        console.log('📊 All leagues:', allLeagues?.length || 0);
+        console.log('📊 Looking for league ID:', leagueId, 'or string:', id);
+        
         const league = allLeagues.find(l => {
           const lid = l.id || l.league_id || l.main_id;
-          return lid === leagueId || lid === id;
+          // Compare both as string and number (StatPal API returns IDs as strings)
+          return String(lid) === String(leagueId) || String(lid) === String(id) || lid === leagueId || lid === id;
         });
+
+        console.log('📊 Found league:', league);
 
         if (league) {
           // Found league in StatPal API
           const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
           const country = league.country || '';
           const flag = getCountryFlag(country);
+          const actualLeagueId = league.id || league.league_id || league.main_id;
           
           setLeagueInfo({
-            id: league.id || league.league_id || league.main_id,
+            id: actualLeagueId,
             name: leagueName,
             country: country,
             flag: flag,
             season: league.season || '',
           });
 
-          // Fetch matches for this league
+          // Fetch matches for this league - use the actual league ID from API (might be string)
           try {
-            const matches = await statpalAPI.getLeagueMatches(leagueId);
+            console.log('📊 Fetching matches for league ID:', actualLeagueId);
+            const matches = await statpalAPI.getLeagueMatches(actualLeagueId);
+            console.log('📊 League matches received:', matches?.length || 0);
             const mappedMatches = mapApiMatchesToInternal(matches || []);
+            console.log('📊 Mapped matches:', mappedMatches?.length || 0);
             setLeagueMatches(mappedMatches);
           } catch (matchError) {
             console.error('Error fetching league matches:', matchError);
