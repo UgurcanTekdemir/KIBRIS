@@ -906,22 +906,40 @@ async def delete_banner(banner_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # CORS Configuration
-cors_origins_str = os.environ.get('CORS_ORIGINS', '*')
-# Clean up CORS origins - remove empty strings and strip whitespace
-cors_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+# Default allowed origins (can be overridden by CORS_ORIGINS env var)
+default_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://my-kibris-project.vercel.app",  # Vercel production frontend
+]
+
+cors_origins_str = os.environ.get('CORS_ORIGINS', '')
+if cors_origins_str and cors_origins_str != '*':
+    # If CORS_ORIGINS is set, use it (comma-separated list)
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+else:
+    # Otherwise use default origins or allow all if set to '*'
+    if cors_origins_str == '*':
+        cors_origins = ['*']
+    else:
+        cors_origins = default_origins
 
 logger.info(f"CORS Origins configured: {cors_origins}")
 
-# Include the router in the main app
-app.include_router(api_router)
-
+# Add CORS middleware BEFORE including the router (order matters!)
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_origins=cors_origins if cors_origins != ['*'] else ['*'],
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# Include the router in the main app (after CORS middleware)
+app.include_router(api_router)
 
 # Logging already configured above
 
