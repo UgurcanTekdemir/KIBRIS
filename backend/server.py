@@ -208,6 +208,23 @@ async def get_statpal_daily_matches(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/matches/statpal/live")
+async def get_statpal_live_matches():
+    """Get live soccer matches from StatPal API
+    Per StatPal API: GET /soccer/matches/live
+    Returns matches for today and live matches.
+    """
+    try:
+        logger.info("Fetching live matches from StatPal API")
+        matches = await statpal_api_service.get_live_matches()
+        logger.info(f"StatPal API returned {len(matches) if matches else 0} live matches")
+        return {"success": True, "data": matches if matches else [], "is_live": True, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal live matches: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/matches/statpal/{match_id}")
 async def get_statpal_match_details(match_id: str):
     """Get detailed information for a specific match from StatPal API"""
@@ -389,17 +406,6 @@ async def get_statpal_matches(
         return {"success": True, "data": matches}
     except Exception as e:
         logger.error(f"Error fetching StatPal matches: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@api_router.get("/matches/statpal/live")
-async def get_statpal_live_matches():
-    """Get live soccer matches from StatPal API"""
-    try:
-        matches = await statpal_api_service.get_live_matches()
-        return {"success": True, "data": matches, "is_live": True}
-    except Exception as e:
-        logger.error(f"Error fetching StatPal live matches: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
