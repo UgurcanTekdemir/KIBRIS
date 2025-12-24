@@ -48,11 +48,20 @@ class TheOddsApiService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
+                error_text = exc.response.text
                 logger.error(
-                    "The Odds API request failed: %s %s",
+                    "The Odds API request failed: %s %s - URL: %s",
                     exc.response.status_code,
-                    exc.response.text,
+                    error_text,
+                    url
                 )
+                # Check if it's an invalid key error
+                try:
+                    error_data = exc.response.json()
+                    if error_data.get("error_code") == "INVALID_KEY":
+                        logger.error("INVALID API KEY! Please check THE_ODDS_API_KEY environment variable.")
+                except:
+                    pass
                 raise
             return response.json()
 

@@ -274,33 +274,63 @@ async def test_api_connection():
 async def test_odds_api():
     """Test The Odds API connection and configuration"""
     from the_odds_api import THE_ODDS_API_KEY, DEFAULT_SPORT_KEYS
+    import httpx
     
     api_key_configured = bool(THE_ODDS_API_KEY)
     api_key_length = len(THE_ODDS_API_KEY) if THE_ODDS_API_KEY else 0
+    api_key_preview = THE_ODDS_API_KEY[:8] + "..." if THE_ODDS_API_KEY and len(THE_ODDS_API_KEY) > 8 else "N/A"
     
-    # Try to fetch matches
+    # First test: Check if API key is valid by calling /sports endpoint
+    sports_test_result = None
     try:
-        matches = await the_odds_service.get_matches()
-        return {
-            "success": True,
-            "message": "The Odds API connection successful",
-            "api_key_configured": api_key_configured,
-            "api_key_length": api_key_length,
-            "matches_count": len(matches),
-            "default_sports": DEFAULT_SPORT_KEYS,
-            "sample_matches": matches[:3] if matches else []
-        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            sports_url = "https://api.the-odds-api.com/v4/sports/"
+            response = await client.get(sports_url, params={"apiKey": THE_ODDS_API_KEY})
+            if response.status_code == 200:
+                sports_data = response.json()
+                sports_test_result = {
+                    "valid": True,
+                    "sports_count": len(sports_data) if isinstance(sports_data, list) else 0
+                }
+            else:
+                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"text": response.text}
+                sports_test_result = {
+                    "valid": False,
+                    "status_code": response.status_code,
+                    "error": error_data
+                }
     except Exception as e:
-        logger.error(f"The Odds API test failed: {e}")
-        return {
-            "success": False,
-            "message": f"The Odds API connection failed: {str(e)}",
-            "api_key_configured": api_key_configured,
-            "api_key_length": api_key_length,
-            "default_sports": DEFAULT_SPORT_KEYS,
-            "error_details": str(e),
+        sports_test_result = {
+            "valid": False,
+            "error": str(e),
             "error_type": type(e).__name__
         }
+    
+    # Second test: Try to fetch matches
+    matches_test_result = None
+    try:
+        matches = await the_odds_service.get_matches()
+        matches_test_result = {
+            "success": True,
+            "matches_count": len(matches),
+            "sample_matches": matches[:2] if matches else []
+        }
+    except Exception as e:
+        matches_test_result = {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    return {
+        "api_key_configured": api_key_configured,
+        "api_key_length": api_key_length,
+        "api_key_preview": api_key_preview,
+        "default_sports": DEFAULT_SPORT_KEYS,
+        "sports_endpoint_test": sports_test_result,
+        "matches_endpoint_test": matches_test_result,
+        "overall_success": sports_test_result and sports_test_result.get("valid") and matches_test_result and matches_test_result.get("success")
+    }
 
 
 # Banner API Endpoints
