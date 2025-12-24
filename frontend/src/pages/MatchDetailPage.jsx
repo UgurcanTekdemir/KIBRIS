@@ -69,13 +69,59 @@ const MatchDetailPage = () => {
     setLogoErrors({ home: false, away: false });
   }, [match?.id]);
 
-  // Fetch match stats from StatPal API
+  // Calculate stats from match details (events, etc.)
+  const calculatedStats = useMemo(() => {
+    if (!match) return null;
+    
+    // Match details from StatPal API has events nested
+    let events = [];
+    if (match.events) {
+      if (Array.isArray(match.events)) {
+        events = match.events;
+      } else if (match.events.event) {
+        events = Array.isArray(match.events.event) ? match.events.event : [match.events.event];
+      }
+    }
+    
+    if (events.length === 0) return null;
+    
+    // Calculate statistics from events
+    const stats = {
+      goals: { home: 0, away: 0 },
+      cards: { home: { yellow: 0, red: 0 }, away: { yellow: 0, red: 0 } },
+      substitutions: { home: 0, away: 0 },
+      events: events
+    };
+    
+    events.forEach(event => {
+      if (event.type === 'goal') {
+        if (event.team === 'home') stats.goals.home++;
+        if (event.team === 'away') stats.goals.away++;
+      } else if (event.type === 'yellowcard') {
+        if (event.team === 'home') stats.cards.home.yellow++;
+        if (event.team === 'away') stats.cards.away.yellow++;
+      } else if (event.type === 'redcard') {
+        if (event.team === 'home') stats.cards.home.red++;
+        if (event.team === 'away') stats.cards.away.red++;
+      } else if (event.type === 'subst') {
+        if (event.team === 'home') stats.substitutions.home++;
+        if (event.team === 'away') stats.substitutions.away++;
+      }
+    });
+    
+    return stats;
+  }, [match]);
+
+  // Fetch match stats from StatPal API (if available)
   useEffect(() => {
     if (match?.id) {
       setStatsLoading(true);
       statpalAPI.getMatchStats(match.id)
         .then(stats => {
-          setMatchStats(stats);
+          // Only use API stats if they have actual data
+          if (stats && Object.keys(stats).length > 0) {
+            setMatchStats(stats);
+          }
           setStatsLoading(false);
         })
         .catch(err => {
@@ -349,17 +395,107 @@ const MatchDetailPage = () => {
             <BarChart3 className="text-amber-500" />
             Detaylı İstatistikler
           </h3>
-          {statsLoading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-20 w-full bg-[#1a2332]" />
-              <Skeleton className="h-20 w-full bg-[#1a2332]" />
-            </div>
-          ) : matchStats ? (
-            <div className="space-y-4">
-              <p className="text-gray-400">StatPal API'den detaylı istatistikler yükleniyor...</p>
-              <pre className="text-xs text-gray-500 overflow-auto bg-[#0a0e14] p-4 rounded">
-                {JSON.stringify(matchStats, null, 2)}
-              </pre>
+          {calculatedStats ? (
+            <div className="space-y-6">
+              {/* Goals */}
+              <div className="bg-[#0a0e14] rounded-lg p-4">
+                <h4 className="text-white font-semibold mb-3">Goller</h4>
+                <div className="flex items-center justify-between">
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-white">{calculatedStats.goals.home}</div>
+                    <div className="text-sm text-gray-400">{match.homeTeam}</div>
+                  </div>
+                  <div className="text-gray-500 mx-4">-</div>
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-white">{calculatedStats.goals.away}</div>
+                    <div className="text-sm text-gray-400">{match.awayTeam}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cards */}
+              <div className="bg-[#0a0e14] rounded-lg p-4">
+                <h4 className="text-white font-semibold mb-3">Kartlar</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-400 mb-2">{match.homeTeam}</div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-yellow-500 rounded"></span>
+                        <span className="text-white">{calculatedStats.cards.home.yellow}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-red-500 rounded"></span>
+                        <span className="text-white">{calculatedStats.cards.home.red}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-400 mb-2">{match.awayTeam}</div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-yellow-500 rounded"></span>
+                        <span className="text-white">{calculatedStats.cards.away.yellow}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 h-4 bg-red-500 rounded"></span>
+                        <span className="text-white">{calculatedStats.cards.away.red}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Substitutions */}
+              <div className="bg-[#0a0e14] rounded-lg p-4">
+                <h4 className="text-white font-semibold mb-3">Oyuncu Değişiklikleri</h4>
+                <div className="flex items-center justify-between">
+                  <div className="text-center flex-1">
+                    <div className="text-xl font-bold text-white">{calculatedStats.substitutions.home}</div>
+                    <div className="text-sm text-gray-400">{match.homeTeam}</div>
+                  </div>
+                  <div className="text-center flex-1">
+                    <div className="text-xl font-bold text-white">{calculatedStats.substitutions.away}</div>
+                    <div className="text-sm text-gray-400">{match.awayTeam}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Match Events Timeline */}
+              {calculatedStats.events && calculatedStats.events.length > 0 && (
+                <div className="bg-[#0a0e14] rounded-lg p-4">
+                  <h4 className="text-white font-semibold mb-3">Maç Olayları</h4>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {calculatedStats.events
+                      .sort((a, b) => {
+                        const minuteA = parseInt(a.minute || 0) + (parseInt(a.extra_min || 0) / 100);
+                        const minuteB = parseInt(b.minute || 0) + (parseInt(b.extra_min || 0) / 100);
+                        return minuteA - minuteB;
+                      })
+                      .map((event, idx) => (
+                        <div key={idx} className="flex items-center gap-3 text-sm">
+                          <span className="text-gray-500 w-12 text-right">
+                            {event.minute}'{event.extra_min ? `+${event.extra_min}` : ''}
+                          </span>
+                          <div className={`w-2 h-2 rounded-full ${
+                            event.team === 'home' ? 'bg-blue-500' : 'bg-red-500'
+                          }`}></div>
+                          <span className="text-white flex-1">
+                            {event.type === 'goal' && '⚽'}
+                            {event.type === 'yellowcard' && '🟨'}
+                            {event.type === 'redcard' && '🟥'}
+                            {event.type === 'subst' && '🔄'}
+                            {event.type === 'var' && '📺'}
+                            {' '}
+                            {event.player || event.player_on || event.assist_player || 'Olay'}
+                            {event.type === 'subst' && ` (${event.player_off} → ${event.player_on})`}
+                            {event.type === 'goal' && event.result && ` ${event.result}`}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-gray-400">Bu maç için istatistik mevcut değil.</p>
@@ -373,7 +509,23 @@ const MatchDetailPage = () => {
             <TrendingUp className="text-amber-500" />
             Bahis Oranları
           </h3>
-          <p className="text-gray-400">StatPal API'den bahis oranları yükleniyor...</p>
+          {match?.inplay_odds_running === 'True' ? (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
+              <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
+              <h3 className="text-white font-semibold mb-2">Canlı Oranlar Aktif</h3>
+              <p className="text-gray-400 text-sm">
+                Bu maç için canlı bahis oranları mevcuttur, ancak StatPal API'den oran verisi şu anda yüklenemiyor.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
+              <TrendingUp size={32} className="text-blue-500 mx-auto mb-3" />
+              <h3 className="text-white font-semibold mb-2">Bahis Oranları Mevcut Değil</h3>
+              <p className="text-gray-400 text-sm">
+                Bu maç için bahis oranları şu anda mevcut değildir. Maç bilgileri ve skorları yukarıda gösterilmektedir.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
