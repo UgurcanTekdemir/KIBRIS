@@ -270,6 +270,38 @@ async def test_api_connection():
             "error_details": str(e)
         }
 
+@api_router.get("/test-odds-api")
+async def test_odds_api():
+    """Test The Odds API connection and configuration"""
+    from the_odds_api import THE_ODDS_API_KEY, DEFAULT_SPORT_KEYS
+    
+    api_key_configured = bool(THE_ODDS_API_KEY)
+    api_key_length = len(THE_ODDS_API_KEY) if THE_ODDS_API_KEY else 0
+    
+    # Try to fetch matches
+    try:
+        matches = await the_odds_service.get_matches()
+        return {
+            "success": True,
+            "message": "The Odds API connection successful",
+            "api_key_configured": api_key_configured,
+            "api_key_length": api_key_length,
+            "matches_count": len(matches),
+            "default_sports": DEFAULT_SPORT_KEYS,
+            "sample_matches": matches[:3] if matches else []
+        }
+    except Exception as e:
+        logger.error(f"The Odds API test failed: {e}")
+        return {
+            "success": False,
+            "message": f"The Odds API connection failed: {str(e)}",
+            "api_key_configured": api_key_configured,
+            "api_key_length": api_key_length,
+            "default_sports": DEFAULT_SPORT_KEYS,
+            "error_details": str(e),
+            "error_type": type(e).__name__
+        }
+
 
 # Banner API Endpoints
 @api_router.get("/banners", response_model=List[Banner])
