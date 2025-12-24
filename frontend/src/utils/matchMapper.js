@@ -539,15 +539,33 @@ function mapStatPalMatchToInternal(statpalMatch) {
   const awayScore = parseInt(statpalMatch.away?.goals || statpalMatch.ht?.away_goals || 0);
   
   // Determine if match is live
-  const status = statpalMatch.status || '';
-  const isLive = !['FT', 'Postp.', 'Canc.', 'Awarded'].includes(status) && 
-                 status !== '' && 
-                 !status.match(/^\d{2}:\d{2}$/); // Not a future time
-  
-  // Extract minute from status if it's a number
+  const status = String(statpalMatch.status || '').trim();
+  let isLive = false;
   let minute = null;
-  if (status && !isNaN(parseInt(status)) && parseInt(status) > 0 && parseInt(status) <= 120) {
-    minute = parseInt(status);
+  
+  // Status can be:
+  // - "FT" = Full Time (finished)
+  // - "HT" = Half Time (live)
+  // - "1" to "120" = minute number (live)
+  // - "12:00" = future match time (not live)
+  // - "Postp." = Postponed
+  // - "Canc." = Cancelled
+  
+  if (status === 'HT') {
+    isLive = true;
+    minute = 45;
+  } else if (status && !isNaN(parseInt(status))) {
+    const statusNum = parseInt(status);
+    if (statusNum > 0 && statusNum <= 120) {
+      // It's a minute number (live match)
+      isLive = true;
+      minute = statusNum;
+    }
+  } else if (!['FT', 'Postp.', 'Canc.', 'Awarded'].includes(status) && 
+             status !== '' && 
+             !status.match(/^\d{2}:\d{2}$/)) {
+    // Other statuses that might indicate live (like "1", "2", etc. as strings)
+    isLive = true;
   }
   
   // Format date and time

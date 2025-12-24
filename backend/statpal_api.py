@@ -183,18 +183,37 @@ class StatPalAPIService:
         Get detailed information for a specific match
         
         Args:
-            match_id: Match ID
+            match_id: Match ID (main_id, fallback_id_1, fallback_id_2, or fallback_id_3)
             
         Returns:
             Match details
         """
         try:
-            result = await self._make_request(f"soccer/matches/{match_id}")
-            if isinstance(result, dict):
-                return result.get("data", result)
-            return result
+            # StatPal API doesn't have a direct match details endpoint
+            # So we fetch all live matches and find the one with matching ID
+            all_matches = await self.get_live_matches()
+            
+            # Search for match by main_id or any fallback_id
+            for match in all_matches:
+                if (match.get("main_id") == match_id or
+                    match.get("fallback_id_1") == match_id or
+                    match.get("fallback_id_2") == match_id or
+                    match.get("fallback_id_3") == match_id):
+                    return match
+            
+            # If not found in live matches, try regular matches
+            all_matches = await self.get_matches()
+            for match in all_matches:
+                if (match.get("main_id") == match_id or
+                    match.get("fallback_id_1") == match_id or
+                    match.get("fallback_id_2") == match_id or
+                    match.get("fallback_id_3") == match_id):
+                    return match
+            
+            return {}
         except Exception as e:
             logger.error(f"Error fetching match details: {e}")
+            logger.exception(e)
             return {}
     
     async def get_leagues(self) -> List[Dict[str, Any]]:

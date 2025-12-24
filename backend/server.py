@@ -174,16 +174,17 @@ async def get_live_matches(
 
 @api_router.get("/matches/{match_id}")
 async def get_match_details(match_id: str):
-    """Get detailed information for a specific match"""
+    """Get detailed information for a specific match from StatPal API"""
     try:
-        match_data = await the_odds_service.get_match_by_id(match_id)
+        match_data = await statpal_api_service.get_match_details(match_id)
         if not match_data:
             raise HTTPException(status_code=404, detail="Match not found")
-        return {"success": True, "data": match_data}
+        return {"success": True, "data": match_data, "source": "statpal"}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching match details: {e}")
+        logger.error(f"Error fetching match details from StatPal API: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
