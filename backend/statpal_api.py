@@ -79,20 +79,34 @@ class StatPalAPIService:
         Get live soccer matches with scores
         
         Returns:
-            List of live matches
+            List of live matches in flattened format
         """
         try:
             result = await self._make_request("soccer/matches/live")
-            # StatPal API might return data in different formats
-            # Adjust based on actual response structure
-            if isinstance(result, dict):
-                # If response is wrapped in a dict, extract the data
-                return result.get("data", result.get("matches", []))
-            elif isinstance(result, list):
-                return result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}")
-                return []
+            # StatPal API returns: {"league": [{"id": ..., "name": ..., "match": [...]}]}
+            matches = []
+            
+            if isinstance(result, dict) and "league" in result:
+                # Parse league structure
+                for league_data in result.get("league", []):
+                    league_name = league_data.get("name", "Unknown League")
+                    league_id = league_data.get("id")
+                    country = league_data.get("country", "")
+                    
+                    # Get matches from this league
+                    league_matches = league_data.get("match", [])
+                    if not isinstance(league_matches, list):
+                        league_matches = [league_matches] if league_matches else []
+                    
+                    # Flatten matches and add league info
+                    for match in league_matches:
+                        if isinstance(match, dict):
+                            match["league_name"] = league_name
+                            match["league_id"] = league_id
+                            match["country"] = country
+                            matches.append(match)
+            
+            return matches
         except Exception as e:
             logger.error(f"Error fetching live matches: {e}")
             return []
@@ -112,7 +126,7 @@ class StatPalAPIService:
             team_id: Team ID filter (optional)
             
         Returns:
-            List of matches
+            List of matches in flattened format
         """
         params = {}
         if date:
@@ -124,13 +138,31 @@ class StatPalAPIService:
         
         try:
             result = await self._make_request("soccer/matches", params)
-            if isinstance(result, dict):
-                return result.get("data", result.get("matches", []))
+            matches = []
+            
+            # StatPal API returns: {"league": [{"id": ..., "name": ..., "match": [...]}]}
+            if isinstance(result, dict) and "league" in result:
+                for league_data in result.get("league", []):
+                    league_name = league_data.get("name", "Unknown League")
+                    league_id = league_data.get("id")
+                    country = league_data.get("country", "")
+                    
+                    league_matches = league_data.get("match", [])
+                    if not isinstance(league_matches, list):
+                        league_matches = [league_matches] if league_matches else []
+                    
+                    for match in league_matches:
+                        if isinstance(match, dict):
+                            match["league_name"] = league_name
+                            match["league_id"] = league_id
+                            match["country"] = country
+                            matches.append(match)
             elif isinstance(result, list):
                 return result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}")
-                return []
+            elif isinstance(result, dict):
+                return result.get("data", result.get("matches", []))
+            
+            return matches
         except Exception as e:
             logger.error(f"Error fetching matches: {e}")
             return []

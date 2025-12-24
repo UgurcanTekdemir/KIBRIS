@@ -5,11 +5,18 @@
 
 /**
  * Map API response to internal match structure
- * @param {Object} apiMatch - Match object from The Odds API
+ * @param {Object} apiMatch - Match object from The Odds API or StatPal API
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
   if (!apiMatch) return null;
+  
+  // Check if this is a StatPal API response
+  if (apiMatch.main_id || (apiMatch.home && typeof apiMatch.home === 'object' && apiMatch.home.name)) {
+    return mapStatPalMatchToInternal(apiMatch);
+  }
+  
+  // Otherwise, treat as The Odds API response
   
   // The Odds API response structure:
   // {
@@ -502,6 +509,77 @@ function formatDate(date) {
   if (typeof date === 'string' && date.match(/^\d{4}-\d{2}-\d{2}\s/)) {
     return date.split(' ')[0];
   }
+  // Handle StatPal format: "24.12.2025" -> "2025-12-24"
+  if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
+    const [day, month, year] = date.split('.');
+    return `${year}-${month}-${day}`;
+  }
   return date;
+}
+
+/**
+ * Map StatPal API match to internal structure
+ * @param {Object} statpalMatch - Match object from StatPal API
+ * @returns {Object} Internal match structure
+ */
+function mapStatPalMatchToInternal(statpalMatch) {
+  if (!statpalMatch) return null;
+  
+  // StatPal API format:
+  // {
+  //   main_id, status, date: "24.12.2025", time: "15:30",
+  //   home: {id, name, goals}, away: {id, name, goals},
+  //   ht: {home_goals, away_goals}, ft: {home_goals, away_goals} or null,
+  //   league_name, country
+  // }
+  
+  const homeTeam = statpalMatch.home?.name || 'Home Team';
+  const awayTeam = statpalMatch.away?.name || 'Away Team';
+  const homeScore = parseInt(statpalMatch.home?.goals || statpalMatch.ht?.home_goals || 0);
+  const awayScore = parseInt(statpalMatch.away?.goals || statpalMatch.ht?.away_goals || 0);
+  
+  // Determine if match is live
+  const status = statpalMatch.status || '';
+  const isLive = !['FT', 'Postp.', 'Canc.', 'Awarded'].includes(status) && 
+                 status !== '' && 
+                 !status.match(/^\d{2}:\d{2}$/); // Not a future time
+  
+  // Extract minute from status if it's a number
+  let minute = null;
+  if (status && !isNaN(parseInt(status)) && parseInt(status) > 0 && parseInt(status) <= 120) {
+    minute = parseInt(status);
+  }
+  
+  // Format date and time
+  const date = formatDate(statpalMatch.date || '');
+  const time = statpalMatch.time || '';
+  
+  // Get league info
+  const league = statpalMatch.league_name || 'Unknown League';
+  const country = statpalMatch.country || '';
+  
+  return {
+    id: statpalMatch.main_id || statpalMatch.fallback_id_1 || '',
+    league: league,
+    leagueFlag: getLeagueFlag(country || league),
+    sportKey: '', // StatPal doesn't use sport_key
+    homeTeam: homeTeam,
+    awayTeam: awayTeam,
+    homeTeamLogo: null,
+    awayTeamLogo: null,
+    homeScore: homeScore,
+    awayScore: awayScore,
+    minute: minute,
+    isLive: isLive,
+    time: time,
+    date: date,
+    odds: {
+      home: null, // StatPal doesn't provide odds
+      draw: null,
+      away: null,
+    },
+    markets: [], // StatPal doesn't provide betting markets
+    stats: null,
+  };
 }
 
