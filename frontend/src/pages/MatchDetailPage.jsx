@@ -538,12 +538,79 @@ const MatchDetailPage = () => {
             </div>
           ) : matchOdds && Object.keys(matchOdds).length > 0 ? (
             <div className="space-y-4">
-              <pre className="text-xs text-gray-500 overflow-auto bg-[#0a0e14] p-4 rounded">
-                {JSON.stringify(matchOdds, null, 2)}
-              </pre>
-              <p className="text-gray-400 text-sm">
-                StatPal API'den oran verisi alındı. Formatı kontrol edip görüntülemeyi ekleyeceğiz.
-              </p>
+              {/* Parse and display odds data */}
+              {(() => {
+                // Try to extract markets from StatPal API response
+                const markets = matchOdds.markets || matchOdds.bookmakers || matchOdds.data || [];
+                const oddsData = matchOdds.odds || matchOdds;
+                
+                if (Array.isArray(markets) && markets.length > 0) {
+                  return (
+                    <div className="space-y-4">
+                      {markets.map((market, idx) => (
+                        <div key={idx} className="bg-[#0a0e14] rounded-lg p-4">
+                          <h4 className="text-white font-semibold mb-3">{market.name || market.market_name || 'Bahis Marketi'}</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {market.options && market.options.map((opt, optIdx) => (
+                              <div key={optIdx} className="bg-[#1a2332] rounded-lg p-3 min-w-[100px] text-center">
+                                <div className="text-xs text-gray-400 mb-1">{opt.label || opt.name || opt.outcome}</div>
+                                <div className="text-lg font-bold text-white">
+                                  {typeof opt.value === 'number' ? opt.value.toFixed(2) : parseFloat(opt.value || opt.price || opt.odd || 0).toFixed(2)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                } else if (oddsData && typeof oddsData === 'object') {
+                  // Try to extract h2h odds
+                  const homeOdds = oddsData.home || oddsData.homeWin || oddsData['1'] || oddsData.HomeWin;
+                  const drawOdds = oddsData.draw || oddsData.Draw;
+                  const awayOdds = oddsData.away || oddsData.awayWin || oddsData['2'] || oddsData.AwayWin;
+                  
+                  if (homeOdds || drawOdds || awayOdds) {
+                    return (
+                      <div className="bg-[#0a0e14] rounded-lg p-4">
+                        <h4 className="text-white font-semibold mb-3">Maç Sonucu</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          {homeOdds && (
+                            <div className="bg-[#1a2332] rounded-lg p-4 text-center">
+                              <div className="text-xs text-gray-400 mb-2">{match.homeTeam}</div>
+                              <div className="text-2xl font-bold text-white">{parseFloat(homeOdds).toFixed(2)}</div>
+                            </div>
+                          )}
+                          {drawOdds && (
+                            <div className="bg-[#1a2332] rounded-lg p-4 text-center">
+                              <div className="text-xs text-gray-400 mb-2">Beraberlik</div>
+                              <div className="text-2xl font-bold text-white">{parseFloat(drawOdds).toFixed(2)}</div>
+                            </div>
+                          )}
+                          {awayOdds && (
+                            <div className="bg-[#1a2332] rounded-lg p-4 text-center">
+                              <div className="text-xs text-gray-400 mb-2">{match.awayTeam}</div>
+                              <div className="text-2xl font-bold text-white">{parseFloat(awayOdds).toFixed(2)}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                }
+                
+                // Fallback: show raw JSON
+                return (
+                  <>
+                    <pre className="text-xs text-gray-500 overflow-auto bg-[#0a0e14] p-4 rounded max-h-96">
+                      {JSON.stringify(matchOdds, null, 2)}
+                    </pre>
+                    <p className="text-gray-400 text-sm mt-2">
+                      StatPal API'den oran verisi alındı. Veri formatı tanınmadı, ham veri gösteriliyor.
+                    </p>
+                  </>
+                );
+              })()}
             </div>
           ) : (
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6 text-center">
@@ -552,7 +619,7 @@ const MatchDetailPage = () => {
               <p className="text-gray-400 text-sm">
                 Bu maç için bahis oranları şu anda mevcut değildir. StatPal API'den oran verisi çekilemedi.
                 <br />
-                Lütfen StatPal API dokümantasyonunu kontrol edin veya API sağlayıcısı ile iletişime geçin.
+                API endpoint: <code className="text-xs bg-[#0a0e14] px-2 py-1 rounded">{match?.isLive ? '/soccer/odds/live-markets' : '/soccer/odds/pre-match'}</code>
               </p>
             </div>
           )}
