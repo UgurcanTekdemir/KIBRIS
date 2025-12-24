@@ -758,61 +758,78 @@ class StatPalAPIService:
             Odds markets data
         """
         try:
-            # Per StatPal API documentation:
-            # - Live markets: /soccer/odds/live-markets
-            # - Pre-match: /soccer/odds/pre-match
+            # Try different endpoint formats based on StatPal API documentation
+            endpoints_to_try = []
             
             if inplay:
-                endpoint = "soccer/odds/live-markets"
-                params = {"match_id": match_id} if match_id else {}
+                # Try live markets endpoints
+                endpoints_to_try = [
+                    ("soccer/odds/live-markets", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/live-markets", {}),  # Get all live odds
+                    (f"soccer/matches/{match_id}/odds/live", {}),
+                    (f"soccer/odds/inplay/{match_id}", {}),
+                ]
             else:
-                endpoint = "soccer/odds/pre-match"
-                params = {"match_id": match_id} if match_id else {}
+                # Try pre-match endpoints
+                endpoints_to_try = [
+                    ("soccer/odds/pre-match", {"match_id": match_id} if match_id else {}),
+                    ("soccer/odds/pre-match", {}),  # Get all pre-match odds
+                    (f"soccer/matches/{match_id}/odds", {}),
+                    (f"soccer/odds/{match_id}", {}),
+                    ("soccer/odds", {"match_id": match_id} if match_id else {}),
+                ]
             
-            result = await self._make_request(
-                endpoint,
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
-            )
-            
-            # Parse response - StatPal API might return odds in different formats
-            if result and isinstance(result, dict):
-                # If match_id was provided, filter by match_id
-                if match_id:
-                    # Check if result has matches/odds array
-                    if "matches" in result:
-                        matches = result.get("matches", [])
-                        if isinstance(matches, list):
-                            for match_odds in matches:
-                                if (match_odds.get("match_id") == match_id or
-                                    match_odds.get("main_id") == match_id or
-                                    match_odds.get("id") == match_id):
-                                    return match_odds
-                    elif "odds" in result:
-                        odds_list = result.get("odds", [])
-                        if isinstance(odds_list, list):
-                            for odds_data in odds_list:
+            for endpoint, params in endpoints_to_try:
+                try:
+                    result = await self._make_request(
+                        endpoint,
+                        params=params if params else None,
+                        use_cache=True,
+                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
+                    )
+                    
+                    if result and isinstance(result, dict) and len(result) > 0:
+                        # Parse response - StatPal API might return odds in different formats
+                        # If match_id was provided, filter by match_id
+                        if match_id:
+                            # Check if result has matches/odds array
+                            if "matches" in result:
+                                matches = result.get("matches", [])
+                                if isinstance(matches, list):
+                                    for match_odds in matches:
+                                        if (match_odds.get("match_id") == match_id or
+                                            match_odds.get("main_id") == match_id or
+                                            match_odds.get("id") == match_id):
+                                            return match_odds
+                            elif "odds" in result:
+                                odds_list = result.get("odds", [])
+                                if isinstance(odds_list, list):
+                                    for odds_data in odds_list:
+                                        if (odds_data.get("match_id") == match_id or
+                                            odds_data.get("main_id") == match_id or
+                                            odds_data.get("id") == match_id):
+                                            return odds_data
+                            # If structure is different, return the whole result
+                            return result
+                        else:
+                            # No match_id filter, return all odds
+                            return result
+                    elif result and isinstance(result, list) and len(result) > 0:
+                        # If result is a list, find match by ID
+                        if match_id:
+                            for odds_data in result:
                                 if (odds_data.get("match_id") == match_id or
                                     odds_data.get("main_id") == match_id or
                                     odds_data.get("id") == match_id):
                                     return odds_data
-                    # If structure is different, return the whole result
-                    return result
-                else:
-                    # No match_id filter, return all odds
-                    return result
-            elif result and isinstance(result, list):
-                # If result is a list, find match by ID
-                if match_id:
-                    for odds_data in result:
-                        if (odds_data.get("match_id") == match_id or
-                            odds_data.get("main_id") == match_id or
-                            odds_data.get("id") == match_id):
-                            return odds_data
-                return result[0] if result else {}
+                        return result[0] if result else {}
+                except Exception as e:
+                    logger.debug(f"Odds endpoint {endpoint} failed: {e}")
+                    continue
             
-            return result if result else {}
+            # If no endpoint works, return empty dict
+            logger.warning(f"Match odds endpoint not found for match {match_id}, inplay={inplay}")
+            return {}
         except Exception as e:
             logger.error(f"Error fetching match odds: {e}")
             logger.exception(e)
