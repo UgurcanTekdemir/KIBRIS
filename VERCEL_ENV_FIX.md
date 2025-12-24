@@ -13,7 +13,7 @@ Frontend hala `localhost:8000` kullanıyor çünkü `REACT_APP_API_URL` environm
 1. **"Add New"** butonuna tıklayın
 2. Şu bilgileri girin:
    - **Key**: `REACT_APP_API_URL`
-   - **Value**: Backend URL'iniz (örn: `https://kibris-backend.railway.app`)
+   - **Value**: `https://web-production-c33a1.up.railway.app`
    - ⚠️ **ÖNEMLİ**: URL `https://` ile başlamalı ve sonunda `/api` olmamalı!
 3. **Environment** seçeneklerinde:
    - ✅ Production
@@ -46,7 +46,9 @@ vercel --prod
 ### Railway Kullanıyorsanız:
 1. Railway Dashboard → Projeniz
 2. **Settings** → **Domains** sekmesi
-3. URL'i kopyalayın (örn: `https://kibris-backend.railway.app`)
+3. URL'i kopyalayın (örn: `https://web-production-c33a1.up.railway.app`)
+
+**Mevcut Backend URL**: `https://web-production-c33a1.up.railway.app`
 
 ### Render Kullanıyorsanız:
 1. Render Dashboard → Projeniz
@@ -83,7 +85,7 @@ vercel --prod
 
 Deploy sonrası browser console'da şunu görmelisiniz:
 ```
-🔧 API Base URL: https://your-backend.railway.app/api
+🔧 API Base URL: https://web-production-c33a1.up.railway.app/api
 ```
 
 Eğer hala `localhost:8000` görüyorsanız, yeniden deploy edin!

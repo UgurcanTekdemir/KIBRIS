@@ -1,10 +1,15 @@
 # Railway Environment Variables
 # Bu değişkenleri Railway Dashboard > Settings > Variables bölümüne ekleyin
 
+# API Keys
 THE_ODDS_API_KEY=1506840105ed45a22668cdec6147f2e7
+STATPAL_API_KEY=75d51040-917d-4a51-a957-4fa2222cc9f3
+NOSY_API_TOKEN=2zCF5YF9l3th90LYkR4hKeMWRLEictnmFPYm2TFt6Caj7sPKiROOOr3WBVRl
 
+# Database
 DB_NAME=kibris_db
 
+# CORS
 CORS_ORIGINS=https://my-kibris-project.vercel.app,http://localhost:3000,http://localhost:3001
 
 # MongoDB URL - Railway MongoDB Plugin kullanıyorsanız otomatik eklenir

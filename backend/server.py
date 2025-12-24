@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from nosy_api import nosy_api_service
 from the_odds_api import the_odds_service
+from statpal_api import statpal_api_service
 
 
 ROOT_DIR = Path(__file__).parent
@@ -330,6 +331,138 @@ async def test_odds_api():
         "sports_endpoint_test": sports_test_result,
         "matches_endpoint_test": matches_test_result,
         "overall_success": sports_test_result and sports_test_result.get("valid") and matches_test_result and matches_test_result.get("success")
+    }
+
+
+# StatPal API Endpoints
+@api_router.get("/matches/statpal")
+async def get_statpal_matches(
+    date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD)"),
+    league_id: Optional[int] = Query(None, description="League ID filter"),
+    team_id: Optional[int] = Query(None, description="Team ID filter")
+):
+    """Get soccer matches from StatPal API"""
+    try:
+        matches = await statpal_api_service.get_matches(
+            date=date,
+            league_id=league_id,
+            team_id=team_id
+        )
+        return {"success": True, "data": matches}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal matches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/statpal/live")
+async def get_statpal_live_matches():
+    """Get live soccer matches from StatPal API"""
+    try:
+        matches = await statpal_api_service.get_live_matches()
+        return {"success": True, "data": matches, "is_live": True}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal live matches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/matches/statpal/{match_id}")
+async def get_statpal_match_details(match_id: str):
+    """Get detailed information for a specific match from StatPal API"""
+    try:
+        match_data = await statpal_api_service.get_match_details(match_id)
+        if not match_data:
+            raise HTTPException(status_code=404, detail="Match not found")
+        return {"success": True, "data": match_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching StatPal match details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/leagues/statpal")
+async def get_statpal_leagues():
+    """Get available leagues from StatPal API"""
+    try:
+        leagues = await statpal_api_service.get_leagues()
+        return {"success": True, "data": leagues}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal leagues: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/teams/statpal")
+async def get_statpal_teams(
+    league_id: Optional[int] = Query(None, description="League ID filter")
+):
+    """Get teams from StatPal API"""
+    try:
+        teams = await statpal_api_service.get_teams(league_id=league_id)
+        return {"success": True, "data": teams}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal teams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/standings/statpal/{league_id}")
+async def get_statpal_standings(league_id: int):
+    """Get league standings from StatPal API"""
+    try:
+        standings = await statpal_api_service.get_standings(league_id)
+        return {"success": True, "data": standings}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal standings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/test-statpal")
+async def test_statpal_api():
+    """Test StatPal API connection and configuration"""
+    from statpal_api import STATPAL_API_KEY
+    
+    api_key_configured = bool(STATPAL_API_KEY)
+    api_key_length = len(STATPAL_API_KEY) if STATPAL_API_KEY else 0
+    api_key_preview = STATPAL_API_KEY[:8] + "..." if STATPAL_API_KEY and len(STATPAL_API_KEY) > 8 else "N/A"
+    
+    # Test: Try to fetch live matches
+    live_matches_test = None
+    try:
+        live_matches = await statpal_api_service.get_live_matches()
+        live_matches_test = {
+            "success": True,
+            "matches_count": len(live_matches),
+            "sample_matches": live_matches[:2] if live_matches else []
+        }
+    except Exception as e:
+        live_matches_test = {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    # Test: Try to fetch leagues
+    leagues_test = None
+    try:
+        leagues = await statpal_api_service.get_leagues()
+        leagues_test = {
+            "success": True,
+            "leagues_count": len(leagues),
+            "sample_leagues": leagues[:2] if leagues else []
+        }
+    except Exception as e:
+        leagues_test = {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+    
+    return {
+        "api_key_configured": api_key_configured,
+        "api_key_length": api_key_length,
+        "api_key_preview": api_key_preview,
+        "live_matches_test": live_matches_test,
+        "leagues_test": leagues_test,
+        "overall_success": live_matches_test and live_matches_test.get("success")
     }
 
 

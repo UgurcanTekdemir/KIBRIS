@@ -4,9 +4,21 @@
 
 Railway dashboard'da projenizin **Settings** > **Variables** bölümüne aşağıdaki environment variable'ları ekleyin:
 
-### 1. The Odds API Key
+### 1. API Keys
+
+#### The Odds API Key
 ```
 THE_ODDS_API_KEY=1506840105ed45a22668cdec6147f2e7
+```
+
+#### StatPal API Key
+```
+STATPAL_API_KEY=75d51040-917d-4a51-a957-4fa2222cc9f3
+```
+
+#### NosyAPI Token (Opsiyonel)
+```
+NOSY_API_TOKEN=2zCF5YF9l3th90LYkR4hKeMWRLEictnmFPYm2TFt6Caj7sPKiROOOr3WBVRl
 ```
 
 ### 2. MongoDB Configuration
@@ -58,9 +70,16 @@ CORS_ORIGINS=https://my-kibris-project.vercel.app,http://localhost:3000,http://l
 ## Örnek Environment Variables Listesi
 
 ```
+# API Keys
 THE_ODDS_API_KEY=1506840105ed45a22668cdec6147f2e7
+STATPAL_API_KEY=75d51040-917d-4a51-a957-4fa2222cc9f3
+NOSY_API_TOKEN=2zCF5YF9l3th90LYkR4hKeMWRLEictnmFPYm2TFt6Caj7sPKiROOOr3WBVRl
+
+# Database
 MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/kibris_db?retryWrites=true&w=majority
 DB_NAME=kibris_db
+
+# CORS
 CORS_ORIGINS=https://your-frontend-domain.vercel.app,http://localhost:3000,http://localhost:3001
 ```
 

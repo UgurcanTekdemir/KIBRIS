@@ -197,6 +197,84 @@ export const matchAPI = {
 };
 
 /**
+ * StatPal API Service
+ */
+export const statpalAPI = {
+  /**
+   * Get matches from StatPal API
+   * @param {Object} filters - { date, leagueId, teamId }
+   * @returns {Promise<Array>} List of matches
+   */
+  async getMatches(filters = {}) {
+    const params = new URLSearchParams();
+    
+    if (filters.date) params.append('date', filters.date);
+    if (filters.leagueId) params.append('league_id', filters.leagueId);
+    if (filters.teamId) params.append('team_id', filters.teamId);
+
+    const queryString = params.toString();
+    const endpoint = `/matches/statpal${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetchAPI(endpoint);
+    return response.data || [];
+  },
+
+  /**
+   * Get live matches from StatPal API
+   * @returns {Promise<Array>} List of live matches
+   */
+  async getLiveMatches() {
+    const response = await fetchAPI('/matches/statpal/live');
+    return response.data || [];
+  },
+
+  /**
+   * Get match details by ID from StatPal API
+   * @param {string} matchId - Match ID
+   * @returns {Promise<Object>} Match details
+   */
+  async getMatchDetails(matchId) {
+    const response = await fetchAPI(`/matches/statpal/${matchId}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get available leagues from StatPal API
+   * @returns {Promise<Array>} List of leagues
+   */
+  async getLeagues() {
+    const response = await fetchAPI('/leagues/statpal');
+    return response.data || [];
+  },
+
+  /**
+   * Get teams from StatPal API
+   * @param {Object} filters - { leagueId }
+   * @returns {Promise<Array>} List of teams
+   */
+  async getTeams(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.leagueId) params.append('league_id', filters.leagueId);
+
+    const queryString = params.toString();
+    const endpoint = `/teams/statpal${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetchAPI(endpoint);
+    return response.data || [];
+  },
+
+  /**
+   * Get league standings from StatPal API
+   * @param {number} leagueId - League ID
+   * @returns {Promise<Array>} League standings
+   */
+  async getStandings(leagueId) {
+    const response = await fetchAPI(`/standings/statpal/${leagueId}`);
+    return response.data || [];
+  },
+};
+
+/**
  * Banner API Service
  */
 export const bannerAPI = {

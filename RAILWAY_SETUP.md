@@ -29,6 +29,26 @@ Railway.json dosyası güncellendi. Ancak Railway dashboard'da root directory'yi
 - `PORT` değişkeni Railway tarafından otomatik sağlanır
 - MongoDB bağlantısı için `MONGO_URL` environment variable'ını ekleyin
 
+## Environment Variables
+
+Railway dashboard'da şu environment variable'ları ekleyin:
+
+```
+# API Keys
+THE_ODDS_API_KEY=1506840105ed45a22668cdec6147f2e7
+STATPAL_API_KEY=75d51040-917d-4a51-a957-4fa2222cc9f3
+NOSY_API_TOKEN=2zCF5YF9l3th90LYkR4hKeMWRLEictnmFPYm2TFt6Caj7sPKiROOOr3WBVRl
+
+# Database
+DB_NAME=kibris_db
+MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/kibris_db?retryWrites=true&w=majority
+
+# CORS
+CORS_ORIGINS=https://your-frontend.vercel.app,http://localhost:3000,http://localhost:3001
+```
+
+Detaylı bilgi için `RAILWAY_ENV_SETUP.md` dosyasına bakın.
+
 ## Start Command
 
 ```
