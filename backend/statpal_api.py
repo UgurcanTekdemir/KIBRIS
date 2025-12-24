@@ -839,21 +839,35 @@ class StatPalAPIService:
                     logger.debug(f"Odds endpoint {endpoint} failed: {e}")
                     continue
             
-            # If we got market list but no match_id was provided or no match-specific odds found
-            # Try to get odds for a specific market (e.g., Fulltime Result - market ID 3610)
-            if match_id:
-                # Try to get odds for the most common market (Fulltime Result - 3610)
-                try:
-                    market_result = await self._make_request(
-                        "soccer/odds/live/markets/3610" if inplay else "soccer/odds/pre-match/markets/3610",
-                        params={"match_id": match_id},
-                        use_cache=True,
-                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if market_result:
-                        return market_result
-                except Exception:
-                    pass
+            # If we got market list, try to get odds for each market
+            # StatPal API might require fetching odds for each market separately
+            if match_id and result and isinstance(result, list) and len(result) > 0:
+                # Check if result is market list
+                if result[0].get("id") and result[0].get("name"):
+                    # Try to get odds for Fulltime Result market (ID 3610) which is most common
+                    fulltime_result_market = next((m for m in result if m.get("id") == 3610 or "Fulltime Result" in m.get("name", "")), None)
+                    if fulltime_result_market:
+                        market_id = fulltime_result_market.get("id")
+                        try:
+                            # Try different formats for getting market odds
+                            market_endpoints = [
+                                f"soccer/odds/live/markets/{market_id}" if inplay else f"soccer/odds/pre-match/markets/{market_id}",
+                                f"soccer/odds/live/markets/{market_id}?match_id={match_id}" if inplay else f"soccer/odds/pre-match/markets/{market_id}?match_id={match_id}",
+                            ]
+                            for market_endpoint in market_endpoints:
+                                try:
+                                    market_result = await self._make_request(
+                                        market_endpoint.split('?')[0],
+                                        params={"match_id": match_id} if "?" not in market_endpoint else None,
+                                        use_cache=True,
+                                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
+                                    )
+                                    if market_result and isinstance(market_result, dict) and len(market_result) > 0:
+                                        return market_result
+                                except Exception:
+                                    continue
+                        except Exception:
+                            pass
             
             # If no endpoint works, return empty dict
             logger.warning(f"Match odds endpoint not found for match {match_id}, inplay={inplay}")
