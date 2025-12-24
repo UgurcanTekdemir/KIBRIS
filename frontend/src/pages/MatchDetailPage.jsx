@@ -540,6 +540,37 @@ const MatchDetailPage = () => {
             <div className="space-y-4">
               {/* Parse and display odds data */}
               {(() => {
+                // Check if this is a market list response
+                if (matchOdds.is_market_list && Array.isArray(matchOdds.markets)) {
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                        <p className="text-amber-500 text-sm font-medium mb-2">
+                          ℹ️ Mevcut Bahis Marketleri
+                        </p>
+                        <p className="text-gray-400 text-xs">
+                          StatPal API'den mevcut market listesi alındı. Belirli bir market için odds almak için market ID'si gerekiyor.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {matchOdds.markets.map((market, idx) => (
+                          <div key={idx} className="bg-[#0a0e14] rounded-lg p-3 border border-[#1e2736]">
+                            <div className="text-white font-medium text-sm">{market.name}</div>
+                            <div className="text-xs text-gray-500 mt-1">ID: {market.id}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                        <p className="text-blue-500 text-sm">
+                          💡 Not: Belirli bir market için odds almak için StatPal API dokümantasyonunu kontrol edin.
+                          <br />
+                          Örnek: <code className="text-xs">/soccer/odds/live/markets/{matchOdds.markets[0]?.id}?match_id={matchOdds.match_id}</code>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                
                 // Try to extract markets from StatPal API response
                 const markets = matchOdds.markets || matchOdds.bookmakers || matchOdds.data || [];
                 const oddsData = matchOdds.odds || matchOdds;
