@@ -146,21 +146,13 @@ async def get_matches(
     date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD)"),
     country: Optional[str] = Query(None, description="Country filter")
 ):
-    """Get betting program matches"""
+    """Get betting program matches from StatPal API"""
     try:
-        # Try StatPal API first, fallback to The Odds API
-        try:
-            matches = await statpal_api_service.get_matches(date=date)
-            if matches:
-                return {"success": True, "data": matches, "source": "statpal"}
-        except Exception as statpal_error:
-            logger.warning(f"StatPal API failed, falling back to The Odds API: {statpal_error}")
-        
-        # Fallback to The Odds API
-        matches = await the_odds_service.get_matches()
-        return {"success": True, "data": matches, "source": "the_odds_api"}
+        matches = await statpal_api_service.get_matches(date=date)
+        return {"success": True, "data": matches, "source": "statpal"}
     except Exception as e:
-        logger.error(f"Error fetching matches: {e}")
+        logger.error(f"Error fetching matches from StatPal API: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -169,38 +161,15 @@ async def get_live_matches(
     match_type: int = Query(1, description="Match type (1=Futbol, 2=Basketbol, etc.)")
 ):
     """
-    Get live matches (matches currently in progress).
-    Uses StatPal API for live matches, falls back to The Odds API if needed.
+    Get live matches (matches currently in progress) from StatPal API.
     """
     try:
-        # Try StatPal API first for live matches
-        try:
-            live_matches = await statpal_api_service.get_live_matches()
-            if live_matches:
-                return {"success": True, "data": live_matches, "is_live": True, "source": "statpal"}
-        except Exception as statpal_error:
-            logger.warning(f"StatPal API failed, trying The Odds API: {statpal_error}")
-        
-        # Fallback to The Odds API
-        live_matches = await the_odds_service.get_live_matches()
-        
-        if not live_matches:
-            # If no live matches found, return upcoming matches sorted by commence_time as fallback
-            all_matches = await the_odds_service.get_matches()
-            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
-            return {"success": True, "data": sorted_matches[:20], "is_live": False, "source": "the_odds_api"}
-        
-        return {"success": True, "data": live_matches, "is_live": True, "source": "the_odds_api"}
+        live_matches = await statpal_api_service.get_live_matches()
+        return {"success": True, "data": live_matches, "is_live": True, "source": "statpal"}
     except Exception as e:
-        logger.error(f"Error fetching live matches: {e}")
-        # Final fallback to upcoming matches
-        try:
-            all_matches = await the_odds_service.get_matches()
-            sorted_matches = sorted(all_matches, key=lambda m: m.get('commence_time', ''))
-            return {"success": True, "data": sorted_matches[:20], "is_live": False, "source": "the_odds_api"}
-        except Exception as fallback_error:
-            logger.error(f"Fallback also failed: {fallback_error}")
-            raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching live matches from StatPal API: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.get("/matches/{match_id}")

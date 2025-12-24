@@ -83,8 +83,12 @@ class StatPalAPIService:
         """
         try:
             result = await self._make_request("soccer/matches/live")
-            # StatPal API returns: {"league": [{"id": ..., "name": ..., "match": [...]}]}
+            # StatPal API returns: {"live_matches": {"league": [{"id": ..., "name": ..., "match": [...]}]}}
             matches = []
+            
+            # Handle live_matches wrapper
+            if isinstance(result, dict) and "live_matches" in result:
+                result = result["live_matches"]
             
             if isinstance(result, dict) and "league" in result:
                 # Parse league structure
@@ -109,6 +113,7 @@ class StatPalAPIService:
             return matches
         except Exception as e:
             logger.error(f"Error fetching live matches: {e}")
+            logger.exception(e)  # Log full traceback
             return []
     
     async def get_matches(
@@ -118,34 +123,36 @@ class StatPalAPIService:
         team_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Get soccer matches
+        Get soccer matches - uses live matches endpoint as StatPal doesn't have a general matches endpoint
         
         Args:
-            date: Date filter in YYYY-MM-DD format (optional)
+            date: Date filter in YYYY-MM-DD format (optional, not used for live matches)
             league_id: League ID filter (optional)
             team_id: Team ID filter (optional)
             
         Returns:
             List of matches in flattened format
         """
-        params = {}
-        if date:
-            params["date"] = date
-        if league_id:
-            params["league_id"] = league_id
-        if team_id:
-            params["team_id"] = team_id
-        
         try:
-            result = await self._make_request("soccer/matches", params)
+            # StatPal API doesn't have a general /matches endpoint, use live matches
+            # which includes both live and recent matches
+            result = await self._make_request("soccer/matches/live")
             matches = []
+            
+            # Handle live_matches wrapper
+            if isinstance(result, dict) and "live_matches" in result:
+                result = result["live_matches"]
             
             # StatPal API returns: {"league": [{"id": ..., "name": ..., "match": [...]}]}
             if isinstance(result, dict) and "league" in result:
                 for league_data in result.get("league", []):
                     league_name = league_data.get("name", "Unknown League")
-                    league_id = league_data.get("id")
+                    league_id_data = league_data.get("id")
                     country = league_data.get("country", "")
+                    
+                    # Filter by league_id if provided
+                    if league_id and str(league_id_data) != str(league_id):
+                        continue
                     
                     league_matches = league_data.get("match", [])
                     if not isinstance(league_matches, list):
@@ -153,18 +160,22 @@ class StatPalAPIService:
                     
                     for match in league_matches:
                         if isinstance(match, dict):
+                            # Filter by team_id if provided
+                            if team_id:
+                                home_id = match.get("home", {}).get("id")
+                                away_id = match.get("away", {}).get("id")
+                                if str(home_id) != str(team_id) and str(away_id) != str(team_id):
+                                    continue
+                            
                             match["league_name"] = league_name
-                            match["league_id"] = league_id
+                            match["league_id"] = league_id_data
                             match["country"] = country
                             matches.append(match)
-            elif isinstance(result, list):
-                return result
-            elif isinstance(result, dict):
-                return result.get("data", result.get("matches", []))
             
             return matches
         except Exception as e:
             logger.error(f"Error fetching matches: {e}")
+            logger.exception(e)  # Log full traceback
             return []
     
     async def get_match_details(self, match_id: str) -> Dict[str, Any]:
