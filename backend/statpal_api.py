@@ -1,1875 +1,2301 @@
 """
 StatPal API Service Module
-Handles all interactions with StatPal API for soccer livescores and match data
-Following StatPal API documentation: https://statpal.io/quick-start-tutorial/
+Fetches live soccer match data from StatPal API.
 """
 import os
-import httpx
-from typing import Optional, Dict, List, Any
-from datetime import datetime, timedelta
-import logging
-from pathlib import Path
-from dotenv import load_dotenv
-import time
+import asyncio
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
 
-# Load environment variables
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+import httpx
+import logging
+
 
 logger = logging.getLogger(__name__)
 
 STATPAL_API_BASE_URL = "https://statpal.io/api/v2"
-STATPAL_API_KEY = os.environ.get("STATPAL_API_KEY", "")
+STATPAL_ACCESS_KEY = os.environ.get("STATPAL_ACCESS_KEY", "75d51040-917d-4a51-a957-4fa2222cc9f3")
 
-# Rate limits per StatPal documentation:
-# - Live Scores & Play-by-Play: Refreshed every 30 seconds (don't exceed this frequency)
-# - Other Endpoints: Updated several times per hour (can access ~10+ times per hour)
-LIVE_SCORES_CACHE_TTL = 30  # 30 seconds for live scores
-OTHER_ENDPOINTS_CACHE_TTL = 300  # 5 minutes for other endpoints
+# League mapping for Turkish names and flags
+LEAGUE_MAP = {
+    "Premier League": {"id": 2, "name": "Premier League", "country": "İngiltere", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "sport_key": "soccer_epl"},
+    "La Liga": {"id": 3, "name": "La Liga", "country": "İspanya", "flag": "🇪🇸", "sport_key": "soccer_spain_la_liga"},
+    "Serie A": {"id": 4, "name": "Serie A", "country": "İtalya", "flag": "🇮🇹", "sport_key": "soccer_italy_serie_a"},
+    "Bundesliga": {"id": 5, "name": "Bundesliga", "country": "Almanya", "flag": "🇩🇪", "sport_key": "soccer_germany_bundesliga"},
+    "Ligue 1": {"id": 6, "name": "Ligue 1", "country": "Fransa", "flag": "🇫🇷", "sport_key": "soccer_france_ligue_one"},
+    "Süper Lig": {"id": 1, "name": "Süper Lig", "country": "Türkiye", "flag": "🇹🇷", "sport_key": "soccer_turkey_super_league"},
+    "Super Lig": {"id": 1, "name": "Süper Lig", "country": "Türkiye", "flag": "🇹🇷", "sport_key": "soccer_turkey_super_league"},
+    "Turkish Super League": {"id": 1, "name": "Süper Lig", "country": "Türkiye", "flag": "🇹🇷", "sport_key": "soccer_turkey_super_league"},
+}
+
+# Country mapping
+COUNTRY_MAP = {
+    "İngiltere": {"name": "İngiltere", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    "England": {"name": "İngiltere", "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    "İspanya": {"name": "İspanya", "flag": "🇪🇸"},
+    "Spain": {"name": "İspanya", "flag": "🇪🇸"},
+    "İtalya": {"name": "İtalya", "flag": "🇮🇹"},
+    "Italy": {"name": "İtalya", "flag": "🇮🇹"},
+    "Almanya": {"name": "Almanya", "flag": "🇩🇪"},
+    "Germany": {"name": "Almanya", "flag": "🇩🇪"},
+    "Fransa": {"name": "Fransa", "flag": "🇫🇷"},
+    "France": {"name": "Fransa", "flag": "🇫🇷"},
+    "Türkiye": {"name": "Türkiye", "flag": "🇹🇷"},
+    "Turkey": {"name": "Türkiye", "flag": "🇹🇷"},
+}
 
 
-class StatPalAPIService:
-    """
-    Service class for interacting with StatPal API
-    Implements caching and rate limiting per StatPal documentation
-    """
-    
-    def __init__(self):
+class StatPalApiService:
+    """Service class for interacting with StatPal API."""
+
+    def __init__(self) -> None:
+        if not STATPAL_ACCESS_KEY:
+            logger.warning("STATPAL_ACCESS_KEY is not set. Requests will fail.")
+        self.access_key = STATPAL_ACCESS_KEY
         self.base_url = STATPAL_API_BASE_URL
-        self.api_key = STATPAL_API_KEY
-        if not self.api_key:
-            logger.warning("STATPAL_API_KEY is not set. Requests will fail.")
-        else:
-            logger.info(f"StatPal API key configured: {self.api_key[:8]}...{self.api_key[-4:] if len(self.api_key) > 12 else '***'}")
-        
-        # Simple in-memory cache: {endpoint: (data, timestamp)}
-        self._cache: Dict[str, tuple] = {}
-        
-        # Track last request time per endpoint to respect rate limits
-        self._last_request_time: Dict[str, float] = {}
-    
-    def _get_cache_key(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> str:
-        """Generate cache key from endpoint and params"""
-        if params:
-            sorted_params = sorted(params.items())
-            param_str = "&".join(f"{k}={v}" for k, v in sorted_params)
-            return f"{endpoint}?{param_str}"
-        return endpoint
-    
-    def _get_from_cache(self, cache_key: str, ttl: int) -> Optional[Dict[str, Any]]:
-        """Get data from cache if still valid"""
-        if cache_key in self._cache:
-            data, timestamp = self._cache[cache_key]
-            if time.time() - timestamp < ttl:
-                logger.debug(f"Cache hit for {cache_key}")
-                return data
-            else:
-                # Cache expired, remove it
-                del self._cache[cache_key]
-        return None
-    
-    def _set_cache(self, cache_key: str, data: Dict[str, Any]):
-        """Store data in cache"""
-        self._cache[cache_key] = (data, time.time())
-    
-    async def _make_request(
+        self.timeout = 30.0
+        self._cache = {}
+        self._cache_ttl = 30  # 30 seconds cache for live matches
+
+    async def _get(
         self, 
-        endpoint: str, 
+        path: str, 
         params: Optional[Dict[str, Any]] = None,
-        use_cache: bool = True,
-        cache_ttl: int = OTHER_ENDPOINTS_CACHE_TTL
-    ) -> Dict[str, Any]:
+        retries: int = 3,
+        backoff_factor: float = 1.0
+    ) -> Any:
         """
-        Make a GET request to StatPal API with caching and rate limiting
+        Generic GET request handler with retry logic.
         
         Args:
-            endpoint: API endpoint path (e.g., 'soccer/matches/live')
-            params: Query parameters (access_key will be added automatically)
-            use_cache: Whether to use caching (default: True)
-            cache_ttl: Cache TTL in seconds (default: OTHER_ENDPOINTS_CACHE_TTL)
+            path: API endpoint path
+            params: Additional query parameters
+            retries: Number of retry attempts
+            backoff_factor: Exponential backoff multiplier
             
         Returns:
-            JSON response as dictionary
-            
-        Raises:
-            Exception: If request fails
+            JSON response data
         """
-        cache_key = self._get_cache_key(endpoint, params)
-        
-        # Check cache first
-        if use_cache:
-            cached_data = self._get_from_cache(cache_key, cache_ttl)
-            if cached_data is not None:
-                return cached_data
-        
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        
-        # Add access_key to params (StatPal API uses 'access_key' parameter)
-        request_params = {}
-        if self.api_key:
-            request_params["access_key"] = self.api_key
-        else:
-            logger.error("STATPAL_API_KEY is not set! Cannot make request.")
-            raise Exception("STATPAL_API_KEY is not configured")
-        
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        query_params = {"access_key": self.access_key}
         if params:
-            request_params.update(params)
+            query_params.update(params)
         
-        logger.info(f"Making request to: {url}")
-        logger.info(f"Request params (key masked): {list(request_params.keys())}")
+        last_exception = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.get(url, params=query_params)
+                    
+                    # Handle rate limiting
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 60))
+                        if attempt < retries - 1:
+                            wait_time = retry_after * (backoff_factor ** attempt)
+                            logger.warning(
+                                "Rate limit exceeded. Waiting %s seconds before retry %s/%s",
+                                wait_time, attempt + 1, retries
+                            )
+                            await asyncio.sleep(wait_time)
+                            continue
+                    
+                    response.raise_for_status()
+                    return response.json()
+                    
+            except httpx.HTTPStatusError as exc:
+                last_exception = exc
+                status_code = exc.response.status_code
+                
+                if status_code == 401:
+                    logger.error("StatPal API: Invalid access key")
+                    raise Exception("Invalid StatPal API access key") from exc
+                elif status_code == 403:
+                    logger.error("StatPal API: Access forbidden")
+                    raise Exception("StatPal API access forbidden") from exc
+                elif status_code == 404:
+                    logger.error("StatPal API: Endpoint not found - %s", url)
+                    raise Exception(f"StatPal API endpoint not found: {path}") from exc
+                elif status_code == 429:
+                    # Rate limit - handled above, but if all retries fail
+                    if attempt == retries - 1:
+                        logger.error("StatPal API: Rate limit exceeded after %s retries", retries)
+                        raise Exception("StatPal API rate limit exceeded") from exc
+                    continue
+                elif status_code >= 500:
+                    # Server error - retry
+                    if attempt < retries - 1:
+                        wait_time = backoff_factor ** attempt
+                        logger.warning(
+                            "StatPal API server error %s. Retrying in %s seconds...",
+                            status_code, wait_time
+                        )
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(
+                            "StatPal API request failed: %s %s",
+                            status_code,
+                            exc.response.text,
+                        )
+                        raise Exception(f"StatPal API server error: {status_code}") from exc
+                else:
+                    logger.error(
+                        "StatPal API request failed: %s %s",
+                        status_code,
+                        exc.response.text,
+                    )
+                    raise Exception(f"StatPal API request failed: {status_code}") from exc
+                    
+            except httpx.TimeoutException as exc:
+                last_exception = exc
+                if attempt < retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    logger.warning(
+                        "StatPal API request timeout. Retrying in %s seconds...",
+                        wait_time
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("StatPal API request timeout after %s retries", retries)
+                    raise Exception("StatPal API request timeout") from exc
+                    
+            except httpx.RequestError as exc:
+                last_exception = exc
+                if attempt < retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    logger.warning(
+                        "StatPal API connection error. Retrying in %s seconds...",
+                        wait_time
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("StatPal API connection error: %s", exc)
+                    raise Exception(f"StatPal API connection error: {str(exc)}") from exc
         
-        # Rate limiting: Check last request time
-        current_time = time.time()
-        if endpoint in self._last_request_time:
-            time_since_last = current_time - self._last_request_time[endpoint]
-            # For live scores, ensure at least 30 seconds between requests
-            if "live" in endpoint.lower() and time_since_last < LIVE_SCORES_CACHE_TTL:
-                logger.warning(f"Rate limit: Too soon to request {endpoint}. Waiting...")
-                # Return cached data if available, otherwise wait
-                cached_data = self._get_from_cache(cache_key, cache_ttl)
-                if cached_data is not None:
-                    return cached_data
+        # If we get here, all retries failed
+        if last_exception:
+            raise last_exception
+        raise Exception("StatPal API request failed after retries")
+
+    def _is_upcoming_match(self, match: Dict[str, Any]) -> bool:
+        """
+        Check if a match is upcoming (not yet started or finished).
+        
+        Args:
+            match: Match data dictionary
+            
+        Returns:
+            True if match is upcoming, False otherwise
+        """
+        # Check if match is live (live matches are not "upcoming" in the prematch sense)
+        if match.get("is_live") is True:
+            return False
+        
+        # Check status - finished matches are not upcoming
+        # Note: "Postp." (Postponed) matches might be rescheduled, so we check by date
+        status = match.get("status", "").upper()
+        if status in ["FT", "FINISHED", "CANCELED", "CANCELLED"]:
+            return False
+        # Don't exclude "POSTPONED" or "Postp." - they might be rescheduled for future
+        
+        # Check commence_time
+        commence_time = match.get("commence_time")
+        if not commence_time:
+            # If no commence_time, check date field
+            date_str = match.get("date", "")
+            if date_str:
+                try:
+                    # Try YYYY-MM-DD format first
+                    try:
+                        match_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    except ValueError:
+                        # Try StatPal format: DD.MM.YYYY
+                        try:
+                            match_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+                        except ValueError:
+                            return False
+                    today = datetime.now(timezone.utc).date()
+                    return match_date >= today
+                except (ValueError, TypeError):
+                    pass
+            return False
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=request_params)
-                
-                logger.info(f"StatPal API Request: {url}")
-                logger.info(f"StatPal API Request params (key only): access_key={'*' * 10 if self.api_key else 'NOT SET'}")
-                logger.info(f"Response status: {response.status_code}")
-                
-                # Handle HTTP 200 with 'invalid-request' per documentation
-                if response.status_code == 200:
+            # Parse commence_time (ISO 8601 format)
+            if isinstance(commence_time, str):
+                match_time = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
+            elif isinstance(commence_time, datetime):
+                match_time = commence_time
+            else:
+                return False
+            
+            # Ensure match_time is timezone-aware
+            if match_time.tzinfo is None:
+                match_time = match_time.replace(tzinfo=timezone.utc)
+            
+            # Compare with current time
+            current_time = datetime.now(timezone.utc)
+            return match_time >= current_time
+        except (ValueError, TypeError, AttributeError):
+            # If parsing fails, assume it's not upcoming
+            return False
+
+    def _transform_match_data(self, statpal_match: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Transform StatPal API response format to The Odds API-like format.
+        
+        Args:
+            statpal_match: Match data from StatPal API
+            
+        Returns:
+            Transformed match data in The Odds API-like format
+        """
+        # Extract match ID (StatPal uses main_id, fallback_id_1, etc.)
+        # Also preserve all IDs for odds matching
+        main_id = statpal_match.get("main_id")
+        fallback_id_1 = statpal_match.get("fallback_id_1")
+        fallback_id_2 = statpal_match.get("fallback_id_2")
+        fallback_id_3 = statpal_match.get("fallback_id_3")
+        
+        match_id = str(
+            main_id or 
+            fallback_id_1 or 
+            statpal_match.get("match_id") or 
+            statpal_match.get("id", "")
+        )
+        
+        # Extract team names (StatPal uses "home" and "away" objects with "name" field)
+        home_obj = statpal_match.get("home", {})
+        away_obj = statpal_match.get("away", {})
+        
+        # Extract team names and logos
+        home_team_logo = None
+        away_team_logo = None
+        
+        if isinstance(home_obj, dict):
+            home_team = home_obj.get("name", "")
+            # Try to extract logo from various possible fields
+            home_team_logo = (
+                home_obj.get("logo") or 
+                home_obj.get("image") or 
+                home_obj.get("logo_url") or 
+                home_obj.get("image_url") or
+                None
+            )
+        else:
+            home_team = statpal_match.get("home_team") or statpal_match.get("homeTeam", "")
+        
+        if isinstance(away_obj, dict):
+            away_team = away_obj.get("name", "")
+            # Try to extract logo from various possible fields
+            away_team_logo = (
+                away_obj.get("logo") or 
+                away_obj.get("image") or 
+                away_obj.get("logo_url") or 
+                away_obj.get("image_url") or
+                None
+            )
+        else:
+            away_team = statpal_match.get("away_team") or statpal_match.get("awayTeam", "")
+        
+        # Extract league information
+        league_name = statpal_match.get("league") or statpal_match.get("league_name", "")
+        country = statpal_match.get("country") or statpal_match.get("country_name", "")
+        
+        # Extract league_id (StatPal uses "league_id" or nested league object with "id")
+        league_id = None
+        if "league_id" in statpal_match:
+            league_id = str(statpal_match.get("league_id", ""))
+        elif "league" in statpal_match and isinstance(statpal_match.get("league"), dict):
+            league_obj = statpal_match.get("league")
+            if "id" in league_obj:
+                league_id = str(league_obj.get("id", ""))
+        # Also check parent context (if match is nested in league data)
+        if not league_id:
+            # Try to get from parent league context if available
+            parent_league = statpal_match.get("_league_context", {})
+            if isinstance(parent_league, dict) and "id" in parent_league:
+                league_id = str(parent_league.get("id", ""))
+        
+        # Get sport_key from league mapping
+        sport_key = "soccer_unknown"
+        if league_name in LEAGUE_MAP:
+            sport_key = LEAGUE_MAP[league_name]["sport_key"]
+        else:
+            # Try to infer from league name
+            league_lower = league_name.lower()
+            if "premier" in league_lower or "epl" in league_lower:
+                sport_key = "soccer_epl"
+            elif "la liga" in league_lower or "spain" in league_lower:
+                sport_key = "soccer_spain_la_liga"
+            elif "serie a" in league_lower or "italy" in league_lower:
+                sport_key = "soccer_italy_serie_a"
+            elif "bundesliga" in league_lower or "germany" in league_lower:
+                sport_key = "soccer_germany_bundesliga"
+            elif "ligue" in league_lower or "france" in league_lower:
+                sport_key = "soccer_france_ligue_one"
+            elif "super lig" in league_lower or "turkey" in league_lower or "türkiye" in league_lower:
+                sport_key = "soccer_turkey_super_league"
+        
+        # Extract scores (StatPal uses "home" and "away" objects with "goals" field)
+        home_score = 0
+        away_score = 0
+        
+        if isinstance(home_obj, dict):
+            goals_str = home_obj.get("goals", "")
+            try:
+                home_score = int(goals_str) if goals_str else 0
+            except (ValueError, TypeError):
+                home_score = 0
+        
+        if isinstance(away_obj, dict):
+            goals_str = away_obj.get("goals", "")
+            try:
+                away_score = int(goals_str) if goals_str else 0
+            except (ValueError, TypeError):
+                away_score = 0
+        
+        # Fallback to other score formats
+        if home_score == 0 and away_score == 0:
+            score_data = statpal_match.get("score") or statpal_match.get("scores", {})
+            
+            if isinstance(score_data, dict):
+                home_score = score_data.get("home") or score_data.get("home_score", 0)
+                away_score = score_data.get("away") or score_data.get("away_score", 0)
+            elif isinstance(score_data, list):
+                # Handle list format: [{"name": "Team A", "score": 1}, ...]
+                for score_item in score_data:
+                    if isinstance(score_item, dict):
+                        team_name = score_item.get("name", "").lower()
+                        score = score_item.get("score", 0)
+                        if home_team.lower() in team_name or team_name in home_team.lower():
+                            home_score = score
+                        elif away_team.lower() in team_name or team_name in away_team.lower():
+                            away_score = score
+        
+        # Extract status and live information
+        # StatPal status values: "FT" (Finished), "NS" (Not Started), "LIVE", "HT" (Half Time), "1H" (First Half), "2H" (Second Half), etc.
+        status = statpal_match.get("status") or statpal_match.get("match_status", "")
+        status_upper = status.upper()
+        
+        # Determine if match is live
+        # Live statuses: LIVE, HT, 1H, 2H, INPLAY, IN_PLAY, etc.
+        # Finished statuses: FT, FINISHED, CANCELED, CANCELLED, POSTPONED, POSTP., etc.
+        # Not started: NS, NOT_STARTED, SCHEDULED, etc.
+        
+        # First check if status indicates finished/postponed/canceled
+        finished_statuses = ["FT", "FINISHED", "CANCELED", "CANCELLED", "POSTPONED", "POSTP.", "POSTP", "CANCEL", "SUSPENDED", "ABANDONED"]
+        is_finished = status_upper in finished_statuses or status_upper.startswith("POSTP") or status_upper.startswith("CANCEL")
+        
+        is_live = (
+            not is_finished and (
+                status_upper == "LIVE" or 
+                status_upper == "HT" or  # Half time is still live
+                status_upper == "1H" or  # First half
+                status_upper == "2H" or  # Second half
+                status_upper == "INPLAY" or
+                status_upper == "IN_PLAY" or
+                status_upper == "IN PLAY" or
+                statpal_match.get("is_live") is True or
+                statpal_match.get("isLive") is True
+            )
+        )
+        
+        # If we're in get_live_matches(), assume matches are live unless explicitly finished
+        # This handles cases where StatPal returns matches from /live endpoint but status might not be set correctly
+        if not is_live and status_upper not in ["FT", "FINISHED", "CANCELED", "CANCELLED", "POSTPONED", "NS", "NOT_STARTED", "SCHEDULED"]:
+            # If status is ambiguous and we have scores, it might be live
+            if home_score is not None or away_score is not None:
+                # Check if match has recent activity (has events or scores)
+                has_events = statpal_match.get("events") is not None
+                if has_events or (home_score is not None and away_score is not None):
+                    # If status is empty or unknown but has scores/events, might be live
+                    # But be conservative - only mark as live if we're sure
+                    pass
+        
+        # Extract minute (StatPal uses "inj_minute" for injury time, regular minute might be in status or separate field)
+        minute = None
+        inj_minute = statpal_match.get("inj_minute", "")
+        if inj_minute:
+            try:
+                minute = int(inj_minute)
+            except (ValueError, TypeError):
+                pass
+        
+        # Try other minute fields
+        if minute is None:
+            minute_str = statpal_match.get("minute") or statpal_match.get("elapsed", "")
+            if minute_str:
+                try:
+                    minute = int(minute_str)
+                except (ValueError, TypeError):
+                    minute = None
+        
+        # If status is HT, set minute to 45
+        if minute is None and status_upper == "HT":
+            minute = 45
+        
+        # Extract date and time (StatPal uses "DD.MM.YYYY" format for date and "HH:MM" for time)
+        commence_time = None
+        date_str = statpal_match.get("date") or statpal_match.get("match_date", "")
+        time_str = statpal_match.get("time") or statpal_match.get("match_time", "")
+        
+        # Try to parse datetime
+        if date_str:
+            try:
+                if time_str:
+                    # Combine date and time
+                    datetime_str = f"{date_str} {time_str}"
+                    # Try StatPal format first: "DD.MM.YYYY HH:MM"
                     try:
-                        data = response.json()
-                logger.info(f"StatPal API Response type: {type(data)}")
-                if isinstance(data, dict):
-                    logger.info(f"StatPal API Response keys: {list(data.keys())}")
-                    logger.info(f"StatPal API Response preview: {str(data)[:1000]}")
-                    # Log nested structure details
-                    for key, value in data.items():
-                        if isinstance(value, dict):
-                            logger.info(f"  - {key} (dict) keys: {list(value.keys()) if isinstance(value, dict) else 'N/A'}")
-                        elif isinstance(value, list):
-                            logger.info(f"  - {key} (list) length: {len(value)}")
-                            if value and len(value) > 0 and isinstance(value[0], dict):
-                                logger.info(f"  - {key} first item keys: {list(value[0].keys())}")
-                elif isinstance(data, list):
-                    logger.info(f"StatPal API Response is list with {len(data)} items")
-                    if data and len(data) > 0:
-                        logger.info(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'Not a dict'}")
-                        logger.info(f"First item preview: {str(data[0])[:500]}")
-                        
-                        # Check for invalid-request in response
-                        if isinstance(data, dict) and data.get("status") == "invalid-request":
-                            error_msg = data.get("message", "Invalid request")
-                            logger.error(f"StatPal API invalid request: {error_msg}")
-                            raise Exception(f"Invalid request: {error_msg}")
-                        # Update cache and last request time
-                        if use_cache:
-                            self._set_cache(cache_key, data)
-                        self._last_request_time[endpoint] = current_time
-                        return data
+                        commence_time = datetime.strptime(datetime_str, "%d.%m.%Y %H:%M")
                     except ValueError:
-                        # Not JSON response
-                        logger.error(f"StatPal API returned non-JSON response: {response.text[:200]}")
-                        raise Exception("Invalid JSON response from API")
-                
-                # For non-200 status codes, raise exception
-                response.raise_for_status()
-                return response.json()
-                
-        except httpx.HTTPStatusError as e:
-            error_detail = f"Status: {e.response.status_code}, Response: {e.response.text[:200]}"
-            logger.error(f"StatPal API request failed: {error_detail}")
-            raise Exception(f"API request failed: {error_detail}")
-        except httpx.HTTPError as e:
-            logger.error(f"StatPal API request failed: {e}")
-            raise Exception(f"API request failed: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error in StatPal API request: {e}")
-            raise
-    
+                        # Try other formats
+                        for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%d/%m/%Y %H:%M"]:
+                            try:
+                                commence_time = datetime.strptime(datetime_str, fmt)
+                                break
+                            except ValueError:
+                                continue
+                else:
+                    # Just date - try StatPal format first
+                    try:
+                        commence_time = datetime.strptime(date_str, "%d.%m.%Y")
+                    except ValueError:
+                        try:
+                            commence_time = datetime.strptime(date_str, "%Y-%m-%d")
+                        except ValueError:
+                            pass
+            except (ValueError, TypeError) as e:
+                logger.debug("Failed to parse date/time: %s - %s", datetime_str if 'datetime_str' in locals() else date_str, e)
+                pass
+        
+        # If no commence_time, use current time for live matches
+        if not commence_time and is_live:
+            commence_time = datetime.now(timezone.utc)
+        elif not commence_time:
+            commence_time = datetime.now(timezone.utc)
+        
+        # Format as ISO 8601
+        if commence_time:
+            if commence_time.tzinfo is None:
+                commence_time = commence_time.replace(tzinfo=timezone.utc)
+            commence_time_str = commence_time.isoformat()
+        else:
+            commence_time_str = datetime.now(timezone.utc).isoformat()
+        
+        # Build scores array in The Odds API format
+        scores = []
+        if home_score is not None or away_score is not None:
+            if home_team:
+                scores.append({"name": home_team, "score": home_score or 0})
+            if away_team:
+                scores.append({"name": away_team, "score": away_score or 0})
+        
+        # Extract date in YYYY-MM-DD format for frontend
+        date_formatted = None
+        if commence_time:
+            date_formatted = commence_time.strftime("%Y-%m-%d")
+        elif date_str:
+            # Try to parse date_str and convert to YYYY-MM-DD
+            try:
+                # Try StatPal format first: "DD.MM.YYYY"
+                try:
+                    parsed_date = datetime.strptime(date_str, "%d.%m.%Y")
+                    date_formatted = parsed_date.strftime("%Y-%m-%d")
+                except ValueError:
+                    # Try ISO format: "YYYY-MM-DD"
+                    try:
+                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        date_formatted = parsed_date.strftime("%Y-%m-%d")
+                    except ValueError:
+                        pass
+            except (ValueError, TypeError):
+                pass
+        
+        # Build transformed match data
+        transformed = {
+            "id": match_id,
+            "sport_key": sport_key,
+            "home_team": home_team,
+            "away_team": away_team,
+            "commence_time": commence_time_str,
+            "date": date_formatted,  # Add date field for frontend filtering
+            "scores": scores,
+            "is_live": is_live,
+            "bookmakers": [],  # Will be populated if odds are available
+        }
+        
+        # Add team logos if available
+        if home_team_logo:
+            transformed["home_team_logo"] = home_team_logo
+        if away_team_logo:
+            transformed["away_team_logo"] = away_team_logo
+        
+        # Preserve all match IDs for odds matching
+        if main_id:
+            transformed["main_id"] = str(main_id)
+        if fallback_id_1:
+            transformed["fallback_id_1"] = str(fallback_id_1)
+        if fallback_id_2:
+            transformed["fallback_id_2"] = str(fallback_id_2)
+        if fallback_id_3:
+            transformed["fallback_id_3"] = str(fallback_id_3)
+        
+        # Add league information if available
+        if league_name:
+            transformed["league"] = league_name
+        if country:
+            transformed["country"] = country
+        if league_id:
+            transformed["league_id"] = league_id
+        
+        # Add minute if available
+        if minute is not None:
+            transformed["minute"] = minute
+        
+        # Add status
+        if status:
+            transformed["status"] = status
+        
+        return transformed
+
     async def get_live_matches(self) -> List[Dict[str, Any]]:
         """
-        Get live soccer matches with scores
-        Per StatPal API: GET /soccer/matches/live
-        Returns matches for today and live matches
-        Uses 30-second cache per StatPal documentation
+        Get live soccer matches from StatPal API.
         
         Returns:
-            List of live matches in flattened format
+            List of live matches in The Odds API-like format
         """
         try:
-            logger.info("Fetching live matches from StatPal API: soccer/matches/live")
-            result = await self._make_request(
-                "soccer/matches/live",
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
+            # Check cache first
+            cache_key = "live_matches"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                if (datetime.now() - cached_time).total_seconds() < self._cache_ttl:
+                    logger.debug("Returning cached live matches")
+                    return cached_data
             
-            logger.info(f"StatPal API response type: {type(result)}")
-            if isinstance(result, dict):
-                logger.info(f"StatPal API response keys: {list(result.keys())}")
-                logger.info(f"StatPal API response preview: {str(result)[:1000]}")
+            # Fetch from API
+            response = await self._get("soccer/matches/live")
             
-            # StatPal API returns: {"live_matches": {"league": [{"id": ..., "name": ..., "match": [...]}]}}
-            # Or might return directly: {"league": [...]}
-            matches = []
+            # StatPal API response format:
+            # {
+            #   "live_matches": {
+            #     "league": [
+            #       {
+            #         "id": "...",
+            #         "name": "...",
+            #         "country": "...",
+            #         "match": [...]
+            #       }
+            #     ]
+            #   }
+            # }
             
-            # Handle live_matches wrapper
-            if isinstance(result, dict) and "live_matches" in result:
-                result = result["live_matches"]
-                logger.info("Found 'live_matches' wrapper, extracted inner structure")
+            matches_data = []
+            if isinstance(response, dict):
+                # Check for live_matches wrapper
+                if "live_matches" in response:
+                    live_matches = response["live_matches"]
+                    if "league" in live_matches:
+                        # Extract matches from all leagues
+                        for league_data in live_matches["league"]:
+                            league_name = league_data.get("name", "")
+                            country = league_data.get("country", "")
+                            league_id = str(league_data.get("id", "")) if league_data.get("id") else None
+                            matches = league_data.get("match", [])
+                            
+                            # Flatten matches and add league/country info
+                            for match in matches:
+                                if isinstance(match, dict):
+                                    # Add league and country info to match
+                                    match["league"] = league_name
+                                    match["country"] = country
+                                    if league_id:
+                                        match["league_id"] = league_id
+                                    matches_data.append(match)
+                # Check for other common response wrapper formats
+                elif "data" in response:
+                    matches_data = response["data"] if isinstance(response["data"], list) else []
+                elif "matches" in response:
+                    matches_data = response["matches"] if isinstance(response["matches"], list) else []
+                elif "results" in response:
+                    matches_data = response["results"] if isinstance(response["results"], list) else []
+            elif isinstance(response, list):
+                matches_data = response
+            else:
+                logger.warning("Unexpected StatPal API response format: %s", type(response))
+                matches_data = []
             
-            if isinstance(result, dict):
-                # Check for "league" key (nested structure)
-                if "league" in result:
-                    logger.info(f"Found 'league' key with {len(result.get('league', []))} leagues")
-                    # Parse league structure
-                    for league_data in result.get("league", []):
-                        league_name = league_data.get("name", "Unknown League")
-                        league_id = league_data.get("id")
-                        country = league_data.get("country", "")
-                        
-                        # Get matches from this league
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        
-                        logger.info(f"League '{league_name}' has {len(league_matches)} matches")
-                        
-                        # Flatten matches and add league info
-                        for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_name"] = league_name
-                                match["league_id"] = league_id
-                                match["country"] = country
-                                match["is_live"] = True  # Mark as live match
-                                matches.append(match)
-                # Check if result has direct "match" key
-                elif "match" in result:
-                    league_matches = result.get("match", [])
-                    if not isinstance(league_matches, list):
-                        league_matches = [league_matches] if league_matches else []
-                    logger.info(f"Found direct 'match' key with {len(league_matches)} matches")
-                    for match in league_matches:
-                        if isinstance(match, dict):
-                            match["is_live"] = True
-                            matches.append(match)
-                # Check if result is a list of matches
-                elif isinstance(result, list):
-                    logger.info(f"Response is direct list with {len(result)} matches")
-                    matches = result
-                # Try to find any list in the result
-                else:
-                    for key, value in result.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a match
-                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
-                                logger.info(f"Found matches in field '{key}': {len(value)}")
-                                matches = value
-                                for match in matches:
-                                    if isinstance(match, dict):
-                                        match["is_live"] = True
-                                break
-            elif isinstance(result, list):
-                logger.info(f"Response is list with {len(result)} matches")
-                matches = result
-                for match in matches:
-                    if isinstance(match, dict):
-                        match["is_live"] = True
+            # Get live odds if available
+            live_odds_map = {}
+            if matches_data:
+                try:
+                    live_odds_map = await self.get_live_odds()
+                except Exception as exc:
+                    logger.debug("Failed to get live odds: %s", exc)
+                    live_odds_map = {}
             
-            logger.info(f"Extracted {len(matches)} live matches")
+            # Transform matches
+            transformed_matches = []
+            for match in matches_data:
+                try:
+                    status = match.get("status", "").upper()
+                    
+                    # For /live endpoint, trust the endpoint - if it returns a match, consider it live
+                    # Only skip explicitly postponed/canceled/suspended matches
+                    # StatPal /live endpoint returns matches that are currently live OR recently finished
+                    # We want to show all of them as "live" since they're from the live endpoint
+                    postponed_statuses = ["POSTPONED", "POSTP.", "POSTP", "CANCEL", "CANCELED", "CANCELLED", "SUSPENDED", "ABANDONED"]
+                    is_postponed = status in postponed_statuses or status.startswith("POSTP") or status.startswith("CANCEL")
+                    
+                    if is_postponed:
+                        logger.debug(f"Skipping postponed/canceled match: {match.get('main_id')} - Status: {status}")
+                        continue
+                    
+                    transformed = self._transform_match_data(match)
+                    
+                    # Force is_live to True for ALL matches from /live endpoint (except postponed/canceled)
+                    # The endpoint itself indicates these are live or recently live matches
+                    # This is the correct behavior - if StatPal returns it from /live, we show it as live
+                    transformed["is_live"] = True
+                    
+                    # Also set minute if available (for display purposes)
+                    if not transformed.get("minute") and status == "FT":
+                        # For finished matches, we can set minute to 90+ for display
+                        transformed["minute"] = 90
+                    
+                    logger.debug(f"Marking match from /live endpoint as live: {transformed.get('id')} - Status: {status}")
+                    
+                    # Fetch logos if not already present
+                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                        try:
+                            home_logo = await self.get_team_logo(transformed.get("home_team"))
+                            if home_logo:
+                                transformed["home_team_logo"] = home_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch home team logo: {e}")
+                    
+                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                        try:
+                            away_logo = await self.get_team_logo(transformed.get("away_team"))
+                            if away_logo:
+                                transformed["away_team_logo"] = away_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    
+                    # Add odds if available
+                    match_id_str = transformed.get("id", "")
+                    if match_id_str and match_id_str in live_odds_map:
+                        transformed["bookmakers"] = live_odds_map[match_id_str]
+                    
+                    transformed_matches.append(transformed)
+                except Exception as exc:
+                    logger.warning("Failed to transform match data: %s - %s", match, exc)
+                    continue
             
-            # If no matches found, log the full response structure for debugging
-            if len(matches) == 0:
-                logger.warning("No matches extracted from StatPal API response")
-                logger.warning(f"Full response structure: {result}")
-                if isinstance(result, dict):
-                    logger.warning(f"Response keys: {list(result.keys())}")
-                    for key, value in result.items():
-                        logger.warning(f"  - {key}: {type(value)} - {str(value)[:200] if not isinstance(value, (dict, list)) else f'{len(value) if isinstance(value, list) else \"dict\"} items'}")
+            # Cache the results
+            self._cache[cache_key] = (transformed_matches, datetime.now())
             
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching live matches: {e}")
-            logger.exception(e)  # Log full traceback
+            return transformed_matches
+            
+        except Exception as exc:
+            logger.error("Failed to get live matches from StatPal API: %s", exc)
+            # Return empty list on error
             return []
-    
+
     async def get_matches(
         self,
+        sports: Optional[List[str]] = None,
         date: Optional[str] = None,
-        league_id: Optional[int] = None,
-        team_id: Optional[int] = None
+        league: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Get soccer matches - uses live matches endpoint as StatPal doesn't have a general matches endpoint
-        Uses 30-second cache per StatPal documentation
+        Get all matches from StatPal API (live + daily + fixtures).
         
         Args:
-            date: Date filter in YYYY-MM-DD format (optional, not used for live matches)
-            league_id: League ID filter (optional)
-            team_id: Team ID filter (optional)
+            sports: Not used (kept for compatibility)
+            date: Date in YYYY-MM-DD format. If None, gets today's matches.
+            league: Optional league name or ID filter
             
         Returns:
-            List of matches in flattened format
+            List of matches in The Odds API-like format
         """
         try:
-            # StatPal API doesn't have a general /matches endpoint, use live matches
-            # which includes both live and recent matches
-            result = await self._make_request(
-                "soccer/matches/live",
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
-            matches = []
+            all_matches = []
+            existing_ids = set()
             
-            # Handle live_matches wrapper
-            if isinstance(result, dict) and "live_matches" in result:
-                result = result["live_matches"]
+            # 1. Get live matches
+            try:
+                live_matches = await self.get_live_matches()
+                for match in live_matches:
+                    match_id = match.get("id")
+                    if match_id:
+                        existing_ids.add(match_id)
+                all_matches.extend(live_matches)
+            except Exception as e:
+                logger.warning(f"Failed to get live matches: {e}")
             
-            # StatPal API returns: {"league": [{"id": ..., "name": ..., "match": [...]}]}
-            if isinstance(result, dict) and "league" in result:
-                for league_data in result.get("league", []):
-                    league_name = league_data.get("name", "Unknown League")
-                    league_id_data = league_data.get("id")
-                    country = league_data.get("country", "")
-                    
-                    # Filter by league_id if provided
-                    if league_id and str(league_id_data) != str(league_id):
+            # 2. Get daily matches for today, tomorrow, and past 2 weeks (to get both upcoming and past matches)
+            try:
+                # Get today's matches
+                today_matches = await self.get_daily_matches(date=None)
+                # Also get tomorrow's matches for more upcoming matches
+                tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+                tomorrow_matches = await self.get_daily_matches(date=tomorrow)
+                # Get past matches from last 14 days
+                past_daily_matches = []
+                for days_ago in range(1, 15):  # Last 14 days (excluding today)
+                    past_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+                    try:
+                        past_matches = await self.get_daily_matches(date=past_date)
+                        past_daily_matches.extend(past_matches)
+                        # Small delay to avoid rate limiting
+                        await asyncio.sleep(0.05)
+                    except Exception as e:
+                        logger.debug(f"Failed to get daily matches for {past_date}: {e}")
                         continue
-                    
-                    league_matches = league_data.get("match", [])
-                    if not isinstance(league_matches, list):
-                        league_matches = [league_matches] if league_matches else []
-                    
-                    for match in league_matches:
-                        if isinstance(match, dict):
-                            # Filter by team_id if provided
-                            if team_id:
-                                home_id = match.get("home", {}).get("id")
-                                away_id = match.get("away", {}).get("id")
-                                if str(home_id) != str(team_id) and str(away_id) != str(team_id):
-                                    continue
-                            
-                            match["league_name"] = league_name
-                            match["league_id"] = league_id_data
-                            match["country"] = country
-                            matches.append(match)
+                # Combine today, tomorrow, and past matches
+                daily_matches = today_matches + tomorrow_matches + past_daily_matches
+                
+                # Remove duplicates (matches that are already in live_matches)
+                unique_daily = []
+                for match in daily_matches:
+                    match_id = match.get("id")
+                    if match_id and match_id not in existing_ids:
+                        existing_ids.add(match_id)
+                        unique_daily.append(match)
+                all_matches.extend(unique_daily)
+            except Exception as e:
+                logger.warning(f"Failed to get daily matches: {e}")
             
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching matches: {e}")
-            logger.exception(e)  # Log full traceback
-            return []
-    
-    async def get_match_details(self, match_id: str) -> Dict[str, Any]:
-        """
-        Get detailed information for a specific match
-        
-        Args:
-            match_id: Match ID (main_id, fallback_id_1, fallback_id_2, or fallback_id_3)
-            
-        Returns:
-            Match details
-        """
-        try:
-            # StatPal API doesn't have a direct match details endpoint
-            # So we fetch all live matches and find the one with matching ID
-            all_matches = await self.get_live_matches()
-            
-            # Search for match by main_id or any fallback_id
-            for match in all_matches:
-                if (match.get("main_id") == match_id or
-                    match.get("fallback_id_1") == match_id or
-                    match.get("fallback_id_2") == match_id or
-                    match.get("fallback_id_3") == match_id):
-                    return match
-            
-            # If not found in live matches, try regular matches
-            all_matches = await self.get_matches()
-            for match in all_matches:
-                if (match.get("main_id") == match_id or
-                    match.get("fallback_id_1") == match_id or
-                    match.get("fallback_id_2") == match_id or
-                    match.get("fallback_id_3") == match_id):
-                    return match
-            
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching match details: {e}")
-            logger.exception(e)
-            return {}
-    
-    async def get_results(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get match results (finished matches)
-        Per StatPal documentation: /results/ endpoint
-        
-        Args:
-            date: Date filter in YYYY-MM-DD format (optional)
-            
-        Returns:
-            List of finished matches
-        """
-        params = {}
-        if date:
-            params["date"] = date
-        
-        try:
-            result = await self._make_request(
-                "soccer/results",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            # Parse similar to live matches structure
-            matches = []
-            if isinstance(result, dict):
-                # Handle different response structures
-                if "results" in result:
-                    result = result["results"]
-                if "league" in result:
-                    for league_data in result.get("league", []):
-                        league_name = league_data.get("name", "Unknown League")
-                        league_id = league_data.get("id")
-                        country = league_data.get("country", "")
-                        
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        
+            # 3. Always try to get matches from popular leagues (both upcoming and finished from last 2 weeks)
+            # This ensures we have upcoming matches for prematch odds and past matches for history
+            try:
+                # Get popular league IDs and fetch their matches
+                popular_league_ids = ["3037", "3258", "3232", "3102", "3054", "3062"]  # Premier League, Super Lig, La Liga, Serie A, Ligue 1, Bundesliga
+                for league_id in popular_league_ids:  # Get from all 6 popular leagues
+                    try:
+                        league_matches = await self.get_league_matches(league_id)
+                        # Get both upcoming and finished matches (for past matches display)
                         for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_name"] = league_name
-                                match["league_id"] = league_id
-                                match["country"] = country
-                                matches.append(match)
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching results: {e}")
-            return []
-    
-    async def get_leagues(self) -> List[Dict[str, Any]]:
-        """
-        Get available leagues from StatPal API
-        Per StatPal API: GET /soccer/leagues
-        Returns list of soccer leagues with details including id, country, season, and date ranges.
-        This endpoint data is updated every 12 hours.
-        
-        Returns:
-            List of leagues with id, country, season, start_date, end_date
-        """
-        try:
-            logger.info("Making request to StatPal API: soccer/leagues")
-            result = await self._make_request(
-                "soccer/leagues",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL  # 5 minutes cache
-            )
-            logger.info(f"StatPal API response type: {type(result)}")
-            
-            # Log full response structure for debugging
-            if isinstance(result, dict):
-                logger.info(f"StatPal API response keys: {list(result.keys())}")
-                logger.info(f"StatPal API response preview: {str(result)[:1000]}")
-            elif isinstance(result, list):
-                logger.info(f"StatPal API response is list with {len(result)} items")
-                if result and len(result) > 0:
-                    logger.info(f"First item: {result[0]}")
-            
-            # Check for error responses
-            if isinstance(result, dict):
-                # Check for error status
-                if result.get("status") == "error" or result.get("status") == "invalid-request":
-                    error_msg = result.get("message", "Unknown error")
-                    logger.error(f"StatPal API error response: {error_msg}")
-                    return []
-                
-                # StatPal API returns: {"leagues": {"sport": "soccer", "league": [...]}}
-                # Check for nested structure first
-                leagues = None
-                
-                # Check if "leagues" key exists and contains "league" array
-                if "leagues" in result:
-                    leagues_obj = result["leagues"]
-                    if isinstance(leagues_obj, dict) and "league" in leagues_obj:
-                        leagues = leagues_obj["league"]
-                        logger.info(f"Found leagues in nested structure 'leagues.league': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
-                
-                # If not found, try direct field names
-                if leagues is None:
-                    for field_name in ["data", "league", "results", "items", "response"]:
-                        if field_name in result:
-                            leagues = result[field_name]
-                            logger.info(f"Found leagues in field '{field_name}': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
-                            break
-                
-                # If still not found, check if all values are lists
-                if leagues is None:
-                    for key, value in result.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a league (has id, name, country, etc.)
-                            if isinstance(value[0], dict):
-                                # Check for league-like fields
-                                first_item = value[0]
-                                if any(k in first_item for k in ["id", "league_id", "name", "league_name", "country", "season"]):
-                                    leagues = value
-                                    logger.info(f"Found leagues in field '{key}': {len(leagues)}")
-                                    break
-                
-                if leagues is None:
-                    logger.warning(f"No leagues found in response. Available keys: {list(result.keys())}")
-                    if "leagues" in result:
-                        logger.warning(f"Leagues object keys: {list(result['leagues'].keys()) if isinstance(result['leagues'], dict) else 'Not a dict'}")
-                    return []
-                
-                if isinstance(leagues, list):
-                    logger.info(f"Extracted {len(leagues)} leagues from dict response")
-                    if leagues and len(leagues) > 0:
-                        sample_league = leagues[0]
-                        logger.info(f"Sample league structure: {list(sample_league.keys()) if isinstance(sample_league, dict) else 'Not a dict'}")
-                        logger.info(f"Sample league data: {sample_league}")
-                    return leagues
-                else:
-                    logger.warning(f"Leagues field is not a list: {type(leagues)}, value: {leagues}")
-                    return []
-            elif isinstance(result, list):
-                logger.info(f"Received list response with {len(result)} leagues")
-                if result and len(result) > 0:
-                    sample_league = result[0]
-                    logger.info(f"Sample league keys: {list(sample_league.keys()) if isinstance(sample_league, dict) else 'Not a dict'}")
-                    logger.info(f"Sample league data: {sample_league}")
-                return result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:500]}")
-                return []
-        except Exception as e:
-            logger.error(f"Error fetching leagues: {e}")
-            logger.exception(e)
-            return []
-    
-    async def get_teams(self, league_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        Get teams
-        Uses 5-minute cache per StatPal documentation
-        
-        Args:
-            league_id: League ID filter (optional)
-            
-        Returns:
-            List of teams
-        """
-        params = {}
-        if league_id:
-            params["league_id"] = league_id
-        
-        try:
-            result = await self._make_request(
-                "soccer/teams",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("teams", []))
-            elif isinstance(result, list):
-                return result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}")
-                return []
-        except Exception as e:
-            logger.error(f"Error fetching teams: {e}")
-            return []
-    
-    async def get_standings(self, league_id: int) -> List[Dict[str, Any]]:
-        """
-        Get league standings
-        Uses 5-minute cache per StatPal documentation
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            League standings
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/standings/{league_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("standings", []))
-            elif isinstance(result, list):
-                return result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}")
-                return []
-        except Exception as e:
-            logger.error(f"Error fetching standings: {e}")
-            return []
-    
-    async def get_match_stats(self, match_id: str) -> Dict[str, Any]:
-        """
-        Get live in-depth match stats (possession, shots, fouls, corners, etc.)
-        Per StatPal documentation: Live In-Depth Match Stats
-        
-        Args:
-            match_id: Match ID
-            
-        Returns:
-            Detailed match statistics
-        """
-        try:
-            # Try different possible endpoints
-            endpoints_to_try = [
-                f"soccer/matches/{match_id}/stats",
-                f"soccer/matches/{match_id}/live-stats",
-                f"soccer/live-match-stats/{match_id}",
-            ]
-            
-            for endpoint in endpoints_to_try:
-                try:
-                    result = await self._make_request(
-                        endpoint,
-                        use_cache=True,
-                        cache_ttl=LIVE_SCORES_CACHE_TTL  # Live stats update frequently
-                    )
-                    if result:
-                        return result
-                except Exception:
-                    continue
-            
-            # If no endpoint works, return empty dict
-            logger.warning(f"Match stats endpoint not found for match {match_id}")
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching match stats: {e}")
-            return {}
-    
-    async def get_upcoming_schedules(
-        self,
-        league_id: Optional[int] = None,
-        date: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Get upcoming match schedules
-        Per StatPal documentation: Upcoming Schedules
-        
-        Args:
-            league_id: League ID filter (optional)
-            date: Date filter in YYYY-MM-DD format (optional)
-            
-        Returns:
-            List of upcoming matches
-        """
-        params = {}
-        if league_id:
-            params["league_id"] = league_id
-        if date:
-            params["date"] = date
-        
-        try:
-            # Try different possible endpoints
-            endpoints_to_try = [
-                "soccer/matches/upcoming",
-                "soccer/schedules",
-                "soccer/upcoming-schedule",
-            ]
-            
-            for endpoint in endpoints_to_try:
-                try:
-                    result = await self._make_request(
-                        endpoint,
-                        params=params if params else None,
-                        use_cache=True,
-                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if result:
-                        # Parse similar to live matches structure
-                        matches = []
-                        if isinstance(result, dict):
-                            if "upcoming" in result:
-                                result = result["upcoming"]
-                            if "schedules" in result:
-                                result = result["schedules"]
-                            if "league" in result:
-                                for league_data in result.get("league", []):
-                                    league_name = league_data.get("name", "Unknown League")
-                                    league_id_data = league_data.get("id")
-                                    country = league_data.get("country", "")
+                            match_id = match.get("id")
+                            # Check if match is within last 2 weeks (for finished matches)
+                            match_date = match.get("commence_time") or match.get("date")
+                            if match_date:
+                                try:
+                                    if isinstance(match_date, str):
+                                        match_datetime = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
+                                    else:
+                                        match_datetime = match_date
+                                    if match_datetime.tzinfo is None:
+                                        match_datetime = match_datetime.replace(tzinfo=timezone.utc)
                                     
-                                    league_matches = league_data.get("match", [])
-                                    if not isinstance(league_matches, list):
-                                        league_matches = [league_matches] if league_matches else []
+                                    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
+                                    # Include if upcoming OR if finished within last 2 weeks
+                                    status = match.get("status", "").upper()
+                                    is_finished = status in ["FT", "FINISHED", "CANCELED", "CANCELLED"]
+                                    is_within_2_weeks = match_datetime >= two_weeks_ago
                                     
-                                    for match in league_matches:
-                                        if isinstance(match, dict):
-                                            match["league_name"] = league_name
-                                            match["league_id"] = league_id_data
-                                            match["country"] = country
-                                            matches.append(match)
-                        return matches
-                except Exception:
-                    continue
-            
-            logger.warning("Upcoming schedules endpoint not found")
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching upcoming schedules: {e}")
-            return []
-    
-    async def get_top_scorers(self, league_id: int) -> List[Dict[str, Any]]:
-        """
-        Get league top scorers
-        Per StatPal documentation: League Top Scorers
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            List of top scorers
-        """
-        try:
-            # Try different possible endpoints
-            endpoints_to_try = [
-                f"soccer/leagues/{league_id}/top-scorers",
-                f"soccer/top-scorers/{league_id}",
-                f"soccer/scoring-leaders/{league_id}",
-            ]
-            
-            for endpoint in endpoints_to_try:
-                try:
-                    result = await self._make_request(
-                        endpoint,
-                        use_cache=True,
-                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if result:
-                        if isinstance(result, dict):
-                            return result.get("data", result.get("scorers", result.get("players", [])))
-                        elif isinstance(result, list):
-                            return result
-                        return []
-                except Exception:
-                    continue
-            
-            logger.warning(f"Top scorers endpoint not found for league {league_id}")
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching top scorers: {e}")
-            return []
-    
-    async def get_injuries(self, team_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        Get player injuries and suspensions
-        Per StatPal documentation: Injuries and Suspensions
-        
-        Args:
-            team_id: Team ID filter (optional)
-            
-        Returns:
-            List of injured/suspended players
-        """
-        params = {}
-        if team_id:
-            params["team_id"] = team_id
-        
-        try:
-            result = await self._make_request(
-                "soccer/injuries",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("injuries", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching injuries: {e}")
-            return []
-    
-    async def get_head_to_head(
-        self,
-        team1_id: int,
-        team2_id: int
-    ) -> Dict[str, Any]:
-        """
-        Get head-to-head statistics between two teams
-        Per StatPal documentation: Head To Head Stats
-        
-        Args:
-            team1_id: First team ID
-            team2_id: Second team ID
-            
-        Returns:
-            Head-to-head statistics
-        """
-        try:
-            # Try different possible endpoints
-            endpoints_to_try = [
-                f"soccer/teams/{team1_id}/vs/{team2_id}",
-                f"soccer/head-to-head/{team1_id}/{team2_id}",
-                f"soccer/h2h/{team1_id}/{team2_id}",
-            ]
-            
-            for endpoint in endpoints_to_try:
-                try:
-                    result = await self._make_request(
-                        endpoint,
-                        use_cache=True,
-                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if result:
-                        return result
-                except Exception:
-                    continue
-            
-            logger.warning(f"Head-to-head endpoint not found for teams {team1_id} vs {team2_id}")
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching head-to-head stats: {e}")
-            return {}
-    
-    async def get_team_stats(self, team_id: int) -> Dict[str, Any]:
-        """
-        Get detailed team statistics
-        Per StatPal documentation: Detailed Team Stats
-        
-        Args:
-            team_id: Team ID
-            
-        Returns:
-            Team statistics
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/teams/{team_id}/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching team stats: {e}")
-            return {}
-    
-    async def get_player_stats(self, player_id: int) -> Dict[str, Any]:
-        """
-        Get detailed player statistics
-        Per StatPal documentation: Detailed Player Stats
-        
-        Args:
-            player_id: Player ID
-            
-        Returns:
-            Player statistics
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/players/{player_id}/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching player stats: {e}")
-            return {}
-    
-    async def get_team_transfers(self, team_id: int) -> List[Dict[str, Any]]:
-        """
-        Get team transfer history
-        Per StatPal documentation: Team Transfer History
-        
-        Args:
-            team_id: Team ID
-            
-        Returns:
-            List of transfers
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/teams/{team_id}/transfers",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("transfers", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching team transfers: {e}")
-            return []
-    
-    async def get_match_odds(
-        self,
-        match_id: str,
-        inplay: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Get pre-match or inplay odds markets
-        Per StatPal documentation: https://statpal.io/docs/#/paths/soccer-odds-live-markets/get
-        
-        Args:
-            match_id: Match ID
-            inplay: If True, get inplay odds; if False, get pre-match odds
-            
-        Returns:
-            Odds markets data
-        """
-        try:
-            # Try different endpoint formats based on StatPal API documentation
-            endpoints_to_try = []
-            
-            if inplay:
-                # Per StatPal API documentation: /soccer/odds/live returns odds for a match
-                # /soccer/odds/live/markets returns market list
-                # For specific match odds, try different endpoints
-                endpoints_to_try = [
-                    # First try to get odds directly for the match (this is the correct endpoint)
-                    ("soccer/odds/live", {"match_id": match_id} if match_id else {}),
-                    (f"soccer/odds/live/{match_id}", {}),
-                    (f"soccer/matches/{match_id}/odds/live", {}),
-                ]
-            else:
-                # Pre-match endpoints
-                endpoints_to_try = [
-                    # First try to get odds directly for the match
-                    (f"soccer/odds/pre-match", {"match_id": match_id} if match_id else {}),
-                    (f"soccer/odds/pre-match/{match_id}", {}),
-                    (f"soccer/matches/{match_id}/odds", {}),
-                    # Then try market list
-                    ("soccer/odds/pre-match/markets", {"match_id": match_id} if match_id else {}),
-                    ("soccer/odds/pre-match/markets", {}),  # Get all pre-match markets
-                    ("soccer/odds", {"match_id": match_id} if match_id else {}),
-                ]
-            
-            result = None
-            for endpoint, params in endpoints_to_try:
-                try:
-                    result = await self._make_request(
-                        endpoint,
-                        params=params if params else None,
-                        use_cache=True,
-                        cache_ttl=LIVE_SCORES_CACHE_TTL if inplay else OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    
-                    # Check for error response
-                    if result and isinstance(result, dict) and "error" in result:
-                        logger.debug(f"StatPal API error for {endpoint}: {result.get('error')}")
-                        result = None
+                                    if (not is_finished) or (is_finished and is_within_2_weeks):
+                                        if match_id and match_id not in existing_ids:
+                                            existing_ids.add(match_id)
+                                            all_matches.append(match)
+                                except (ValueError, TypeError, AttributeError):
+                                    # If date parsing fails, include if not finished (safer)
+                                    status = match.get("status", "").upper()
+                                    if status not in ["FT", "FINISHED", "CANCELED", "CANCELLED"]:
+                                        if match_id and match_id not in existing_ids:
+                                            existing_ids.add(match_id)
+                                            all_matches.append(match)
+                            else:
+                                # No date, include if not finished
+                                status = match.get("status", "").upper()
+                                if status not in ["FT", "FINISHED", "CANCELED", "CANCELLED"]:
+                                    if match_id and match_id not in existing_ids:
+                                        existing_ids.add(match_id)
+                                        all_matches.append(match)
+                    except Exception as e:
+                        logger.debug(f"Failed to get matches for league {league_id}: {e}")
                         continue
-                    
-                    if result and isinstance(result, dict) and len(result) > 0:
-                        # Check if this is the live_match format with odds (for inplay)
-                        if "live_match" in result:
-                            live_match = result.get("live_match", {})
-                            # Verify match_id matches
-                            match_info = live_match.get("match_info", {})
-                            if (match_id and 
-                                (match_info.get("main_id") == match_id or
-                                 match_info.get("fallback_id_1") == match_id or
-                                 match_info.get("fallback_id_2") == match_id or
-                                 match_info.get("fallback_id_3") == match_id)):
-                                # Return the odds data
-                                return {
-                                    "match_info": match_info,
-                                    "odds": live_match.get("odds", []),
-                                    "stats": live_match.get("stats", {}),
-                                    "team_info": live_match.get("team_info", {}),
-                                }
-                            elif not match_id:
-                                # No match_id filter, return the whole result
-                                return result
-                        # Check if this is pre_match format (for pre-match)
-                        elif "pre_match" in result or "match" in result:
-                            pre_match = result.get("pre_match") or result.get("match", {})
-                            match_info = pre_match.get("match_info", {}) if isinstance(pre_match, dict) else {}
-                            if (match_id and 
-                                (match_info.get("main_id") == match_id or
-                                 match_info.get("fallback_id_1") == match_id or
-                                 match_info.get("fallback_id_2") == match_id or
-                                 match_info.get("fallback_id_3") == match_id)):
-                                # Return the odds data
-                                return {
-                                    "match_info": match_info,
-                                    "odds": pre_match.get("odds", []) if isinstance(pre_match, dict) else [],
-                                    "stats": pre_match.get("stats", {}) if isinstance(pre_match, dict) else {},
-                                    "team_info": pre_match.get("team_info", {}) if isinstance(pre_match, dict) else {},
-                                }
-                            elif not match_id:
-                                return result
-                        # Parse other response formats
-                        if match_id:
-                            # Check if result has matches/odds array
-                            if "matches" in result:
-                                matches = result.get("matches", [])
-                                if isinstance(matches, list):
-                                    for match_odds in matches:
-                                        if (match_odds.get("match_id") == match_id or
-                                            match_odds.get("main_id") == match_id or
-                                            match_odds.get("id") == match_id):
-                                            return match_odds
-                            elif "odds" in result:
-                                odds_list = result.get("odds", [])
-                                if isinstance(odds_list, list):
-                                    for odds_data in odds_list:
-                                        if (odds_data.get("match_id") == match_id or
-                                            odds_data.get("main_id") == match_id or
-                                            odds_data.get("id") == match_id):
-                                            return odds_data
-                            # If structure is different, return the whole result
-                            return result
-                        else:
-                            # No match_id filter, return all odds
-                            return result
-                    elif result and isinstance(result, list) and len(result) > 0:
-                        # If result is a list, it might be a list of markets
-                        # Check if it's market list (has 'id' and 'name' fields)
-                        if result and isinstance(result[0], dict) and "id" in result[0] and "name" in result[0]:
-                            # This is a list of available markets
-                            # Return the market list - we'll need to fetch odds for each market separately
-                            return {
-                                "markets": result,
-                                "match_id": match_id,
-                                "is_market_list": True
-                            }
-                        # Otherwise, try to find match by ID
-                        if match_id:
-                            for odds_data in result:
-                                if (odds_data.get("match_id") == match_id or
-                                    odds_data.get("main_id") == match_id or
-                                    odds_data.get("id") == match_id):
-                                    return odds_data
-                        return result[0] if result else {}
-                except Exception as e:
-                    logger.debug(f"Odds endpoint {endpoint} failed: {e}")
-                    continue
+            except Exception as e:
+                logger.debug(f"Failed to get popular league matches: {e}")
             
-            # If no odds data found, try to get market list as fallback
-            # This should only happen if the direct odds endpoint doesn't work
-            if not result or (isinstance(result, dict) and (len(result) == 0 or "error" in result)):
+            # 4. If league ID provided, get league matches
+            if league:
                 try:
-                    # Try market list endpoint as fallback
-                    market_list_endpoint = "soccer/odds/live/markets" if inplay else "soccer/odds/pre-match/markets"
-                    market_list_result = await self._make_request(
-                        market_list_endpoint,
-                        params={},  # Market list doesn't need match_id
-                        use_cache=True,
-                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if market_list_result and isinstance(market_list_result, list) and len(market_list_result) > 0:
-                        # Check if it's a market list
-                        if market_list_result[0].get("id") and market_list_result[0].get("name"):
-                            return {
-                                "markets": market_list_result,
-                                "match_id": match_id,
-                                "is_market_list": True
-                            }
+                    # Try to parse as league ID (numeric)
+                    if league.isdigit():
+                        league_matches = await self.get_league_matches(league)
+                        # Remove duplicates
+                        unique_league = []
+                        for match in league_matches:
+                            match_id = match.get("id")
+                            if match_id and match_id not in existing_ids:
+                                existing_ids.add(match_id)
+                                unique_league.append(match)
+                        all_matches.extend(unique_league)
                 except Exception as e:
-                    logger.debug(f"Failed to get market list: {e}")
-                    pass
+                    logger.warning(f"Failed to get league matches: {e}")
             
-            # If no endpoint works, return empty dict
-            logger.warning(f"Match odds endpoint not found for match {match_id}, inplay={inplay}")
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching match odds: {e}")
-            logger.exception(e)
-            return {}
-    
-    async def get_live_odds(self) -> List[Dict[str, Any]]:
-        """
-        Get all live matches with live odds available
-        Per StatPal API: GET /soccer/odds/live
-        This endpoint returns all live matches with live odds available.
-        
-        Returns:
-            List of live matches with odds data
-        """
-        try:
-            logger.info("Fetching all live odds from StatPal API: soccer/odds/live")
-            result = await self._make_request(
-                "soccer/odds/live",
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL  # Use live cache TTL (30 seconds)
-            )
+            # 5. Separate upcoming vs past matches
+            upcoming_matches = []
+            past_matches = []
             
-            logger.info(f"StatPal live odds response type: {type(result)}")
+            for match in all_matches:
+                if self._is_upcoming_match(match):
+                    upcoming_matches.append(match)
+                else:
+                    past_matches.append(match)
             
-            # Handle different response formats
-            if isinstance(result, dict):
-                # Check for error responses
-                if result.get("status") == "error" or result.get("status") == "invalid-request":
-                    error_msg = result.get("message", "Unknown error")
-                    logger.error(f"StatPal API error response: {error_msg}")
-                    return []
+            # 6. Get live odds for all matches (always try, not just if live matches exist)
+            # This ensures we get odds for any live matches in the list
+            live_odds_map = {}
+            try:
+                # Always try to get live odds (it's fast and cached)
+                live_odds_map = await self.get_live_odds()
+            except Exception as e:
+                logger.debug(f"Failed to get live odds in get_matches: {e}")
+                live_odds_map = {}
+            
+            # 7. Extract unique league IDs from upcoming matches
+            unique_league_ids = set()
+            for match in upcoming_matches:
+                league_id = match.get("league_id")
+                if league_id:
+                    unique_league_ids.add(str(league_id))
+            
+            # 8. Get prematch odds for all unique leagues (for upcoming matches only)
+            prematch_odds_map = {}
+            if unique_league_ids:
+                try:
+                    # Limit concurrent requests to avoid rate limiting (max 10 at a time)
+                    league_ids_list = list(unique_league_ids)[:10]  # Limit to 10 leagues
+                    for league_id in league_ids_list:
+                        try:
+                            league_prematch_odds = await self.get_prematch_odds(league_id)
+                            prematch_odds_map.update(league_prematch_odds)
+                            # Small delay to avoid rate limiting
+                            await asyncio.sleep(0.1)
+                        except Exception as e:
+                            logger.debug(f"Failed to get prematch odds for league {league_id}: {e}")
+                            continue
+                except Exception as e:
+                    logger.debug(f"Failed to get prematch odds in get_matches: {e}")
+            
+            # 9. Add odds to matches that have them (prioritize live odds over prematch)
+            # For upcoming matches, try both live and prematch odds
+            for match in upcoming_matches:
+                # Try all possible match IDs for matching
+                match_ids_to_try = [
+                    match.get("id"),
+                    match.get("main_id"),
+                    match.get("fallback_id_1"),
+                    match.get("fallback_id_2"),
+                    match.get("fallback_id_3"),
+                ]
+                # Filter out None/empty values
+                match_ids_to_try = [str(mid) for mid in match_ids_to_try if mid]
                 
-                # Try different possible field names
-                matches = None
-                for field_name in ["data", "matches", "live_matches", "odds", "results", "items"]:
-                    if field_name in result:
-                        matches = result[field_name]
-                        logger.info(f"Found live odds in field '{field_name}': {len(matches) if isinstance(matches, list) else 'Not a list'}")
+                odds_found = False
+                # First try live odds (for live matches)
+                for match_id_str in match_ids_to_try:
+                    if match_id_str in live_odds_map:
+                        match["bookmakers"] = live_odds_map[match_id_str]
+                        odds_found = True
                         break
                 
-                if matches is None:
-                    # If no known field, check if all values are lists
-                    for key, value in result.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a match with odds
-                            if isinstance(value[0], dict):
-                                matches = value
-                                logger.info(f"Found live odds in field '{key}': {len(matches)}")
-                                break
+                # Then try prematch odds (for upcoming non-live matches)
+                if not odds_found:
+                    for match_id_str in match_ids_to_try:
+                        if match_id_str in prematch_odds_map:
+                            match["bookmakers"] = prematch_odds_map[match_id_str]
+                            odds_found = True
+                            logger.debug(f"Matched prematch odds for match {match_id_str} ({match.get('home_team')} vs {match.get('away_team')})")
+                            break
+                    if not odds_found:
+                        logger.debug(f"No odds found for match {match.get('id')} ({match.get('home_team')} vs {match.get('away_team')}). Tried IDs: {match_ids_to_try}")
+            
+            # Past matches don't get prematch odds, but can have live odds if they were live
+            for match in past_matches:
+                match_ids_to_try = [
+                    match.get("id"),
+                    match.get("main_id"),
+                    match.get("fallback_id_1"),
+                    match.get("fallback_id_2"),
+                    match.get("fallback_id_3"),
+                ]
+                match_ids_to_try = [str(mid) for mid in match_ids_to_try if mid]
                 
-                if matches is None:
-                    logger.warning(f"No live odds found in response. Available keys: {list(result.keys())}")
-                    return []
+                for match_id_str in match_ids_to_try:
+                    if match_id_str in live_odds_map:
+                        match["bookmakers"] = live_odds_map[match_id_str]
+                        break
+            
+            # Combine upcoming and past matches (upcoming first)
+            all_matches = upcoming_matches + past_matches
+            
+            # 7. Filter by league name if provided (and not league ID)
+            if league and not league.isdigit():
+                filtered_matches = []
+                for match in all_matches:
+                    match_league = match.get("league", "")
+                    match_sport_key = match.get("sport_key", "")
+                    
+                    # Check if league matches
+                    if (league.lower() in match_league.lower() or 
+                        match_league.lower() in league.lower() or
+                        league.lower() in match_sport_key.lower()):
+                        filtered_matches.append(match)
+                
+                return filtered_matches
+            
+            return all_matches
+            
+        except Exception as exc:
+            logger.error("Failed to get matches from StatPal API: %s", exc)
+            return []
+
+    async def get_match_by_id(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific match by ID.
+        Searches in live matches, daily matches, and popular league matches.
+        
+        Args:
+            match_id: Match ID to search for (can be main_id, fallback_id_1, etc.)
+            
+        Returns:
+            Match data if found, None otherwise
+        """
+        try:
+            # Try all possible match IDs
+            match_ids_to_search = [match_id]
+            
+            # 1. Search in live matches
+            try:
+                live_matches = await self.get_live_matches()
+                for match in live_matches:
+                    # Check all possible IDs
+                    if (str(match.get("id", "")) == str(match_id) or
+                        str(match.get("main_id", "")) == str(match_id) or
+                        str(match.get("fallback_id_1", "")) == str(match_id) or
+                        str(match.get("fallback_id_2", "")) == str(match_id) or
+                        str(match.get("fallback_id_3", "")) == str(match_id)):
+                        return match
+            except Exception as e:
+                logger.debug(f"Failed to search in live matches: {e}")
+            
+            # 2. Search in daily matches (today and tomorrow)
+            try:
+                today_matches = await self.get_daily_matches(date=None)
+                tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+                tomorrow_matches = await self.get_daily_matches(date=tomorrow)
+                all_daily = today_matches + tomorrow_matches
+                
+                for match in all_daily:
+                    if (str(match.get("id", "")) == str(match_id) or
+                        str(match.get("main_id", "")) == str(match_id) or
+                        str(match.get("fallback_id_1", "")) == str(match_id) or
+                        str(match.get("fallback_id_2", "")) == str(match_id) or
+                        str(match.get("fallback_id_3", "")) == str(match_id)):
+                        return match
+            except Exception as e:
+                logger.debug(f"Failed to search in daily matches: {e}")
+            
+            # 3. Search in popular league matches
+            try:
+                popular_league_ids = ["3037", "3258", "3232", "3231", "3054", "3062"]
+                for league_id in popular_league_ids:
+                    try:
+                        league_matches = await self.get_league_matches(league_id)
+                        for match in league_matches:
+                            if (str(match.get("id", "")) == str(match_id) or
+                                str(match.get("main_id", "")) == str(match_id) or
+                                str(match.get("fallback_id_1", "")) == str(match_id) or
+                                str(match.get("fallback_id_2", "")) == str(match_id) or
+                                str(match.get("fallback_id_3", "")) == str(match_id)):
+                                return match
+                    except Exception as e:
+                        logger.debug(f"Failed to search in league {league_id}: {e}")
+                        continue
+            except Exception as e:
+                logger.debug(f"Failed to search in popular leagues: {e}")
+            
+            return None
+            
+        except Exception as exc:
+            logger.error("Failed to get match by ID from StatPal API: %s - %s", match_id, exc)
+            return None
+
+    async def get_popular_matches(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get popular matches (currently returns live matches, prioritized).
+        
+        Args:
+            limit: Maximum number of matches to return
+            
+        Returns:
+            List of popular matches
+        """
+        try:
+            # Get live matches (they are considered popular)
+            matches = await self.get_live_matches()
+            
+            # Sort by is_live first, then by league importance
+            def sort_key(match):
+                is_live = match.get("is_live", False)
+                league = match.get("league", "").lower()
+                
+                # Priority: live matches first, then major leagues
+                priority = 0
+                if is_live:
+                    priority += 1000
+                
+                # Major leagues get higher priority
+                if "premier" in league or "epl" in league:
+                    priority += 100
+                elif "la liga" in league:
+                    priority += 90
+                elif "serie a" in league:
+                    priority += 80
+                elif "bundesliga" in league:
+                    priority += 70
+                elif "super lig" in league or "turkey" in league:
+                    priority += 60
+                
+                return priority
+            
+            sorted_matches = sorted(matches, key=sort_key, reverse=True)
+            return sorted_matches[:limit]
+            
+        except Exception as exc:
+            logger.error("Failed to get popular matches from StatPal API: %s", exc)
+            return []
+
+    async def get_available_leagues(self) -> List[Dict[str, Any]]:
+        """
+        Get available leagues from StatPal API response.
+        Extracts leagues from both match data and league array in API response.
+        
+        Returns:
+            List of leagues with metadata
+        """
+        try:
+            # First, try to get leagues from API response directly
+            response = await self._get("soccer/matches/live")
+            
+            leagues_map = {}
+            
+            # Extract leagues from API response league array
+            if isinstance(response, dict) and "live_matches" in response:
+                live_matches = response["live_matches"]
+                if "league" in live_matches:
+                    for league_data in live_matches["league"]:
+                        league_name = league_data.get("name", "")
+                        country = league_data.get("country", "")
+                        league_id = league_data.get("id", "")
+                        matches = league_data.get("match", [])
+                        match_count = len(matches) if isinstance(matches, list) else 0
+                        
+                        if not league_name:
+                            continue
+                        
+                        # Try to get league info from mapping
+                        league_info = LEAGUE_MAP.get(league_name, {})
+                        
+                        # Determine sport_key from league name
+                        sport_key = league_info.get("sport_key", "soccer_unknown")
+                        league_lower = league_name.lower()
+                        if sport_key == "soccer_unknown":
+                            if "premier" in league_lower or "epl" in league_lower:
+                                sport_key = "soccer_epl"
+                            elif "la liga" in league_lower or "spain" in league_lower:
+                                sport_key = "soccer_spain_la_liga"
+                            elif "serie a" in league_lower or "italy" in league_lower:
+                                sport_key = "soccer_italy_serie_a"
+                            elif "bundesliga" in league_lower or "germany" in league_lower:
+                                sport_key = "soccer_germany_bundesliga"
+                            elif "ligue" in league_lower or "france" in league_lower:
+                                sport_key = "soccer_france_ligue_one"
+                            elif "super lig" in league_lower or "turkey" in league_lower or "türkiye" in league_lower:
+                                sport_key = "soccer_turkey_super_league"
+                        
+                        # Get country name and flag
+                        country_name = league_info.get("country", country.capitalize() if country else "Unknown")
+                        country_flag = league_info.get("flag", "🏆")
+                        
+                        # Map country name if needed
+                        if country:
+                            country_lower = country.lower()
+                            if country_lower in COUNTRY_MAP:
+                                country_info = COUNTRY_MAP[country_lower]
+                                country_name = country_info.get("name", country_name)
+                                country_flag = country_info.get("flag", country_flag)
+                        
+                        leagues_map[league_name] = {
+                            "id": league_info.get("id", int(league_id) if league_id.isdigit() else 0),
+                            "name": league_info.get("name", league_name),
+                            "country": country_name,
+                            "flag": country_flag,
+                            "sport_key": sport_key,
+                            "match_count": match_count,
+                        }
+            
+            # Also extract from match data (if any matches exist)
+            matches = await self.get_live_matches()
+            for match in matches:
+                league_name = match.get("league", "")
+                sport_key = match.get("sport_key", "")
+                
+                if not league_name:
+                    continue
+                
+                if league_name not in leagues_map:
+                    league_info = LEAGUE_MAP.get(league_name, {})
+                    leagues_map[league_name] = {
+                        "id": league_info.get("id", 0),
+                        "name": league_info.get("name", league_name),
+                        "country": league_info.get("country", match.get("country", "Unknown")),
+                        "flag": league_info.get("flag", "🏆"),
+                        "sport_key": sport_key,
+                        "match_count": 0,
+                    }
+                
+                leagues_map[league_name]["match_count"] += 1
+            
+            # Convert to list and sort by match count, then by name
+            leagues = list(leagues_map.values())
+            leagues.sort(key=lambda x: (x["match_count"], x["name"]), reverse=True)
+            
+            return leagues
+            
+        except Exception as exc:
+            logger.error("Failed to get available leagues from StatPal API: %s", exc)
+            # Return empty list if API fails - no mock data
+            return []
+
+    async def get_available_countries(self) -> List[Dict[str, Any]]:
+        """
+        Get available countries from league data.
+        Extracts countries from both league data and StatPal API response.
+        
+        Returns:
+            List of countries with metadata
+        """
+        try:
+            # Get leagues (which now extracts from API response)
+            leagues = await self.get_available_leagues()
+            
+            # Extract unique countries
+            countries_map = {}
+            for league in leagues:
+                country = league.get("country", "Unknown")
+                
+                if country and country != "Unknown":
+                    if country not in countries_map:
+                        # Get country info from mapping
+                        country_info = COUNTRY_MAP.get(country, {})
+                        
+                        countries_map[country] = {
+                            "name": country_info.get("name", country),
+                            "flag": country_info.get("flag", league.get("flag", "🏆")),
+                            "league_count": 0,
+                        }
+                    
+                    countries_map[country]["league_count"] += 1
+            
+            # Also extract from API response directly
+            try:
+                response = await self._get("soccer/matches/live")
+                if isinstance(response, dict) and "live_matches" in response:
+                    live_matches = response["live_matches"]
+                    if "league" in live_matches:
+                        for league_data in live_matches["league"]:
+                            country = league_data.get("country", "")
+                            if country:
+                                country_lower = country.lower()
+                                # Map country name
+                                if country_lower in COUNTRY_MAP:
+                                    country_info = COUNTRY_MAP[country_lower]
+                                    country_name = country_info.get("name", country.capitalize())
+                                    country_flag = country_info.get("flag", "🏆")
+                                else:
+                                    country_name = country.capitalize()
+                                    country_flag = "🏆"
+                                
+                                if country_name not in countries_map:
+                                    countries_map[country_name] = {
+                                        "name": country_name,
+                                        "flag": country_flag,
+                                        "league_count": 0,
+                                    }
+                                countries_map[country_name]["league_count"] += 1
+            except Exception as e:
+                logger.debug("Failed to extract countries from API response: %s", e)
+            
+            # Convert to list and sort by league count
+            countries = list(countries_map.values())
+            countries.sort(key=lambda x: x["league_count"], reverse=True)
+            
+            return countries
+            
+        except Exception as exc:
+            logger.error("Failed to get available countries from StatPal API: %s", exc)
+            return []
+
+    async def get_daily_matches(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get daily matches from StatPal API.
+        
+        Args:
+            date: Date in YYYY-MM-DD format. If None, uses today's date.
+            
+        Returns:
+            List of daily matches in The Odds API-like format
+        """
+        try:
+            # Check cache first
+            cache_key = f"daily_matches_{date or 'today'}"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                # Cache daily matches for 5 minutes
+                if (datetime.now() - cached_time).total_seconds() < 300:
+                    logger.debug("Returning cached daily matches")
+                    return cached_data
+            
+            # Prepare date parameter
+            params = {}
+            if date:
+                # Convert YYYY-MM-DD to StatPal format if needed
+                params["date"] = date
+            else:
+                # Use today's date
+                today = datetime.now().strftime("%Y-%m-%d")
+                params["date"] = today
+            
+            # Fetch from API
+            response = await self._get("soccer/matches/daily", params=params)
+            
+            # Process response
+            matches_data = self._process_daily_matches_response(response)
+            
+            # Transform matches
+            transformed_matches = []
+            for match in matches_data:
+                try:
+                    transformed = self._transform_match_data(match)
+                    
+                    # Fetch logos if not already present
+                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                        try:
+                            home_logo = await self.get_team_logo(transformed.get("home_team"))
+                            if home_logo:
+                                transformed["home_team_logo"] = home_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch home team logo: {e}")
+                    
+                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                        try:
+                            away_logo = await self.get_team_logo(transformed.get("away_team"))
+                            if away_logo:
+                                transformed["away_team_logo"] = away_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    
+                    transformed_matches.append(transformed)
+                except Exception as exc:
+                    logger.warning("Failed to transform daily match data: %s - %s", match, exc)
+                    continue
+            
+            # Cache the results
+            self._cache[cache_key] = (transformed_matches, datetime.now())
+            
+            return transformed_matches
+            
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                # Endpoint not available, return empty list
+                logger.debug("Daily matches endpoint not available (404)")
+                return []
+            logger.error("Failed to get daily matches from StatPal API: %s", exc)
+            return []
+        except Exception as exc:
+            logger.error("Failed to get daily matches from StatPal API: %s", exc)
+            return []
+
+    async def get_league_matches(self, league_id: str, season: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get all matches for a specific league from StatPal API.
+        
+        Args:
+            league_id: League ID
+            season: Optional season filter (e.g., "2025/2026")
+            
+        Returns:
+            List of league matches in The Odds API-like format
+        """
+        try:
+            # Check cache first
+            cache_key = f"league_matches_{league_id}_{season or 'current'}"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                # Cache league matches for 10 minutes
+                if (datetime.now() - cached_time).total_seconds() < 600:
+                    logger.debug("Returning cached league matches")
+                    return cached_data
+            
+            # Prepare params
+            params = {}
+            if season:
+                params["season"] = season
+            
+            # Fetch from API
+            response = await self._get(f"soccer/leagues/{league_id}/matches", params=params)
+            
+            # Process response
+            matches_data = self._process_league_matches_response(response)
+            
+            # Transform matches
+            transformed_matches = []
+            for match in matches_data:
+                try:
+                    transformed = self._transform_match_data(match)
+                    
+                    # Fetch logos if not already present
+                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                        try:
+                            home_logo = await self.get_team_logo(transformed.get("home_team"))
+                            if home_logo:
+                                transformed["home_team_logo"] = home_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch home team logo: {e}")
+                    
+                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                        try:
+                            away_logo = await self.get_team_logo(transformed.get("away_team"))
+                            if away_logo:
+                                transformed["away_team_logo"] = away_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    
+                    transformed_matches.append(transformed)
+                except Exception as exc:
+                    logger.warning("Failed to transform league match data: %s - %s", match, exc)
+                    continue
+            
+            # Cache the results
+            self._cache[cache_key] = (transformed_matches, datetime.now())
+            
+            return transformed_matches
+            
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                # Endpoint not available, return empty list
+                logger.debug("League matches endpoint not available (404)")
+                return []
+            logger.error("Failed to get league matches from StatPal API: %s", exc)
+            return []
+        except Exception as exc:
+            logger.error("Failed to get league matches from StatPal API: %s", exc)
+            return []
+
+    async def get_match_details(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get detailed information for a specific match.
+        First tries to get from get_match_by_id, then tries direct API call.
+        
+        Args:
+            match_id: Match ID
+            
+        Returns:
+            Match details if found, None otherwise
+        """
+        try:
+            # First, try to get from get_match_by_id (searches in all matches)
+            match_data = await self.get_match_by_id(match_id)
+            if match_data:
+                # Add odds if not already present
+                if not match_data.get("bookmakers"):
+                    # Try to get live odds
+                    if match_data.get("is_live"):
+                        try:
+                            live_odds_map = await self.get_live_odds()
+                            # Try all possible match IDs
+                            for check_id in [match_id, match_data.get("id"), match_data.get("main_id"), 
+                                            match_data.get("fallback_id_1"), match_data.get("fallback_id_2"), 
+                                            match_data.get("fallback_id_3")]:
+                                if check_id and str(check_id) in live_odds_map:
+                                    match_data["bookmakers"] = live_odds_map[str(check_id)]
+                                    break
+                        except Exception as exc:
+                            logger.debug("Failed to get live odds for match %s: %s", match_id, exc)
+                    
+                    # If not live or no live odds, try prematch odds (for upcoming matches)
+                    if not match_data.get("bookmakers") and match_data.get("league_id"):
+                        try:
+                            prematch_odds_map = await self.get_prematch_odds(str(match_data.get("league_id")))
+                            # Try all possible match IDs
+                            for check_id in [match_id, match_data.get("id"), match_data.get("main_id"), 
+                                            match_data.get("fallback_id_1"), match_data.get("fallback_id_2"), 
+                                            match_data.get("fallback_id_3")]:
+                                if check_id and str(check_id) in prematch_odds_map:
+                                    match_data["bookmakers"] = prematch_odds_map[str(check_id)]
+                                    logger.debug(f"Matched prematch odds for match {check_id} in get_match_details")
+                                    break
+                        except Exception as exc:
+                            logger.debug("Failed to get prematch odds for match %s: %s", match_id, exc)
+                    
+                    # If still no odds, try to get from all popular leagues
+                    if not match_data.get("bookmakers"):
+                        try:
+                            popular_league_ids = ["3037", "3258", "3232", "3239", "3054", "3062"]
+                            for league_id in popular_league_ids:
+                                try:
+                                    prematch_odds_map = await self.get_prematch_odds(league_id)
+                                    for check_id in [match_id, match_data.get("id"), match_data.get("main_id"), 
+                                                    match_data.get("fallback_id_1"), match_data.get("fallback_id_2"), 
+                                                    match_data.get("fallback_id_3")]:
+                                        if check_id and str(check_id) in prematch_odds_map:
+                                            match_data["bookmakers"] = prematch_odds_map[str(check_id)]
+                                            logger.debug(f"Matched prematch odds from league {league_id} for match {check_id}")
+                                            break
+                                    if match_data.get("bookmakers"):
+                                        break
+                                except Exception as e:
+                                    continue
+                        except Exception as exc:
+                            logger.debug("Failed to search prematch odds in popular leagues: %s", exc)
+                
+                return match_data
+            
+            # Fallback: Try direct API call (if endpoint exists)
+            try:
+                response = await self._get(f"soccer/matches/{match_id}")
+                if isinstance(response, dict):
+                    transformed = self._transform_match_data(response)
+                    
+                    # Fetch logos if not already present
+                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                        try:
+                            home_logo = await self.get_team_logo(transformed.get("home_team"))
+                            if home_logo:
+                                transformed["home_team_logo"] = home_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch home team logo: {e}")
+                    
+                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                        try:
+                            away_logo = await self.get_team_logo(transformed.get("away_team"))
+                            if away_logo:
+                                transformed["away_team_logo"] = away_logo
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    
+                    return transformed
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 404:
+                    logger.debug("Direct API call failed for match %s: %s", match_id, exc)
+            
+            return None
+            
+        except Exception as exc:
+            logger.error("Failed to get match details from StatPal API: %s", exc)
+            return None
+
+    async def get_match_lineups(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get match lineups (starting XI and substitutes).
+        
+        Args:
+            match_id: Match ID
+            
+        Returns:
+            Match lineups if found, None otherwise
+        """
+        try:
+            response = await self._get(f"soccer/matches/{match_id}/lineups")
+            return response if isinstance(response, dict) else None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug("Match lineups not found for ID: %s", match_id)
+                return None
+            logger.error("Failed to get match lineups from StatPal API: %s", exc)
+            return None
+        except Exception as exc:
+            logger.error("Failed to get match lineups from StatPal API: %s", exc)
+            return None
+
+    async def get_match_events(self, match_id: str) -> List[Dict[str, Any]]:
+        """
+        Get match events (goals, cards, substitutions).
+        
+        Args:
+            match_id: Match ID
+            
+        Returns:
+            List of match events
+        """
+        try:
+            response = await self._get(f"soccer/matches/{match_id}/events")
+            
+            if isinstance(response, list):
+                return response
+            elif isinstance(response, dict):
+                # Check for common response wrapper formats
+                if "events" in response:
+                    return response["events"] if isinstance(response["events"], list) else []
+                elif "data" in response:
+                    return response["data"] if isinstance(response["data"], list) else []
+                return []
+            return []
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug("Match events not found for ID: %s", match_id)
+                return []
+            logger.error("Failed to get match events from StatPal API: %s", exc)
+            return []
+        except Exception as exc:
+            logger.error("Failed to get match events from StatPal API: %s", exc)
+            return []
+
+    async def get_match_statistics(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get match statistics (possession, shots, etc.).
+        
+        Args:
+            match_id: Match ID
+            
+        Returns:
+            Match statistics if found, None otherwise
+        """
+        try:
+            response = await self._get(f"soccer/matches/{match_id}/statistics")
+            return response if isinstance(response, dict) else None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug("Match statistics not found for ID: %s", match_id)
+                return None
+            logger.error("Failed to get match statistics from StatPal API: %s", exc)
+            return None
+        except Exception as exc:
+            logger.error("Failed to get match statistics from StatPal API: %s", exc)
+            return None
+
+    async def get_countries(self) -> List[Dict[str, Any]]:
+        """
+        Get available countries from StatPal API.
+        
+        Returns:
+            List of countries with metadata
+        """
+        try:
+            response = await self._get("soccer/countries")
+            
+            if isinstance(response, list):
+                return response
+            elif isinstance(response, dict):
+                # Check for common response wrapper formats
+                if "countries" in response:
+                    return response["countries"] if isinstance(response["countries"], list) else []
+                elif "data" in response:
+                    return response["data"] if isinstance(response["data"], list) else []
+                return []
+            return []
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug("Countries endpoint not available (404)")
+                # Fallback to extracting from leagues
+                return await self.get_available_countries()
+            logger.error("Failed to get countries from StatPal API: %s", exc)
+            return []
+        except Exception as exc:
+            logger.error("Failed to get countries from StatPal API: %s", exc)
+            return []
+
+    def _process_daily_matches_response(self, response: Any) -> List[Dict[str, Any]]:
+        """
+        Process daily matches API response.
+        
+        Args:
+            response: Raw API response
+            
+        Returns:
+            List of match dictionaries
+        """
+        matches_data = []
+        
+        if isinstance(response, dict):
+            # Check for live_matches format (StatPal API uses same format for daily)
+            if "live_matches" in response:
+                live_matches = response["live_matches"]
+                if "league" in live_matches:
+                    for league_data in live_matches["league"]:
+                        if isinstance(league_data, dict):
+                            league_name = league_data.get("name", "")
+                            country = league_data.get("country", "")
+                            league_id = str(league_data.get("id", "")) if league_data.get("id") else None
+                            matches = league_data.get("match", [])
+                            
+                            for match in matches:
+                                if isinstance(match, dict):
+                                    match["league"] = league_name
+                                    match["country"] = country
+                                    if league_id:
+                                        match["league_id"] = league_id
+                                    matches_data.append(match)
+            # Check for common response wrapper formats
+            elif "matches" in response:
+                matches_data = response["matches"] if isinstance(response["matches"], list) else []
+            elif "data" in response:
+                matches_data = response["data"] if isinstance(response["data"], list) else []
+            elif "daily_matches" in response:
+                daily_matches = response["daily_matches"]
+                if isinstance(daily_matches, dict) and "matches" in daily_matches:
+                    matches_data = daily_matches["matches"] if isinstance(daily_matches["matches"], list) else []
+                elif isinstance(daily_matches, list):
+                    matches_data = daily_matches
+            elif "league" in response:
+                # Similar structure to live_matches
+                for league_data in response["league"]:
+                    if isinstance(league_data, dict):
+                        league_name = league_data.get("name", "")
+                        country = league_data.get("country", "")
+                        league_id = str(league_data.get("id", "")) if league_data.get("id") else None
+                        matches = league_data.get("match", [])
+                        
+                        for match in matches:
+                            if isinstance(match, dict):
+                                match["league"] = league_name
+                                match["country"] = country
+                                if league_id:
+                                    match["league_id"] = league_id
+                                matches_data.append(match)
+        elif isinstance(response, list):
+            matches_data = response
+        
+        return matches_data
+
+    def _process_league_matches_response(self, response: Any) -> List[Dict[str, Any]]:
+        """
+        Process league matches API response.
+        
+        Args:
+            response: Raw API response
+            
+        Returns:
+            List of match dictionaries
+        """
+        matches_data = []
+        
+        # League ID to name mapping (for proper league name assignment)
+        LEAGUE_ID_TO_NAME = {
+            "3037": "Premier League",
+            "3258": "Süper Lig",
+            "3232": "La Liga",  # Primera División
+            "3102": "Serie A",  # Serie A (Italy)
+            "3054": "Ligue 1",
+            "3062": "Bundesliga",
+        }
+        
+        if isinstance(response, dict):
+            # StatPal API format: {"matches": {"tournament": {"week": [{"match": [...]}]}}}
+            if "matches" in response:
+                matches_obj = response["matches"]
+                if isinstance(matches_obj, dict):
+                    # Extract tournament info
+                    tournament = matches_obj.get("tournament", {})
+                    league_name_raw = tournament.get("league", "")
+                    country = matches_obj.get("country", "")
+                    league_id = str(tournament.get("id", "")) if tournament.get("id") else None
+                    
+                    # Map league name from ID if available, otherwise use raw name
+                    league_name = LEAGUE_ID_TO_NAME.get(league_id, league_name_raw)
+                    
+                    # Map league names based on country and raw name
+                    if league_name_raw.lower() == "primera" and country.lower() == "spain":
+                        league_name = "La Liga"
+                    elif country.lower() == "italy" and ("serie a" in league_name_raw.lower() or "serie" in league_name_raw.lower()):
+                        league_name = "Serie A"
+                    elif league_id in LEAGUE_ID_TO_NAME:
+                        # Use mapping if available
+                        league_name = LEAGUE_ID_TO_NAME[league_id]
+                    # Fallback: if country is Italy and league name contains "serie", it's Serie A
+                    elif country.lower() == "italy" and "serie" in league_name_raw.lower():
+                        league_name = "Serie A"
+                    
+                    # Extract matches from weeks
+                    weeks = tournament.get("week", [])
+                    if isinstance(weeks, list):
+                        for week in weeks:
+                            if isinstance(week, dict):
+                                week_matches = week.get("match", [])
+                                if isinstance(week_matches, list):
+                                    for match in week_matches:
+                                        if isinstance(match, dict):
+                                            # Add league and country info
+                                            match["league"] = league_name
+                                            match["country"] = country
+                                            if league_id:
+                                                match["league_id"] = league_id
+                                            matches_data.append(match)
+                    # Also check if matches is directly a list
+                    elif isinstance(matches_obj, list):
+                        matches_data = matches_obj
+            # Check for common response wrapper formats
+            elif "data" in response:
+                matches_data = response["data"] if isinstance(response["data"], list) else []
+            elif "fixtures" in response:
+                matches_data = response["fixtures"] if isinstance(response["fixtures"], list) else []
+            elif "league" in response:
+                league_data = response["league"]
+                if isinstance(league_data, dict) and "matches" in league_data:
+                    matches_data = league_data["matches"] if isinstance(league_data["matches"], list) else []
+        elif isinstance(response, list):
+            matches_data = response
+        
+        return matches_data
+
+    async def get_prematch_odds(self, league_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get prematch odds for a specific league from StatPal API.
+        
+        Args:
+            league_id: League ID (e.g., "3037" for Premier League)
+            
+        Returns:
+            Dictionary mapping match_id to list of bookmakers with odds
+        """
+        try:
+            # Check cache first
+            cache_key = f"prematch_odds_{league_id}"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                # Cache prematch odds for 5 minutes (they change less frequently)
+                if (datetime.now() - cached_time).total_seconds() < 300:
+                    logger.debug(f"Returning cached prematch odds for league {league_id}")
+                    return cached_data
+            
+            # Fetch from API
+            response = await self._get(f"soccer/leagues/{league_id}/odds/prematch")
+            
+            # Process response
+            odds_map = {}
+            if isinstance(response, dict) and "prematch_odds" in response:
+                prematch_data = response["prematch_odds"]
+                league_data = prematch_data.get("league", {})
+                matches = league_data.get("match", [])
                 
                 if isinstance(matches, list):
-                    logger.info(f"Extracted {len(matches)} live matches with odds")
-                    return matches
+                    for match_data in matches:
+                        # Extract all possible IDs
+                        main_id = str(match_data.get("main_id", "") or "")
+                        fallback_id_1 = str(match_data.get("fallback_id_1", "") or "")
+                        fallback_id_2 = str(match_data.get("fallback_id_2", "") or "")
+                        fallback_id_3 = str(match_data.get("fallback_id_3", "") or "")
+                        
+                        # Use main_id as primary, or first available fallback
+                        match_id = main_id or fallback_id_1 or fallback_id_2 or fallback_id_3
+                        
+                        if match_id and "odds" in match_data:
+                            # Get team names
+                            home_obj = match_data.get("home", {})
+                            away_obj = match_data.get("away", {})
+                            home_team = home_obj.get("name", "") if isinstance(home_obj, dict) else ""
+                            away_team = away_obj.get("name", "") if isinstance(away_obj, dict) else ""
+                            
+                            # Transform prematch odds format to our format
+                            bookmakers = self._transform_prematch_odds_data(
+                                match_data.get("odds", []),
+                                home_team=home_team,
+                                away_team=away_team
+                            )
+                            if bookmakers:
+                                # Store odds with all possible IDs for better matching
+                                if main_id:
+                                    odds_map[main_id] = bookmakers
+                                if fallback_id_1:
+                                    odds_map[fallback_id_1] = bookmakers
+                                if fallback_id_2:
+                                    odds_map[fallback_id_2] = bookmakers
+                                if fallback_id_3:
+                                    odds_map[fallback_id_3] = bookmakers
+            
+            # Cache the results
+            self._cache[cache_key] = (odds_map, datetime.now())
+            
+            return odds_map
+            
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug(f"Prematch odds endpoint not available for league {league_id} (404)")
+                return {}
+            logger.error(f"Failed to get prematch odds from StatPal API for league {league_id}: {exc}")
+            return {}
+        except Exception as exc:
+            logger.error(f"Failed to get prematch odds from StatPal API for league {league_id}: {exc}")
+            return {}
+
+    async def get_live_odds(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get live odds for all live matches from StatPal API.
+        
+        Returns:
+            Dictionary mapping match_id to list of bookmakers with odds
+        """
+        try:
+            # Check cache first
+            cache_key = "live_odds"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                # Cache odds for 30 seconds (odds change frequently)
+                if (datetime.now() - cached_time).total_seconds() < 30:
+                    logger.debug("Returning cached live odds")
+                    return cached_data
+            
+            # Fetch from API
+            response = await self._get("soccer/odds/live")
+            
+            # Process response
+            odds_map = {}
+            if isinstance(response, dict) and "live_matches" in response:
+                live_matches = response["live_matches"]
+                if isinstance(live_matches, list):
+                    for match_data in live_matches:
+                        match_info = match_data.get("match_info", {})
+                        match_id = str(
+                            match_info.get("main_id") or 
+                            match_info.get("fallback_id_1") or 
+                            match_info.get("match_id") or 
+                            ""
+                        )
+                        
+                        if match_id and "odds" in match_data:
+                            # Get team names from match_info for odds transformation
+                            team_info = match_data.get("team_info", {})
+                            home_team = ""
+                            away_team = ""
+                            if isinstance(team_info, dict):
+                                home_obj = team_info.get("home", {})
+                                away_obj = team_info.get("away", {})
+                                if isinstance(home_obj, dict):
+                                    home_team = home_obj.get("name", "")
+                                if isinstance(away_obj, dict):
+                                    away_team = away_obj.get("name", "")
+                            
+                            # Transform odds for this match
+                            bookmakers = self._transform_odds_data(
+                                match_data.get("odds", []),
+                                home_team=home_team,
+                                away_team=away_team
+                            )
+                            if bookmakers:
+                                odds_map[match_id] = bookmakers
+            
+            # Cache the results
+            self._cache[cache_key] = (odds_map, datetime.now())
+            
+            return odds_map
+            
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug("Live odds endpoint not available (404)")
+                return {}
+            logger.error("Failed to get live odds from StatPal API: %s", exc)
+            return {}
+        except Exception as exc:
+            logger.error("Failed to get live odds from StatPal API: %s", exc)
+            return {}
+
+    def _transform_odds_data(
+        self, 
+        odds_array: List[Dict[str, Any]], 
+        home_team: str = "", 
+        away_team: str = ""
+    ) -> List[Dict[str, Any]]:
+        """
+        Transform StatPal odds format to The Odds API bookmakers format.
+        
+        Args:
+            odds_array: List of odds markets from StatPal API
+            home_team: Home team name (for mapping "Home" outcome)
+            away_team: Away team name (for mapping "Away" outcome)
+            
+        Returns:
+            List of bookmakers in The Odds API format
+        """
+        if not isinstance(odds_array, list) or len(odds_array) == 0:
+            return []
+        
+        # Market priority mapping (most important first)
+        MARKET_PRIORITY = {
+            "3610": 1,  # Fulltime Result (1X2)
+            "2254": 2,  # Match Goals (Over/Under)
+            "12398": 3,  # Both Teams to Score
+            "1844": 4,  # 3-Way Handicap
+            "1845": 5,  # Asian Handicap
+            "11948": 6,  # Double Chance
+            "12396": 7,  # Draw No Bet
+        }
+        
+        # Sort markets by priority
+        sorted_markets = sorted(
+            odds_array,
+            key=lambda m: MARKET_PRIORITY.get(str(m.get("market_id", "")), 999)
+        )
+        
+        # Transform markets to The Odds API format
+        markets = []
+        for market_data in sorted_markets:
+            market_id = str(market_data.get("market_id", ""))
+            market_name = market_data.get("market_name", "")
+            suspended = market_data.get("suspended", "0") == "1"
+            
+            if suspended:
+                continue
+            
+            lines = market_data.get("lines", [])
+            if not isinstance(lines, list) or len(lines) == 0:
+                continue
+            
+            # Determine market key and name based on market_id
+            # StatPal market IDs reference: https://statpal.io/docs/
+            market_key = None
+            market_display_name = market_name or "Unknown Market"
+            
+            if market_id == "3610":  # Fulltime Result (1X2)
+                market_key = "h2h"
+                market_display_name = "Maç Sonucu"
+            elif market_id == "2254":  # Match Goals (Over/Under)
+                market_key = "totals"
+                market_display_name = "Toplam Gol"
+            elif market_id == "12398":  # Both Teams to Score
+                market_key = "btts"
+                market_display_name = "Karşılıklı Gol"
+            elif market_id == "1844":  # 3-Way Handicap
+                market_key = "handicap_3way"
+                market_display_name = "Handikap (3 Yönlü)"
+            elif market_id == "1845":  # Asian Handicap
+                market_key = "handicap_asian"
+                market_display_name = "Asya Handikapı"
+            elif market_id == "11948":  # Double Chance
+                market_key = "double_chance"
+                market_display_name = "Çifte Şans"
+            elif market_id == "12396":  # Draw No Bet
+                market_key = "draw_no_bet"
+                market_display_name = "Beraberlik Yok"
+            elif "first half" in market_name.lower() or "1st half" in market_name.lower() or market_id in ["3611", "3612"]:  # First Half markets
+                if "result" in market_name.lower() or market_id == "3611":
+                    market_key = "h2h_1h"
+                    market_display_name = "İlk Yarı Sonucu"
+                elif "goals" in market_name.lower() or market_id == "3612":
+                    market_key = "totals_1h"
+                    market_display_name = "İlk Yarı Toplam Gol"
                 else:
-                    logger.warning(f"Live odds field is not a list: {type(matches)}")
-                    return []
-            elif isinstance(result, list):
-                logger.info(f"Received list response with {len(result)} live matches with odds")
-                return result
+                    market_key = f"1h_{market_id}"
+                    market_display_name = f"İlk Yarı - {market_name}"
+            elif "second half" in market_name.lower() or "2nd half" in market_name.lower():
+                if "result" in market_name.lower():
+                    market_key = "h2h_2h"
+                    market_display_name = "İkinci Yarı Sonucu"
+                elif "goals" in market_name.lower():
+                    market_key = "totals_2h"
+                    market_display_name = "İkinci Yarı Toplam Gol"
+                else:
+                    market_key = f"2h_{market_id}"
+                    market_display_name = f"İkinci Yarı - {market_name}"
+            elif "penalty" in market_name.lower() or "penaltı" in market_name.lower():
+                market_key = "penalty"
+                market_display_name = "Penaltı"
+            elif "corner" in market_name.lower() or "korner" in market_name.lower():
+                market_key = "corners"
+                market_display_name = "Korner"
+            elif "card" in market_name.lower() or "kart" in market_name.lower():
+                market_key = "cards"
+                market_display_name = "Kartlar"
+            elif "player" in market_name.lower() or "oyuncu" in market_name.lower():
+                market_key = "player"
+                market_display_name = "Oyuncu Bahisleri"
             else:
-                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:200]}")
-                return []
-        except Exception as e:
-            logger.error(f"Error fetching live odds: {e}")
-            logger.exception(e)
-            return []
-    
-    async def get_seasons(self) -> List[Dict[str, Any]]:
-        """
-        Get available seasons
-        Per StatPal API: GET /soccer/leagues/seasons
-        
-        Returns:
-            List of seasons
-        """
-        try:
-            result = await self._make_request(
-                "soccer/leagues/seasons",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("seasons", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching seasons: {e}")
-            return []
-    
-    async def get_matches_daily(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get matches for today or specific date (recent/upcoming)
-        Per StatPal API: GET /soccer/matches/daily
-        
-        Args:
-            date: Date filter in YYYY-MM-DD format (optional, defaults to today)
+                # Include other markets with generic key
+                market_key = f"market_{market_id}"
+                market_display_name = market_name
             
-        Returns:
-            List of matches
-        """
-        params = {}
-        if date:
-            params["date"] = date
-        
-        try:
-            result = await self._make_request(
-                "soccer/matches/daily",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
-            # Parse similar to live matches structure
-            matches = []
-            if isinstance(result, dict):
-                if "daily" in result:
-                    result = result["daily"]
-                if "matches" in result:
-                    result = result["matches"]
-                if "league" in result:
-                    for league_data in result.get("league", []):
-                        league_name = league_data.get("name", "Unknown League")
-                        league_id = league_data.get("id")
-                        country = league_data.get("country", "")
-                        
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        
-                        for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_name"] = league_name
-                                match["league_id"] = league_id
-                                match["country"] = country
-                                matches.append(match)
-            elif isinstance(result, list):
-                matches = result
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching daily matches: {e}")
-            return []
-    
-    async def get_league_matches(self, league_id: int, season: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get matches by league and season
-        Per StatPal API: GET /soccer/leagues/{league-id}/matches
-        
-        Args:
-            league_id: League ID
-            season: Season filter (optional)
+            if not market_key:
+                continue
             
-        Returns:
-            List of matches
-        """
-        params = {}
-        if season:
-            params["season"] = season
-        
-        try:
-            # Convert league_id to string for URL (StatPal API accepts both)
-            league_id_str = str(league_id)
-            logger.info(f"Fetching matches for league ID: {league_id_str}")
-            
-            result = await self._make_request(
-                f"soccer/leagues/{league_id_str}/matches",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            
-            logger.info(f"StatPal API response type: {type(result)}")
-            if isinstance(result, dict):
-                logger.info(f"StatPal API response keys: {list(result.keys())}")
-                logger.info(f"StatPal API response preview: {str(result)[:500]}")
-            
-            # Parse similar to live matches structure
-            matches = []
-            if isinstance(result, dict):
-                # Check for nested structure: {"matches": {...}} or {"league": [...]}
-                if "matches" in result:
-                    result = result["matches"]
+            # Transform outcomes
+            outcomes = []
+            for line in lines:
+                if not isinstance(line, dict):
+                    continue
                 
-                # Check if result is a dict with "league" key (nested structure)
-                if "league" in result:
-                    for league_data in result.get("league", []):
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_id"] = league_id_str
-                                match["league_name"] = league_data.get("name", "")
-                                match["country"] = league_data.get("country", "")
-                                matches.append(match)
-                # Check if result has direct "match" key
-                elif "match" in result:
-                    league_matches = result.get("match", [])
-                    if not isinstance(league_matches, list):
-                        league_matches = [league_matches] if league_matches else []
-                    matches.extend(league_matches)
-                # Check if result has direct array of matches
-                elif isinstance(result, list):
-                    matches = result
-                # Try to find any list in the result
-                else:
-                    for key, value in result.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a match
-                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
-                                matches = value
-                                logger.info(f"Found matches in field '{key}': {len(matches)}")
-                                break
-            elif isinstance(result, list):
-                logger.info(f"Received list response with {len(result)} matches")
-                matches = result
-            
-            logger.info(f"Extracted {len(matches)} matches for league {league_id_str}")
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching league matches: {e}")
-            logger.exception(e)
-            return []
-    
-    async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:
-        """
-        Get match details/stats by league
-        Per StatPal API: GET /soccer/leagues/{league-id}/matches/stats
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            League match statistics
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/matches/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching league match stats: {e}")
-            return {}
-    
-    async def get_league_stats(self, league_id: int) -> Dict[str, Any]:
-        """
-        Get league statistics
-        Per StatPal API: GET /soccer/leagues/{league-id}/stats
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            League statistics
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching league stats: {e}")
-            return {}
-    
-    async def get_coach(self, coach_id: int) -> Dict[str, Any]:
-        """
-        Get coach information
-        Per StatPal API: GET /soccer/coaches/{coach_id}
-        
-        Args:
-            coach_id: Coach ID
-            
-        Returns:
-            Coach information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/coaches/{coach_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching coach: {e}")
-            return {}
-    
-    async def get_image(self, image_type: Optional[str] = None, image_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get image data
-        Per StatPal API: GET /soccer/images
-        
-        Args:
-            image_type: Type of image (optional)
-            image_id: Image ID (optional)
-            
-        Returns:
-            Image data
-        """
-        params = {}
-        if image_type:
-            params["type"] = image_type
-        if image_id:
-            params["id"] = image_id
-        
-        try:
-            result = await self._make_request(
-                "soccer/images",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching image: {e}")
-            return {}
-    
-    async def get_league_prematch_odds(self, league_id: int) -> List[Dict[str, Any]]:
-        """
-        Get pre-match odds by league
-        Per StatPal API: GET /soccer/leagues/{league-id}/odds/prematch
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            List of pre-match odds
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/odds/prematch",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("odds", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching league prematch odds: {e}")
-            return []
-    
-    async def get_live_odds_match_states(self) -> List[Dict[str, Any]]:
-        """
-        Get live odds match states
-        Per StatPal API: GET /soccer/odds/live/match-states
-        
-        Returns:
-            List of match states with odds
-        """
-        try:
-            result = await self._make_request(
-                "soccer/odds/live/match-states",
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("states", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching live odds match states: {e}")
-            return []
-    
-    async def get_team(self, team_id: int) -> Dict[str, Any]:
-        """
-        Get team information
-        Per StatPal API: GET /soccer/teams/{team_id}
-        
-        Args:
-            team_id: Team ID
-            
-        Returns:
-            Team information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/teams/{team_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching team: {e}")
-            return {}
-    
-    async def get_player(self, player_id: int) -> Dict[str, Any]:
-        """
-        Get player information
-        Per StatPal API: GET /soccer/players/{player_id}
-        
-        Args:
-            player_id: Player ID
-            
-        Returns:
-            Player information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/players/{player_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching player: {e}")
-            return {}
-    
-    async def get_seasons(self) -> List[Dict[str, Any]]:
-        """
-        Get available seasons
-        Per StatPal API: GET /soccer/leagues/seasons
-        
-        Returns:
-            List of seasons
-        """
-        try:
-            result = await self._make_request(
-                "soccer/leagues/seasons",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("seasons", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching seasons: {e}")
-            return []
-    
-    async def get_matches_daily(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get matches for today or specific date (recent/upcoming)
-        Per StatPal API: GET /soccer/matches/daily
-        
-        Args:
-            date: Date filter in YYYY-MM-DD format (optional, defaults to today)
-            
-        Returns:
-            List of matches
-        """
-        params = {}
-        if date:
-            params["date"] = date
-        
-        try:
-            result = await self._make_request(
-                "soccer/matches/daily",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
-            # Parse similar to live matches structure
-            matches = []
-            if isinstance(result, dict):
-                if "daily" in result:
-                    result = result["daily"]
-                if "matches" in result:
-                    result = result["matches"]
-                if "league" in result:
-                    for league_data in result.get("league", []):
-                        league_name = league_data.get("name", "Unknown League")
-                        league_id = league_data.get("id")
-                        country = league_data.get("country", "")
-                        
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        
-                        for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_name"] = league_name
-                                match["league_id"] = league_id
-                                match["country"] = country
-                                matches.append(match)
-            elif isinstance(result, list):
-                matches = result
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching daily matches: {e}")
-            return []
-    
-    async def get_league_matches(self, league_id: int, season: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get matches by league and season
-        Per StatPal API: GET /soccer/leagues/{league-id}/matches
-        
-        Args:
-            league_id: League ID
-            season: Season filter (optional)
-            
-        Returns:
-            List of matches
-        """
-        params = {}
-        if season:
-            params["season"] = season
-        
-        try:
-            # Convert league_id to string for URL (StatPal API accepts both)
-            league_id_str = str(league_id)
-            logger.info(f"Fetching matches for league ID: {league_id_str}")
-            
-            result = await self._make_request(
-                f"soccer/leagues/{league_id_str}/matches",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            
-            logger.info(f"StatPal API response type: {type(result)}")
-            if isinstance(result, dict):
-                logger.info(f"StatPal API response keys: {list(result.keys())}")
-                logger.info(f"StatPal API response preview: {str(result)[:500]}")
-            
-            # Parse similar to live matches structure
-            matches = []
-            if isinstance(result, dict):
-                # Check for nested structure: {"matches": {...}} or {"league": [...]}
-                if "matches" in result:
-                    result = result["matches"]
+                line_suspended = line.get("suspended", "0") == "1"
+                if line_suspended:
+                    continue
                 
-                # Check if result is a dict with "league" key (nested structure)
-                if "league" in result:
-                    for league_data in result.get("league", []):
-                        league_matches = league_data.get("match", [])
-                        if not isinstance(league_matches, list):
-                            league_matches = [league_matches] if league_matches else []
-                        for match in league_matches:
-                            if isinstance(match, dict):
-                                match["league_id"] = league_id_str
-                                match["league_name"] = league_data.get("name", "")
-                                match["country"] = league_data.get("country", "")
-                                matches.append(match)
-                # Check if result has direct "match" key
-                elif "match" in result:
-                    league_matches = result.get("match", [])
-                    if not isinstance(league_matches, list):
-                        league_matches = [league_matches] if league_matches else []
-                    matches.extend(league_matches)
-                # Check if result has direct array of matches
-                elif isinstance(result, list):
-                    matches = result
-                # Try to find any list in the result
-                else:
-                    for key, value in result.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # Check if first item looks like a match
-                            if isinstance(value[0], dict) and any(k in value[0] for k in ["home", "away", "match_id", "id"]):
-                                matches = value
-                                logger.info(f"Found matches in field '{key}': {len(matches)}")
-                                break
-            elif isinstance(result, list):
-                logger.info(f"Received list response with {len(result)} matches")
-                matches = result
+                name = line.get("name", "")
+                odd_str = line.get("odd", "")
+                
+                if not name or not odd_str:
+                    continue
+                
+                try:
+                    price = float(odd_str)
+                except (ValueError, TypeError):
+                    continue
+                
+                # Map StatPal outcome names to The Odds API format
+                outcome_name = name
+                if market_id == "3610":  # Fulltime Result
+                    # Map "Home", "Draw", "Away" to team names
+                    if name == "Home" and home_team:
+                        outcome_name = home_team
+                    elif name == "Away" and away_team:
+                        outcome_name = away_team
+                    elif name == "Draw":
+                        outcome_name = "Draw"
+                    # Keep original name if mapping fails
+                elif market_id == "2254":  # Match Goals
+                    handicap = line.get("handicap", "")
+                    if handicap:
+                        outcome_name = f"{name} {handicap}"
+                
+                outcomes.append({
+                    "name": outcome_name,
+                    "price": price
+                })
             
-            logger.info(f"Extracted {len(matches)} matches for league {league_id_str}")
-            return matches
-        except Exception as e:
-            logger.error(f"Error fetching league matches: {e}")
-            logger.exception(e)
+            if outcomes:
+                markets.append({
+                    "key": market_key,
+                    "name": market_display_name,  # Add display name
+                    "outcomes": outcomes
+                })
+        
+        if not markets:
             return []
+        
+        # Return as bookmakers array (The Odds API format)
+            return [{
+                "key": "statpal",
+                "title": "StatPal",
+                "markets": markets
+            }]
     
-    async def get_league_match_stats(self, league_id: int) -> Dict[str, Any]:
+    def _transform_prematch_odds_data(
+        self,
+        odds_array: List[Dict[str, Any]],
+        home_team: str = "",
+        away_team: str = ""
+    ) -> List[Dict[str, Any]]:
         """
-        Get match details/stats by league
-        Per StatPal API: GET /soccer/leagues/{league-id}/matches/stats
+        Transform StatPal prematch odds format to The Odds API bookmakers format.
+        
+        Prematch format:
+        {
+          "odds": [
+            {
+              "id": "1834",
+              "name": "1x2",
+              "bookmaker": [
+                {
+                  "name": "10Bet",
+                  "odd": [
+                    {"name": "Home", "value": "2.48"},
+                    {"name": "Draw", "value": "3.55"},
+                    {"name": "Away", "value": "2.65"}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
         
         Args:
-            league_id: League ID
+            odds_array: List of odds markets from StatPal prematch API
+            home_team: Home team name (for mapping "Home" outcome)
+            away_team: Away team name (for mapping "Away" outcome)
             
         Returns:
-            League match statistics
+            List of bookmakers in The Odds API format
         """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/matches/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching league match stats: {e}")
-            return {}
-    
-    async def get_league_stats(self, league_id: int) -> Dict[str, Any]:
-        """
-        Get league statistics
-        Per StatPal API: GET /soccer/leagues/{league-id}/stats
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            League statistics
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/stats",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching league stats: {e}")
-            return {}
-    
-    async def get_coach(self, coach_id: int) -> Dict[str, Any]:
-        """
-        Get coach information
-        Per StatPal API: GET /soccer/coaches/{coach_id}
-        
-        Args:
-            coach_id: Coach ID
-            
-        Returns:
-            Coach information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/coaches/{coach_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching coach: {e}")
-            return {}
-    
-    async def get_image(self, image_type: Optional[str] = None, image_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get image data
-        Per StatPal API: GET /soccer/images
-        
-        Args:
-            image_type: Type of image (optional)
-            image_id: Image ID (optional)
-            
-        Returns:
-            Image data
-        """
-        params = {}
-        if image_type:
-            params["type"] = image_type
-        if image_id:
-            params["id"] = image_id
-        
-        try:
-            result = await self._make_request(
-                "soccer/images",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching image: {e}")
-            return {}
-    
-    async def get_league_prematch_odds(self, league_id: int) -> List[Dict[str, Any]]:
-        """
-        Get pre-match odds by league
-        Per StatPal API: GET /soccer/leagues/{league-id}/odds/prematch
-        
-        Args:
-            league_id: League ID
-            
-        Returns:
-            List of pre-match odds
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/leagues/{league_id}/odds/prematch",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("odds", []))
-            elif isinstance(result, list):
-                return result
+        if not isinstance(odds_array, list) or len(odds_array) == 0:
             return []
-        except Exception as e:
-            logger.error(f"Error fetching league prematch odds: {e}")
-            return []
-    
-    async def get_live_odds_match_states(self) -> List[Dict[str, Any]]:
-        """
-        Get live odds match states
-        Per StatPal API: GET /soccer/odds/live/match-states
         
-        Returns:
-            List of match states with odds
-        """
-        try:
-            result = await self._make_request(
-                "soccer/odds/live/match-states",
-                use_cache=True,
-                cache_ttl=LIVE_SCORES_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("states", []))
-            elif isinstance(result, list):
-                return result
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching live odds match states: {e}")
-            return []
-    
-    async def get_team(self, team_id: int) -> Dict[str, Any]:
-        """
-        Get team information
-        Per StatPal API: GET /soccer/teams/{team_id}
+        # Market name to key mapping (prematch odds)
+        MARKET_MAP = {
+            "1x2": ("h2h", "Maç Sonucu"),
+            "1X2": ("h2h", "Maç Sonucu"),
+            "Match Goals": ("totals", "Toplam Gol"),
+            "Over/Under": ("totals", "Toplam Gol"),
+            "Both Teams to Score": ("btts", "Karşılıklı Gol"),
+            "BTTS": ("btts", "Karşılıklı Gol"),
+            "First Half Result": ("h2h_1h", "İlk Yarı Sonucu"),
+            "1st Half Result": ("h2h_1h", "İlk Yarı Sonucu"),
+            "First Half Goals": ("totals_1h", "İlk Yarı Toplam Gol"),
+            "1st Half Goals": ("totals_1h", "İlk Yarı Toplam Gol"),
+            "Second Half Result": ("h2h_2h", "İkinci Yarı Sonucu"),
+            "2nd Half Result": ("h2h_2h", "İkinci Yarı Sonucu"),
+            "Penalty": ("penalty", "Penaltı"),
+            "Corners": ("corners", "Korner"),
+            "Cards": ("cards", "Kartlar"),
+        }
         
-        Args:
-            team_id: Team ID
+        # Collect all markets from all bookmakers
+        markets_map = {}  # key -> outcomes list
+        
+        for market_data in odds_array:
+            market_name = market_data.get("name", "")
+            market_info = MARKET_MAP.get(market_name, None)
             
-        Returns:
-            Team information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/teams/{team_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching team: {e}")
-            return {}
-    
-    async def get_player(self, player_id: int) -> Dict[str, Any]:
-        """
-        Get player information
-        Per StatPal API: GET /soccer/players/{player_id}
-        
-        Args:
-            player_id: Player ID
+            if not market_info:
+                # Try case-insensitive match
+                market_name_lower = market_name.lower()
+                for key, (m_key, m_name) in MARKET_MAP.items():
+                    if key.lower() == market_name_lower:
+                        market_info = (m_key, m_name)
+                        break
+                
+                    # If still not found, create generic market
+                if not market_info:
+                    # Check for common patterns
+                    if "first half" in market_name_lower or "1st half" in market_name_lower or "1h" in market_name_lower:
+                        if "result" in market_name_lower or "1x2" in market_name_lower:
+                            market_info = ("h2h_1h", "İlk Yarı Sonucu")
+                        elif "goal" in market_name_lower or "total" in market_name_lower:
+                            market_info = ("totals_1h", "İlk Yarı Toplam Gol")
+                        elif "double chance" in market_name_lower:
+                            market_info = ("double_chance_1h", "İlk Yarı Çifte Şans")
+                        elif "both teams" in market_name_lower or "btts" in market_name_lower:
+                            market_info = ("btts_1h", "İlk Yarı Karşılıklı Gol")
+                        elif "odd" in market_name_lower or "even" in market_name_lower:
+                            market_info = ("odd_even_1h", "İlk Yarı Tek/Çift")
+                        elif "draw no bet" in market_name_lower or "dnb" in market_name_lower:
+                            market_info = ("draw_no_bet_1h", "İlk Yarı Beraberlik Yok")
+                        else:
+                            market_info = (f"1h_{market_data.get('id', '')}", f"İlk Yarı - {market_name}")
+                    elif "second half" in market_name_lower or "2nd half" in market_name_lower or "2h" in market_name_lower:
+                        if "result" in market_name_lower or "1x2" in market_name_lower:
+                            market_info = ("h2h_2h", "İkinci Yarı Sonucu")
+                        elif "goal" in market_name_lower or "total" in market_name_lower:
+                            market_info = ("totals_2h", "İkinci Yarı Toplam Gol")
+                        elif "double chance" in market_name_lower:
+                            market_info = ("double_chance_2h", "İkinci Yarı Çifte Şans")
+                        elif "both teams" in market_name_lower or "btts" in market_name_lower:
+                            market_info = ("btts_2h", "İkinci Yarı Karşılıklı Gol")
+                        elif "odd" in market_name_lower or "even" in market_name_lower:
+                            market_info = ("odd_even_2h", "İkinci Yarı Tek/Çift")
+                        elif "draw no bet" in market_name_lower or "dnb" in market_name_lower:
+                            market_info = ("draw_no_bet_2h", "İkinci Yarı Beraberlik Yok")
+                        else:
+                            market_info = (f"2h_{market_data.get('id', '')}", f"İkinci Yarı - {market_name}")
+                    elif "penalty" in market_name_lower or "penaltı" in market_name_lower:
+                        market_info = ("penalty", "Penaltı")
+                    elif "corner" in market_name_lower or "korner" in market_name_lower:
+                        market_info = ("corners", "Korner")
+                    elif "card" in market_name_lower or "kart" in market_name_lower:
+                        market_info = ("cards", "Kartlar")
+                    elif "double chance" in market_name_lower:
+                        market_info = ("double_chance", "Çifte Şans")
+                    elif "draw no bet" in market_name_lower or "dnb" in market_name_lower:
+                        market_info = ("draw_no_bet", "Beraberlik Yok")
+                    elif "odd" in market_name_lower and "even" in market_name_lower:
+                        market_info = ("odd_even", "Tek/Çift")
+                    else:
+                        # Include unknown markets with their original name
+                        market_info = (f"market_{market_data.get('id', '')}", market_name)
             
-        Returns:
-            Player information
-        """
-        try:
-            result = await self._make_request(
-                f"soccer/players/{player_id}",
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            return result if isinstance(result, dict) else {}
-        except Exception as e:
-            logger.error(f"Error fetching player: {e}")
-            return {}
-    
-    async def get_injuries_suspensions(self, team_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        Get injuries and suspensions
-        Per StatPal API: GET /soccer/injuries-suspensions
-        
-        Args:
-            team_id: Team ID filter (optional)
+            market_key, market_display_name = market_info
             
-        Returns:
-            List of injuries and suspensions
-        """
-        params = {}
-        if team_id:
-            params["team_id"] = team_id
+            # Get bookmakers for this market
+            bookmakers_list = market_data.get("bookmaker", [])
+            if not isinstance(bookmakers_list, list):
+                continue
+            
+            # Use the first bookmaker's odds (or aggregate if needed)
+            if len(bookmakers_list) > 0:
+                first_bookmaker = bookmakers_list[0]
+                odds_list = first_bookmaker.get("odd", [])
+                
+                if not isinstance(odds_list, list):
+                    continue
+                
+                outcomes = []
+                for odd_item in odds_list:
+                    if not isinstance(odd_item, dict):
+                        continue
+                    
+                    name = odd_item.get("name", "")
+                    value_str = odd_item.get("value", "")
+                    
+                    if not name or not value_str:
+                        continue
+                    
+                    try:
+                        price = float(value_str)
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    # Map outcome names
+                    outcome_name = name
+                    if market_key == "h2h":
+                        if name == "Home" and home_team:
+                            outcome_name = home_team
+                        elif name == "Away" and away_team:
+                            outcome_name = away_team
+                        elif name == "Draw":
+                            outcome_name = "Draw"
+                    
+                    outcomes.append({"name": outcome_name, "price": price})
+                
+                if outcomes:
+                    if market_key not in markets_map:
+                        markets_map[market_key] = {
+                            "name": market_display_name,
+                            "outcomes": []
+                        }
+                    markets_map[market_key]["outcomes"].extend(outcomes)
         
-        try:
-            result = await self._make_request(
-                "soccer/injuries-suspensions",
-                params=params if params else None,
-                use_cache=True,
-                cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-            )
-            if isinstance(result, dict):
-                return result.get("data", result.get("injuries", []))
-            elif isinstance(result, list):
-                return result
+        # Convert to The Odds API format
+        markets = []
+        for market_key, market_data in markets_map.items():
+            if isinstance(market_data, dict):
+                outcomes = market_data.get("outcomes", [])
+                market_display_name = market_data.get("name", market_key)
+            else:
+                # Fallback for old format
+                outcomes = market_data if isinstance(market_data, list) else []
+                market_display_name = market_key
+            
+            # Remove duplicates (keep first occurrence)
+            seen = set()
+            unique_outcomes = []
+            for outcome in outcomes:
+                outcome_id = f"{outcome['name']}_{market_key}"
+                if outcome_id not in seen:
+                    seen.add(outcome_id)
+                    unique_outcomes.append(outcome)
+            
+            if unique_outcomes:
+                markets.append({
+                    "key": market_key,
+                    "name": market_display_name,
+                    "outcomes": unique_outcomes
+                })
+        
+        if not markets:
             return []
-        except Exception as e:
-            logger.error(f"Error fetching injuries-suspensions: {e}")
-            return []
+        
+        return [{
+            "key": "statpal",
+            "title": "StatPal",
+            "markets": markets
+        }]
 
 
 # Global instance
-statpal_api_service = StatPalAPIService()
+statpal_service = StatPalApiService()
 

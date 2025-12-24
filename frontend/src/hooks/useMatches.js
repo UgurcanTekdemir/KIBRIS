@@ -1,17 +1,20 @@
-import { useState, useEffect, useMemo } from 'react';
-import { statpalAPI } from '../services/api';
+import { useState, useEffect } from 'react';
+import { matchAPI } from '../services/api';
 import { mapApiMatchesToInternal } from '../utils/matchMapper';
 
 /**
- * Custom hook for fetching matches from StatPal API
+ * Custom hook for fetching matches
  */
 export function useMatches(filters = {}) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Memoize filters to avoid unnecessary re-renders
-  const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
+  // Extract filter values for dependency array
+  const matchType = filters.matchType;
+  const sports = filters.sports;
+  const date = filters.date;
+  const league = filters.league;
 
   useEffect(() => {
     let cancelled = false;
@@ -21,13 +24,16 @@ export function useMatches(filters = {}) {
         setLoading(true);
         setError(null);
         
-        // Use StatPal API to get matches (daily matches for general matches)
-        const apiMatches = await statpalAPI.getDailyMatches(filters.date);
-        console.log('📊 useMatches - API matches received:', apiMatches?.length || 0);
+        const apiMatches = await matchAPI.getMatches(filters);
         
         if (!cancelled) {
-          const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
-          console.log('📊 useMatches - Mapped matches:', mappedMatches?.length || 0);
+          const mappedMatches = mapApiMatchesToInternal(apiMatches);
+          console.log('useMatches Debug:', {
+            apiMatchesCount: apiMatches.length,
+            mappedMatchesCount: mappedMatches.length,
+            firstApiMatch: apiMatches[0],
+            firstMappedMatch: mappedMatches[0]
+          });
           setMatches(mappedMatches);
         }
       } catch (err) {
@@ -47,14 +53,14 @@ export function useMatches(filters = {}) {
     return () => {
       cancelled = true;
     };
-  }, [filtersKey]); // Re-fetch when filters change (filtersKey is memoized from filters)
+  }, [matchType, sports, date, league, filters]); // Re-fetch when filters change
 
   return { matches, loading, error, refetch: () => {
     setLoading(true);
     setError(null);
-    statpalAPI.getDailyMatches(filters.date)
+    matchAPI.getMatches(filters)
       .then(apiMatches => {
-        const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
+        const mappedMatches = mapApiMatchesToInternal(apiMatches);
         setMatches(mappedMatches);
         setLoading(false);
       })
@@ -66,7 +72,7 @@ export function useMatches(filters = {}) {
 }
 
 /**
- * Custom hook for fetching live matches from StatPal API
+ * Custom hook for fetching live matches
  */
 export function useLiveMatches(matchType = 1) {
   const [matches, setMatches] = useState([]);
@@ -81,15 +87,30 @@ export function useLiveMatches(matchType = 1) {
         setLoading(true);
         setError(null);
         
-        // Use StatPal API to get live matches
-        const apiMatches = await statpalAPI.getLiveMatches();
-        console.log('📊 useLiveMatches - API matches received:', apiMatches?.length || 0);
+        const apiMatches = await matchAPI.getLiveMatches(matchType);
+        
+        console.log('useLiveMatches Debug:', {
+          apiMatchesCount: apiMatches?.length || 0,
+          apiMatches: apiMatches,
+          firstMatch: apiMatches?.[0]
+        });
         
         if (!cancelled) {
           const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
-          // Filter only live matches (in case API returns all matches for today)
-          const liveMatches = mappedMatches.filter(m => m.isLive);
-          console.log('📊 useLiveMatches - Live matches:', liveMatches?.length || 0);
+          console.log('useLiveMatches Mapped:', {
+            mappedCount: mappedMatches.length,
+            firstMapped: mappedMatches[0],
+            allIsLive: mappedMatches.map(m => ({ id: m.id, isLive: m.isLive, isFinished: m.isFinished, status: m.status }))
+          });
+          
+          // Filter only live matches that are NOT finished
+          // Backend might return recently finished matches from /live endpoint, but we only want truly live ones
+          const liveMatches = mappedMatches.filter(m => m.isLive === true && m.isFinished !== true);
+          console.log('useLiveMatches Filtered:', {
+            liveCount: liveMatches.length,
+            liveMatches: liveMatches.map(m => ({ id: m.id, isLive: m.isLive, isFinished: m.isFinished, status: m.status }))
+          });
+          
           setMatches(liveMatches);
         }
       } catch (err) {
@@ -122,9 +143,9 @@ export function useLiveMatches(matchType = 1) {
   return { matches, loading, error, refetch: () => {
     setLoading(true);
     setError(null);
-    statpalAPI.getLiveMatches()
+    matchAPI.getLiveMatches(matchType)
       .then(apiMatches => {
-        const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
+        const mappedMatches = mapApiMatchesToInternal(apiMatches);
         const liveMatches = mappedMatches.filter(m => m.isLive);
         setMatches(liveMatches);
         setLoading(false);
@@ -157,22 +178,25 @@ export function useMatchDetails(matchId) {
         setLoading(true);
         setError(null);
         
-        // Use StatPal API for match details
-        const { statpalAPI } = await import('../services/api');
-        const { mapStatPalMatchToInternal } = await import('../utils/matchMapper');
-        
-        const apiMatch = await statpalAPI.getMatchDetails(matchId);
+        const apiMatch = await matchAPI.getMatchDetails(matchId);
         
         if (!cancelled) {
-          if (apiMatch) {
-            // Map StatPal match to internal format, but keep original data for events
-            const mappedMatch = mapStatPalMatchToInternal(apiMatch);
-            // Preserve original StatPal data for events and other details
-            mappedMatch.originalData = apiMatch;
-            setMatch(mappedMatch);
-          } else {
+          console.log('useMatchDetails: API response:', apiMatch);
+          if (!apiMatch) {
             setError('Maç bulunamadı');
+            setLoading(false);
+            return;
           }
+          const { mapApiMatchToInternal } = await import('../utils/matchMapper');
+          const mappedMatch = mapApiMatchToInternal(apiMatch);
+          console.log('useMatchDetails: Mapped match:', mappedMatch);
+          console.log('useMatchDetails: Markets:', mappedMatch?.markets);
+          if (!mappedMatch) {
+            setError('Maç verileri işlenemedi');
+            setLoading(false);
+            return;
+          }
+          setMatch(mappedMatch);
         }
       } catch (err) {
         if (!cancelled) {

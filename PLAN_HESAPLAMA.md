@@ -78,3 +78,6 @@ const interval = setInterval(() => {
 
 **İleride büyürseniz:** 100K plan'a kolayca geçiş yapabilirsiniz.
 
+
+
+

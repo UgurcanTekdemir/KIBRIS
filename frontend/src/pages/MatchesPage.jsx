@@ -14,6 +14,10 @@ const MatchesPage = () => {
   const urlSearchQuery = searchParams.get('search') || '';
   const [searchTerm, setSearchTerm] = useState(urlSearchQuery);
   const today = new Date().toISOString().split('T')[0];
+  // Calculate 7 days (1 week) from today for upcoming matches
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Calculate 14 days (2 weeks) ago for past matches
+  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Sync URL search param with local state
   useEffect(() => {
@@ -21,8 +25,6 @@ const MatchesPage = () => {
       setSearchTerm(urlSearchQuery);
     }
   }, [urlSearchQuery, searchTerm]);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-  const dayAfterTomorrow = new Date(Date.now() + 172800000).toISOString().split('T')[0];
 
   // Fetch matches for today, tomorrow, and future
   const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
@@ -38,35 +40,63 @@ const MatchesPage = () => {
     );
   }, [allMatches, searchTerm]);
 
-  // Since API returns matches from 2026, we'll show them in a more useful way:
-  // - Today: Matches starting today or earliest upcoming matches
-  // - Tomorrow: Next batch of matches
-  // - Future: All remaining matches
-  
-  const sortedMatches = useMemo(() => {
-    return [...filteredMatches].sort((a, b) => {
-      // Sort by date first, then by time
+  // Separate upcoming vs past matches
+  const { upcomingMatches, pastMatches, postponedMatches } = useMemo(() => {
+    const upcoming = [];
+    const past = [];
+    const postponed = [];
+    
+    for (const match of filteredMatches) {
+      const status = (match.status || '').toUpperCase();
+      const isPostponed = status === 'POSTPONED';
+      const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+      const isPastDate = match.date < today;
+      // Only show matches within 7 days (1 week) from today
+      const isWithin7Days = match.date >= today && match.date <= sevenDaysLater;
+      
+      if (isPostponed) {
+        // Postponed matches go to separate list
+        postponed.push(match);
+      } else if (isFinished || isPastDate) {
+        // Only truly finished matches (not postponed) go to past
+        // Include past matches from last 2 weeks
+        const matchDate = match.date || '';
+        if (matchDate >= twoWeeksAgo) {
+          past.push(match);
+        }
+      } else if (isWithin7Days) {
+        // Only include upcoming matches within 7 days
+        upcoming.push(match);
+      }
+      // Matches beyond 7 days (upcoming) or beyond 2 weeks (past) are excluded
+    }
+    
+    // Sort upcoming by date/time (ascending)
+    upcoming.sort((a, b) => {
       if (a.date !== b.date) {
         return a.date.localeCompare(b.date);
       }
       return (a.time || '').localeCompare(b.time || '');
     });
-  }, [filteredMatches]);
-
-  const todayMatches = useMemo(() => {
-    // Show first 10 matches (earliest upcoming)
-    return sortedMatches.slice(0, 10);
-  }, [sortedMatches]);
-
-  const tomorrowMatches = useMemo(() => {
-    // Show next 10 matches
-    return sortedMatches.slice(10, 20);
-  }, [sortedMatches]);
-
-  const futureMatches = useMemo(() => {
-    // Show all remaining matches
-    return sortedMatches.slice(20);
-  }, [sortedMatches]);
+    
+    // Sort past by date/time (descending - most recent first)
+    past.sort((a, b) => {
+      if (a.date !== b.date) {
+        return b.date.localeCompare(a.date);
+      }
+      return (b.time || '').localeCompare(a.time || '');
+    });
+    
+    // Sort postponed by date/time (ascending)
+    postponed.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return (a.time || '').localeCompare(b.time || '');
+    });
+    
+    return { upcomingMatches: upcoming, pastMatches: past, postponedMatches: postponed };
+  }, [filteredMatches, today, sevenDaysLater, twoWeeksAgo]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -155,29 +185,23 @@ const MatchesPage = () => {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="today" className="w-full">
+      <Tabs defaultValue="upcoming" className="w-full">
         <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
           <TabsTrigger
-            value="today"
+            value="upcoming"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Yakın Maçlar ({todayMatches.length})
+            Gelecek Maçlar ({upcomingMatches.length})
           </TabsTrigger>
           <TabsTrigger
-            value="tomorrow"
+            value="past"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Devamı ({tomorrowMatches.length})
-          </TabsTrigger>
-          <TabsTrigger
-            value="future"
-            className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
-          >
-            Tümü ({futureMatches.length})
+            Geçmiş Maçlar ({pastMatches.length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="today" className="mt-0">
+        <TabsContent value="upcoming" className="mt-0">
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
@@ -187,20 +211,20 @@ const MatchesPage = () => {
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-2">
-                {todayMatches.map((match) => (
+                {upcomingMatches.map((match) => (
                   <MatchCard key={match.id} match={match} />
                 ))}
               </div>
-              {todayMatches.length === 0 && !loading && (
+              {upcomingMatches.length === 0 && !loading && (
                 <div className="text-center py-16 text-gray-500">
-                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Yakın zamanda maç bulunamadı'}
+                  {searchTerm ? 'Arama kriterlerinize uygun gelecek maç bulunamadı' : 'Yakın zamanda maç bulunamadı'}
                 </div>
               )}
             </>
           )}
         </TabsContent>
 
-        <TabsContent value="tomorrow" className="mt-0">
+        <TabsContent value="past" className="mt-0">
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
@@ -210,36 +234,25 @@ const MatchesPage = () => {
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-2">
-                {tomorrowMatches.map((match) => (
+                {pastMatches.map((match) => (
                   <MatchCard key={match.id} match={match} />
                 ))}
               </div>
-              {tomorrowMatches.length === 0 && !loading && (
+              {pastMatches.length === 0 && !loading && (
                 <div className="text-center py-16 text-gray-500">
-                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Daha fazla maç bulunamadı'}
+                  {searchTerm ? 'Arama kriterlerinize uygun geçmiş maç bulunamadı' : 'Geçmiş maç bulunamadı'}
                 </div>
               )}
-            </>
-          )}
-        </TabsContent>
-
-        <TabsContent value="future" className="mt-0">
-          {loading ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              {[...Array(4)].map((_, i) => (
-                <MatchCardSkeleton key={i} />
-              ))}
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                {futureMatches.map((match) => (
-                  <MatchCard key={match.id} match={match} />
-                ))}
-              </div>
-              {futureMatches.length === 0 && !loading && (
-                <div className="text-center py-16 text-gray-500">
-                  {searchTerm ? 'Arama kriterlerinize uygun maç bulunamadı' : 'Tüm maçlar yukarıdaki sekmelerde gösteriliyor'}
+              
+              {/* Postponed matches at the bottom */}
+              {postponedMatches.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-[#1e2736]">
+                  <h3 className="text-lg font-semibold text-gray-400 mb-4">Ertelenen Maçlar</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {postponedMatches.map((match) => (
+                      <MatchCard key={match.id} match={match} />
+                    ))}
+                  </div>
                 </div>
               )}
             </>

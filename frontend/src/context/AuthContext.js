@@ -10,7 +10,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      const parsedUser = JSON.parse(savedUser);
+      // Ensure balance exists with default value
+      if (parsedUser.balance === undefined || parsedUser.balance === null) {
+        parsedUser.balance = 0;
+      }
+      setUser(parsedUser);
     }
     setLoading(false);
   }, []);
@@ -22,6 +27,10 @@ export const AuthProvider = ({ children }) => {
     if (foundUser) {
       const userWithoutPassword = { ...foundUser };
       delete userWithoutPassword.password;
+      // Ensure balance exists with default value
+      if (userWithoutPassword.balance === undefined || userWithoutPassword.balance === null) {
+        userWithoutPassword.balance = 0;
+      }
       setUser(userWithoutPassword);
       localStorage.setItem('user', JSON.stringify(userWithoutPassword));
       return { success: true, user: userWithoutPassword };
@@ -36,7 +45,8 @@ export const AuthProvider = ({ children }) => {
 
   const updateBalance = (amount) => {
     if (user) {
-      const updatedUser = { ...user, balance: user.balance + amount };
+      const currentBalance = user.balance !== undefined && user.balance !== null ? user.balance : 0;
+      const updatedUser = { ...user, balance: currentBalance + amount };
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
     }

@@ -112,7 +112,7 @@ const MagicNavigation = () => {
                       {item.isLive && (
                         <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse z-10"></span>
                       )}
-                      {item.badge > 0 && (
+                      {item.badge !== undefined && item.badge !== null && item.badge > 0 && (
                         <span className="absolute -top-2 -right-2 w-5 h-5 bg-amber-500 text-black text-xs font-bold rounded-full flex items-center justify-center z-10">
                           {item.badge}
                         </span>
@@ -134,9 +134,19 @@ const MagicNavigation = () => {
               <div className="hidden xs:flex items-center gap-1.5 sm:gap-2 bg-[#1a2332] px-2 sm:px-3 py-1.5 rounded-lg border border-[#2a3a4d]">
                 <Wallet size={14} className="text-amber-500 sm:w-4 sm:h-4" />
                 <span className="text-white font-semibold text-sm sm:text-base">
-                  {user.balance >= 1000 
-                    ? `${(user.balance / 1000).toFixed(1)}K` 
-                    : user.balance.toLocaleString('tr-TR')} ₺
+                  {(() => {
+                    if (!user || user.balance === undefined || user.balance === null) return '0';
+                    const balance = typeof user.balance === 'number' ? user.balance : parseFloat(user.balance);
+                    if (isNaN(balance) || balance === 0 || !isFinite(balance)) return '0';
+                    if (balance >= 1000) {
+                      return `${(balance / 1000).toFixed(1)}K`;
+                    }
+                    try {
+                      return balance.toLocaleString('tr-TR');
+                    } catch (e) {
+                      return balance.toString();
+                    }
+                  })()} ₺
                 </span>
               </div>
 
@@ -156,7 +166,16 @@ const MagicNavigation = () => {
                     <p className="text-white font-medium">{user.username}</p>
                     <p className="text-xs text-amber-500">{getRoleLabel(user.role)}</p>
                     <p className="text-sm text-gray-400 mt-1 xs:hidden">
-                      Bakiye: {user.balance.toLocaleString('tr-TR')} ₺
+                      Bakiye: {(() => {
+                        if (!user || user.balance === undefined || user.balance === null) return '0';
+                        const balance = typeof user.balance === 'number' ? user.balance : parseFloat(user.balance);
+                        if (isNaN(balance) || balance === 0 || !isFinite(balance)) return '0';
+                        try {
+                          return balance.toLocaleString('tr-TR');
+                        } catch (e) {
+                          return balance.toString();
+                        }
+                      })()} ₺
                     </p>
                   </div>
                   <DropdownMenuItem asChild>
