@@ -70,7 +70,84 @@ export function mapApiMatchToInternal(apiMatch) {
         
         // Get market display name (from backend or use key-based name)
         let marketName = market.name;
-        if (!marketName) {
+        
+        // Translate English market names to Turkish
+        const englishToTurkishMarketNames = {
+          'Home/Away': 'Ev Sahibi/Deplasman',
+          'home/away': 'Ev Sahibi/Deplasman',
+          'Home / Away': 'Ev Sahibi/Deplasman',
+          'Home-Away': 'Ev Sahibi/Deplasman',
+          'home-away': 'Ev Sahibi/Deplasman',
+          'Match Result': 'Maç Sonucu',
+          'match result': 'Maç Sonucu',
+          '1X2': 'Maç Sonucu',
+          '1-X-2': 'Maç Sonucu',
+          'Total Goals': 'Toplam Gol',
+          'total goals': 'Toplam Gol',
+          'Totals': 'Toplam Gol',
+          'totals': 'Toplam Gol',
+          'Both Teams To Score': 'Karşılıklı Gol',
+          'both teams to score': 'Karşılıklı Gol',
+          'BTTS': 'Karşılıklı Gol',
+          'btts': 'Karşılıklı Gol',
+          'First Half Result': 'İlk Yarı Sonucu',
+          'first half result': 'İlk Yarı Sonucu',
+          'Second Half Result': 'İkinci Yarı Sonucu',
+          'second half result': 'İkinci Yarı Sonucu',
+          'Half Time Result': 'İlk Yarı Sonucu',
+          'half time result': 'İlk Yarı Sonucu',
+          'Double Chance': 'Çifte Şans',
+          'double chance': 'Çifte Şans',
+          'Handicap': 'Handikap',
+          'handicap': 'Handikap',
+          'Asian Handicap': 'Asya Handikapı',
+          'asian handicap': 'Asya Handikapı',
+          'Corners': 'Kornerler',
+          'corners': 'Kornerler',
+          'Corner': 'Kornerler',
+          'corner': 'Kornerler',
+          'Cards': 'Kartlar',
+          'cards': 'Kartlar',
+          'Draw No Bet': 'Beraberlik Yok',
+          'draw no bet': 'Beraberlik Yok',
+          'HT/FT': 'İlk Yarı/Maç Sonucu',
+          'ht/ft': 'İlk Yarı/Maç Sonucu',
+          'HT/FT Double': 'İlk Yarı/Maç Sonucu',
+          'ht/ft double': 'İlk Yarı/Maç Sonucu',
+          'Half Time / Full Time': 'İlk Yarı/Maç Sonucu',
+          'half time / full time': 'İlk Yarı/Maç Sonucu',
+        };
+        
+        if (marketName) {
+          // Normalize market name (trim and lowercase for comparison)
+          const normalizedName = marketName.trim();
+          const lowerName = normalizedName.toLowerCase();
+          
+          // Check exact match first, then case-insensitive match
+          const translatedName = englishToTurkishMarketNames[normalizedName] || englishToTurkishMarketNames[lowerName];
+          if (translatedName) {
+            marketName = translatedName;
+          } else {
+            // Try partial matching for combinations (e.g., "Home/Away" variations)
+            // Replace common English terms in market names
+            marketName = normalizedName
+              .replace(/\bHome\/Away\b/gi, 'Ev Sahibi/Deplasman')
+              .replace(/\bHome-Away\b/gi, 'Ev Sahibi/Deplasman')
+              .replace(/\bHome \/ Away\b/gi, 'Ev Sahibi/Deplasman')
+              .replace(/\bMatch Result\b/gi, 'Maç Sonucu')
+              .replace(/\bTotal Goals\b/gi, 'Toplam Gol')
+              .replace(/\bBoth Teams To Score\b/gi, 'Karşılıklı Gol')
+              .replace(/\bFirst Half Result\b/gi, 'İlk Yarı Sonucu')
+              .replace(/\bSecond Half Result\b/gi, 'İkinci Yarı Sonucu')
+              .replace(/\bHalf Time Result\b/gi, 'İlk Yarı Sonucu')
+              .replace(/\bDouble Chance\b/gi, 'Çifte Şans')
+              .replace(/\bAsian Handicap\b/gi, 'Asya Handikapı')
+              .replace(/\bCorners?\b/gi, 'Kornerler')
+              .replace(/\bCards?\b/gi, 'Kartlar')
+              .replace(/\bDraw No Bet\b/gi, 'Beraberlik Yok')
+              .replace(/\bHT\/FT\b/gi, 'İlk Yarı/Maç Sonucu');
+          }
+        } else {
           // Map market keys to Turkish names
           const marketNameMap = {
             'totals': 'Toplam Gol',
@@ -84,7 +161,7 @@ export function mapApiMatchToInternal(apiMatch) {
             'double_chance': 'Çifte Şans',
             'draw_no_bet': 'Beraberlik Yok',
             'penalty': 'Penaltı',
-            'corners': 'Korner',
+            'corners': 'Kornerler',
             'cards': 'Kartlar',
             'player': 'Oyuncu Bahisleri',
           };
