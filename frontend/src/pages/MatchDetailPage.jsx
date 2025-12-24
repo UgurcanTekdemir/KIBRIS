@@ -388,6 +388,7 @@ const MatchDetailPage = () => {
                 const isInplay = match.isLive;
                 statpalAPI.getMatchOdds(match.id, isInplay)
                   .then(odds => {
+                    console.log('Odds data received:', odds);
                     setMatchOdds(odds);
                     setOddsLoading(false);
                   })
