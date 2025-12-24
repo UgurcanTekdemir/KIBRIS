@@ -42,8 +42,8 @@ else:
 # Create the main app without a prefix
 app = FastAPI()
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# Create a router (no prefix - routes will be added directly to /api)
+api_router = APIRouter()
 
 
 # Define Models
@@ -95,6 +95,16 @@ class BannerUpdate(BaseModel):
 @api_router.get("/")
 async def root():
     return {"message": "Hello World"}
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "service": "KIBRIS API",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mongodb_connected": db is not None
+    }
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
@@ -463,16 +473,22 @@ async def delete_banner(banner_id: str):
         logger.error(f"Error deleting banner: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include the router in the main app
-app.include_router(api_router)
+# CORS Configuration
+cors_origins_str = os.environ.get('CORS_ORIGINS', '*')
+cors_origins = cors_origins_str.split(',') if cors_origins_str != '*' else ['*']
+allow_creds = cors_origins_str != '*'
 
+# Add CORS middleware BEFORE including the router (order matters!)
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include the router in the main app (after CORS middleware) with /api prefix
+app.include_router(api_router, prefix="/api")
 
 # Logging already configured above
 
