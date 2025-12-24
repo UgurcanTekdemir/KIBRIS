@@ -541,8 +541,12 @@ const MatchDetailPage = () => {
             <div className="space-y-4">
               {/* Parse and display odds data */}
               {(() => {
+                console.log('MatchOdds data:', matchOdds);
+                console.log('Has odds array:', matchOdds.odds && Array.isArray(matchOdds.odds));
+                console.log('Is market list:', matchOdds.is_market_list);
+                
                 // Check if this is StatPal API odds format (live_match.odds)
-                if (matchOdds.odds && Array.isArray(matchOdds.odds)) {
+                if (matchOdds.odds && Array.isArray(matchOdds.odds) && matchOdds.odds.length > 0) {
                   // StatPal API format: { odds: [{ market_id, market_name, lines: [{ name, odd, handicap }] }] }
                   return (
                     <div className="space-y-4">
