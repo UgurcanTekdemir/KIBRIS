@@ -363,6 +363,19 @@ async def get_statpal_match_details(match_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/matches/statpal/results")
+async def get_statpal_results(
+    date: Optional[str] = Query(None, description="Date filter (YYYY-MM-DD)")
+):
+    """Get finished match results from StatPal API"""
+    try:
+        results = await statpal_api_service.get_results(date=date)
+        return {"success": True, "data": results, "source": "statpal"}
+    except Exception as e:
+        logger.error(f"Error fetching StatPal results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/leagues/statpal")
 async def get_statpal_leagues():
     """Get available leagues from StatPal API"""
