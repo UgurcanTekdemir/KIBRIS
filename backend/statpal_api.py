@@ -123,13 +123,23 @@ class StatPalAPIService:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=request_params)
                 
-                logger.debug(f"StatPal API Request: {url}")
-                logger.debug(f"Response status: {response.status_code}")
+                logger.info(f"StatPal API Request: {url}")
+                logger.info(f"StatPal API Request params (key only): access_key={'*' * 10 if self.api_key else 'NOT SET'}")
+                logger.info(f"Response status: {response.status_code}")
                 
                 # Handle HTTP 200 with 'invalid-request' per documentation
                 if response.status_code == 200:
                     try:
                         data = response.json()
+                        logger.info(f"StatPal API Response type: {type(data)}")
+                        if isinstance(data, dict):
+                            logger.info(f"StatPal API Response keys: {list(data.keys())}")
+                            logger.info(f"StatPal API Response preview: {str(data)[:500]}")
+                        elif isinstance(data, list):
+                            logger.info(f"StatPal API Response is list with {len(data)} items")
+                            if data and len(data) > 0:
+                                logger.info(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'Not a dict'}")
+                        
                         # Check for invalid-request in response
                         if isinstance(data, dict) and data.get("status") == "invalid-request":
                             error_msg = data.get("message", "Invalid request")
@@ -370,20 +380,65 @@ class StatPalAPIService:
             List of leagues
         """
         try:
+            logger.info("Making request to StatPal API: soccer/leagues")
             result = await self._make_request(
                 "soccer/leagues",
                 use_cache=True,
                 cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
             )
+            logger.info(f"StatPal API response type: {type(result)}")
+            logger.info(f"StatPal API response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+            logger.info(f"StatPal API response (first 500 chars): {str(result)[:500]}")
+            
+            # Check for error responses
             if isinstance(result, dict):
-                return result.get("data", result.get("leagues", []))
+                # Check for error status
+                if result.get("status") == "error" or result.get("status") == "invalid-request":
+                    error_msg = result.get("message", "Unknown error")
+                    logger.error(f"StatPal API error response: {error_msg}")
+                    return []
+                
+                # Try different possible field names
+                leagues = None
+                for field_name in ["data", "leagues", "league", "results", "items"]:
+                    if field_name in result:
+                        leagues = result[field_name]
+                        logger.info(f"Found leagues in field '{field_name}': {len(leagues) if isinstance(leagues, list) else 'Not a list'}")
+                        break
+                
+                if leagues is None:
+                    # If no known field, check if all values are lists
+                    for key, value in result.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a league (has id, name, etc.)
+                            if isinstance(value[0], dict) and any(k in value[0] for k in ["id", "league_id", "name", "league_name"]):
+                                leagues = value
+                                logger.info(f"Found leagues in field '{key}': {len(leagues)}")
+                                break
+                
+                if leagues is None:
+                    logger.warning(f"No leagues found in response. Available keys: {list(result.keys())}")
+                    return []
+                
+                if isinstance(leagues, list):
+                    logger.info(f"Extracted {len(leagues)} leagues from dict response")
+                    if leagues and len(leagues) > 0:
+                        logger.debug(f"Sample league keys: {list(leagues[0].keys()) if isinstance(leagues[0], dict) else 'N/A'}")
+                    return leagues
+                else:
+                    logger.warning(f"Leagues field is not a list: {type(leagues)}")
+                    return []
             elif isinstance(result, list):
+                logger.info(f"Received list response with {len(result)} leagues")
+                if result and len(result) > 0:
+                    logger.debug(f"Sample league keys: {list(result[0].keys()) if isinstance(result[0], dict) else 'N/A'}")
                 return result
             else:
-                logger.warning(f"Unexpected response format: {type(result)}")
+                logger.warning(f"Unexpected response format: {type(result)}, value: {str(result)[:200]}")
                 return []
         except Exception as e:
             logger.error(f"Error fetching leagues: {e}")
+            logger.exception(e)
             return []
     
     async def get_teams(self, league_id: Optional[int] = None) -> List[Dict[str, Any]]:

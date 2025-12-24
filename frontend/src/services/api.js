@@ -305,8 +305,24 @@ export const statpalAPI = {
    * @returns {Promise<Array>} List of leagues
    */
   async getLeagues() {
-    const response = await fetchAPI('/leagues/statpal');
-    return response.data || [];
+    try {
+      const response = await fetchAPI('/leagues/statpal');
+      console.log('📊 getLeagues response:', response);
+      console.log('📊 response.data:', response.data);
+      console.log('📊 response.data type:', typeof response.data);
+      console.log('📊 response.data isArray:', Array.isArray(response.data));
+      
+      // Handle different response formats
+      if (response && response.data) {
+        return Array.isArray(response.data) ? response.data : [];
+      } else if (Array.isArray(response)) {
+        return response;
+      }
+      return [];
+    } catch (error) {
+      console.error('Error in getLeagues:', error);
+      throw error;
+    }
   },
 
   /**

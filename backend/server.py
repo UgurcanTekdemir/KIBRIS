@@ -385,10 +385,15 @@ async def get_statpal_results(
 async def get_statpal_leagues():
     """Get available leagues from StatPal API"""
     try:
+        logger.info("Fetching leagues from StatPal API")
         leagues = await statpal_api_service.get_leagues()
-        return {"success": True, "data": leagues}
+        logger.info(f"StatPal API returned {len(leagues) if leagues else 0} leagues")
+        if leagues and len(leagues) > 0:
+            logger.debug(f"Sample league: {leagues[0] if isinstance(leagues, list) else 'Not a list'}")
+        return {"success": True, "data": leagues if leagues else [], "source": "statpal"}
     except Exception as e:
         logger.error(f"Error fetching StatPal leagues: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
