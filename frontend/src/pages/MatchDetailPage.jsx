@@ -389,11 +389,17 @@ const MatchDetailPage = () => {
                 statpalAPI.getMatchOdds(match.id, isInplay)
                   .then(odds => {
                     console.log('Odds data received:', odds);
-                    setMatchOdds(odds);
+                    // Only set if we have actual data (not empty object)
+                    if (odds && (odds.odds || odds.markets || odds.is_market_list || Object.keys(odds).length > 0)) {
+                      setMatchOdds(odds);
+                    } else {
+                      setMatchOdds(null); // Set to null so we show "not available" message
+                    }
                     setOddsLoading(false);
                   })
                   .catch(err => {
                     console.error('Error fetching odds:', err);
+                    setMatchOdds(null);
                     setOddsLoading(false);
                   });
               }
