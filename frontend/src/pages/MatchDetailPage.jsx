@@ -550,6 +550,11 @@ const MatchDetailPage = () => {
                 console.log('MatchOdds data:', matchOdds);
                 console.log('Has odds array:', matchOdds.odds && Array.isArray(matchOdds.odds));
                 console.log('Is market list:', matchOdds.is_market_list);
+                console.log('Markets array:', matchOdds.markets);
+                console.log('Markets length:', matchOdds.markets?.length);
+                if (matchOdds.markets && matchOdds.markets.length > 0) {
+                  console.log('First market sample:', matchOdds.markets[0]);
+                }
                 
                 // Check if this is StatPal API odds format (live_match.odds)
                 if (matchOdds.odds && Array.isArray(matchOdds.odds) && matchOdds.odds.length > 0) {
@@ -590,12 +595,24 @@ const MatchDetailPage = () => {
                 }
                 
                 // Check if this is a market list response (fallback when odds not available)
-                if (matchOdds.is_market_list && Array.isArray(matchOdds.markets)) {
+                // Also check if markets array exists even without is_market_list flag
+                if ((matchOdds.is_market_list || (Array.isArray(matchOdds.markets) && matchOdds.markets.length > 0)) && 
+                    Array.isArray(matchOdds.markets) && 
+                    !matchOdds.odds) {
+                  // Extract market name and id from various possible field names
+                  const getMarketName = (market) => {
+                    return market.name || market.market_name || market.title || market.label || `Market ${market.id || idx}`;
+                  };
+                  
+                  const getMarketId = (market) => {
+                    return market.id || market.market_id || market.marketId || '';
+                  };
+                  
                   return (
                     <div className="space-y-4">
                       <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                         <p className="text-amber-500 text-sm font-medium mb-2">
-                          ℹ️ Mevcut Bahis Marketleri
+                          ℹ️ Mevcut Bahis Marketleri ({matchOdds.markets.length} market)
                         </p>
                         <p className="text-gray-400 text-xs">
                           StatPal API'den mevcut market listesi alındı. Bu maç için odds verisi henüz mevcut değil.
@@ -603,13 +620,19 @@ const MatchDetailPage = () => {
                           <span className="text-amber-500">Not:</span> Odds verisi genellikle maç başladıktan sonra güncellenir.
                         </p>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        {matchOdds.markets.map((market, idx) => (
-                          <div key={idx} className="bg-[#0a0e14] rounded-lg p-3 border border-[#1e2736]">
-                            <div className="text-white font-medium text-sm">{market.name}</div>
-                            <div className="text-xs text-gray-500 mt-1">ID: {market.id}</div>
-                          </div>
-                        ))}
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-96 overflow-y-auto">
+                        {matchOdds.markets.map((market, idx) => {
+                          const marketName = getMarketName(market);
+                          const marketId = getMarketId(market);
+                          return (
+                            <div key={idx} className="bg-[#0a0e14] rounded-lg p-3 border border-[#1e2736] hover:border-amber-500/50 transition-colors">
+                              <div className="text-white font-medium text-sm">{marketName}</div>
+                              {marketId && (
+                                <div className="text-xs text-gray-500 mt-1">ID: {marketId}</div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );

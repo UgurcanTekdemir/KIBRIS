@@ -381,7 +381,11 @@ export const statpalAPI = {
    */
   async getMatchOdds(matchId, inplay = false) {
     const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
-    return response.data || null;
+    console.log('📊 getMatchOdds response:', response);
+    console.log('📊 response.data:', response.data);
+    const oddsData = response.data || response; // Fallback: if data doesn't exist, use response itself
+    console.log('📊 Returning oddsData:', oddsData);
+    return oddsData;
   },
 
   /**
