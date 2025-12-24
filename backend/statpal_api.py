@@ -888,26 +888,7 @@ class StatPalAPIService:
             
             # If no odds data found, try to get market list as fallback
             # This should only happen if the direct odds endpoint doesn't work
-            # Check if we got any valid result
-            result_found = False
-            for endpoint, params in endpoints_to_try:
-                try:
-                    test_result = await self._make_request(
-                        endpoint,
-                        params=params if params else None,
-                        use_cache=False,  # Don't use cache for test
-                        cache_ttl=OTHER_ENDPOINTS_CACHE_TTL
-                    )
-                    if test_result and isinstance(test_result, dict) and len(test_result) > 0 and "error" not in test_result:
-                        result_found = True
-                        break
-                    elif test_result and isinstance(test_result, list) and len(test_result) > 0:
-                        result_found = True
-                        break
-                except:
-                    pass
-            
-            if not result_found:
+            if not result or (isinstance(result, dict) and (len(result) == 0 or "error" in result)):
                 try:
                     # Try market list endpoint as fallback
                     market_list_endpoint = "soccer/odds/live/markets" if inplay else "soccer/odds/pre-match/markets"
