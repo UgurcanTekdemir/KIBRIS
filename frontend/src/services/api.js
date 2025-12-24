@@ -4,7 +4,10 @@
  */
 
 // Get API base URL - remove trailing /api if present to avoid double /api
-const rawApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Production fallback: If environment variable is not set in production, use Railway URL
+const isProduction = process.env.NODE_ENV === 'production';
+const productionBackendUrl = 'https://web-production-c33a1.up.railway.app';
+const rawApiUrl = process.env.REACT_APP_API_URL || (isProduction ? productionBackendUrl : 'http://localhost:8000');
 const cleanApiUrl = rawApiUrl.replace(/\/api\/?$/, '');
 const API_BASE_URL = `${cleanApiUrl}/api`;
 
