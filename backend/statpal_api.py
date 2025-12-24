@@ -796,7 +796,7 @@ class StatPalAPIService:
                     )
                     
                     if result and isinstance(result, dict) and len(result) > 0:
-                        # Check if this is the live_match format with odds
+                        # Check if this is the live_match format with odds (for inplay)
                         if "live_match" in result:
                             live_match = result.get("live_match", {})
                             # Verify match_id matches
@@ -815,6 +815,24 @@ class StatPalAPIService:
                                 }
                             elif not match_id:
                                 # No match_id filter, return the whole result
+                                return result
+                        # Check if this is pre_match format (for pre-match)
+                        elif "pre_match" in result or "match" in result:
+                            pre_match = result.get("pre_match") or result.get("match", {})
+                            match_info = pre_match.get("match_info", {}) if isinstance(pre_match, dict) else {}
+                            if (match_id and 
+                                (match_info.get("main_id") == match_id or
+                                 match_info.get("fallback_id_1") == match_id or
+                                 match_info.get("fallback_id_2") == match_id or
+                                 match_info.get("fallback_id_3") == match_id)):
+                                # Return the odds data
+                                return {
+                                    "match_info": match_info,
+                                    "odds": pre_match.get("odds", []) if isinstance(pre_match, dict) else [],
+                                    "stats": pre_match.get("stats", {}) if isinstance(pre_match, dict) else {},
+                                    "team_info": pre_match.get("team_info", {}) if isinstance(pre_match, dict) else {},
+                                }
+                            elif not match_id:
                                 return result
                         # Parse other response formats
                         if match_id:
