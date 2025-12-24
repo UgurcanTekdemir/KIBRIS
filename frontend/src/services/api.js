@@ -8,11 +8,12 @@ const rawApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const cleanApiUrl = rawApiUrl.replace(/\/api\/?$/, '');
 const API_BASE_URL = `${cleanApiUrl}/api`;
 
-// Debug: Log API URL in development
-if (process.env.NODE_ENV === 'development') {
-  console.log('🔧 API Base URL:', API_BASE_URL);
-  console.log('🔧 REACT_APP_API_URL:', process.env.REACT_APP_API_URL);
-}
+// Debug: Log API URL (always log to help debug production issues)
+console.log('🔧 API Configuration:');
+console.log('  - REACT_APP_API_URL:', process.env.REACT_APP_API_URL || 'NOT SET');
+console.log('  - Raw API URL:', rawApiUrl);
+console.log('  - Clean API URL:', cleanApiUrl);
+console.log('  - Final API_BASE_URL:', API_BASE_URL);
 
 class ApiError extends Error {
   constructor(message, status, data) {
@@ -28,6 +29,10 @@ class ApiError extends Error {
  */
 async function fetchAPI(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+  
+  // Debug: Log the full URL being called
+  console.log('🌐 API Call:', url);
+  
   const config = {
     ...options,
     headers: {
