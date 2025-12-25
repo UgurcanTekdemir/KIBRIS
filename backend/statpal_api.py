@@ -467,34 +467,35 @@ class StatPalApiService:
                 pass
         
         # If no commence_time from StatPal, try parsing date/time fields
-        # IMPORTANT: Based on user feedback, StatPal API provides times in Turkey timezone (UTC+3)
-        # NOT UTC. So we need to parse as Turkey time and convert to UTC for storage.
-        # Example: Match at 22:00 TR = 19:00 UTC, StatPal sends "22:00" which is TR time
+        # IMPORTANT: Based on user feedback, StatPal API provides times in UTC, NOT Turkey time.
+        # Example: Match at 22:00 TR = 19:00 UTC, StatPal sends "19:00" which is UTC time
+        # We should parse as UTC directly, then frontend will convert to local timezone
         if not commence_time and date_str:
             try:
                 if time_str:
                     # Combine date and time
                     datetime_str = f"{date_str} {time_str}"
+                    # Log raw values for debugging
+                    logger.debug(f"StatPal raw date/time: date={date_str}, time={time_str}, combined={datetime_str}")
+                    
                     # Try StatPal format first: "DD.MM.YYYY HH:MM"
                     try:
-                        # Parse as naive datetime - StatPal times are in Turkey timezone (UTC+3)
+                        # Parse as naive datetime - StatPal times are in UTC
                         commence_time = datetime.strptime(datetime_str, "%d.%m.%Y %H:%M")
-                        # Assume Turkey timezone (UTC+3) and convert to UTC
-                        turkey_tz = timezone(timedelta(hours=3))
-                        commence_time = commence_time.replace(tzinfo=turkey_tz)
-                        commence_time = commence_time.astimezone(timezone.utc)
+                        # Assume UTC (StatPal API sends UTC times)
+                        commence_time = commence_time.replace(tzinfo=timezone.utc)
+                        logger.debug(f"Parsed as UTC: {commence_time.isoformat()}")
                     except ValueError:
                         # Try other formats
                         for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%d/%m/%Y %H:%M"]:
                             try:
                                 commence_time = datetime.strptime(datetime_str, fmt)
-                                # If format doesn't include timezone, assume Turkey time (UTC+3)
+                                # If format doesn't include timezone, assume UTC
                                 if commence_time.tzinfo is None:
-                                    turkey_tz = timezone(timedelta(hours=3))
-                                    commence_time = commence_time.replace(tzinfo=turkey_tz)
-                                    commence_time = commence_time.astimezone(timezone.utc)
+                                    commence_time = commence_time.replace(tzinfo=timezone.utc)
                                 else:
                                     commence_time = commence_time.astimezone(timezone.utc)
+                                logger.debug(f"Parsed as UTC (format {fmt}): {commence_time.isoformat()}")
                                 break
                             except ValueError:
                                 continue
@@ -502,17 +503,13 @@ class StatPalApiService:
                     # Just date - try StatPal format first
                     try:
                         commence_time = datetime.strptime(date_str, "%d.%m.%Y")
-                        # Set to midnight in Turkey time, then convert to UTC
-                        turkey_tz = timezone(timedelta(hours=3))
-                        commence_time = commence_time.replace(tzinfo=turkey_tz)
-                        commence_time = commence_time.astimezone(timezone.utc)
+                        # Set to midnight UTC
+                        commence_time = commence_time.replace(tzinfo=timezone.utc)
                     except ValueError:
                         try:
                             commence_time = datetime.strptime(date_str, "%Y-%m-%d")
-                            # Set to midnight in Turkey time, then convert to UTC
-                            turkey_tz = timezone(timedelta(hours=3))
-                            commence_time = commence_time.replace(tzinfo=turkey_tz)
-                            commence_time = commence_time.astimezone(timezone.utc)
+                            # Set to midnight UTC
+                            commence_time = commence_time.replace(tzinfo=timezone.utc)
                         except ValueError:
                             pass
             except (ValueError, TypeError) as e:
