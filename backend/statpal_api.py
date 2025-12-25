@@ -442,20 +442,44 @@ class StatPalApiService:
         date_str = statpal_match.get("date") or statpal_match.get("match_date", "")
         time_str = statpal_match.get("time") or statpal_match.get("match_time", "")
         
-        # Try to parse datetime
-        # StatPal API provides dates/times in local timezone (likely Turkey time, UTC+3)
-        # We need to parse as local time first, then convert to UTC for storage
-        if date_str:
+        # Check if StatPal provides commence_time directly (ISO format, likely UTC)
+        if statpal_match.get("commence_time"):
+            try:
+                commence_time_str = statpal_match.get("commence_time")
+                if isinstance(commence_time_str, str):
+                    # Parse ISO format (may include timezone)
+                    commence_time = datetime.fromisoformat(commence_time_str.replace('Z', '+00:00'))
+                    # Ensure timezone-aware
+                    if commence_time.tzinfo is None:
+                        # If no timezone info, assume UTC (StatPal likely sends UTC)
+                        commence_time = commence_time.replace(tzinfo=timezone.utc)
+                    else:
+                        # Convert to UTC if not already
+                        commence_time = commence_time.astimezone(timezone.utc)
+                elif isinstance(commence_time_str, datetime):
+                    commence_time = commence_time_str
+                    if commence_time.tzinfo is None:
+                        commence_time = commence_time.replace(tzinfo=timezone.utc)
+                    else:
+                        commence_time = commence_time.astimezone(timezone.utc)
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.debug("Failed to parse commence_time from StatPal: %s", e)
+                pass
+        
+        # If no commence_time from StatPal, try parsing date/time fields
+        # IMPORTANT: Based on user feedback, StatPal API provides times in Turkey timezone (UTC+3)
+        # NOT UTC. So we need to parse as Turkey time and convert to UTC for storage.
+        # Example: Match at 22:00 TR = 19:00 UTC, StatPal sends "22:00" which is TR time
+        if not commence_time and date_str:
             try:
                 if time_str:
                     # Combine date and time
                     datetime_str = f"{date_str} {time_str}"
                     # Try StatPal format first: "DD.MM.YYYY HH:MM"
                     try:
-                        # Parse as naive datetime (local time, likely Turkey time UTC+3)
+                        # Parse as naive datetime - StatPal times are in Turkey timezone (UTC+3)
                         commence_time = datetime.strptime(datetime_str, "%d.%m.%Y %H:%M")
-                        # Assume StatPal times are in Turkey timezone (UTC+3)
-                        # Convert to UTC by subtracting 3 hours
+                        # Assume Turkey timezone (UTC+3) and convert to UTC
                         turkey_tz = timezone(timedelta(hours=3))
                         commence_time = commence_time.replace(tzinfo=turkey_tz)
                         commence_time = commence_time.astimezone(timezone.utc)
@@ -468,6 +492,8 @@ class StatPalApiService:
                                 if commence_time.tzinfo is None:
                                     turkey_tz = timezone(timedelta(hours=3))
                                     commence_time = commence_time.replace(tzinfo=turkey_tz)
+                                    commence_time = commence_time.astimezone(timezone.utc)
+                                else:
                                     commence_time = commence_time.astimezone(timezone.utc)
                                 break
                             except ValueError:
