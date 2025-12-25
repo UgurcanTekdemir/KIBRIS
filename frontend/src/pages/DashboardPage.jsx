@@ -4,6 +4,7 @@ import { mockCoupons, transactions } from '../data/mockData';
 import { User, Wallet, FileText, TrendingUp, Clock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
+import { formatFirestoreDate, formatFirestoreDateTime } from '../utils/dateUtils';
 
 const DashboardPage = () => {
   const { user } = useAuth();
@@ -54,14 +55,14 @@ const DashboardPage = () => {
               <Wallet size={16} />
               <span className="text-sm">Bakiye</span>
             </div>
-            <p className="text-2xl font-bold text-white">{user.balance.toLocaleString('tr-TR')} ₺</p>
+            <p className="text-2xl font-bold text-white">{(user.balance || 0).toLocaleString('tr-TR')} ₺</p>
           </div>
           <div className="bg-[#0a0e14] rounded-xl p-4">
             <div className="flex items-center gap-2 text-gray-400 mb-2">
               <TrendingUp size={16} />
               <span className="text-sm">Kredi Limiti</span>
             </div>
-            <p className="text-2xl font-bold text-green-500">{user.credit.toLocaleString('tr-TR')} ₺</p>
+            <p className="text-2xl font-bold text-green-500">{(user.credit || 0).toLocaleString('tr-TR')} ₺</p>
           </div>
           <div className="bg-[#0a0e14] rounded-xl p-4">
             <div className="flex items-center gap-2 text-gray-400 mb-2">
@@ -77,7 +78,7 @@ const DashboardPage = () => {
               <Clock size={16} />
               <span className="text-sm">Üye Tarihi</span>
             </div>
-            <p className="text-lg font-bold text-white">{user.createdAt}</p>
+            <p className="text-lg font-bold text-white">{formatFirestoreDate(user.createdAt)}</p>
           </div>
         </div>
       </div>
@@ -109,7 +110,7 @@ const DashboardPage = () => {
                       {getStatusBadge(coupon.status)}
                     </div>
                     <span className="text-xs text-gray-500">
-                      {new Date(coupon.createdAt).toLocaleString('tr-TR')}
+                      {formatFirestoreDateTime(coupon.createdAt)}
                     </span>
                   </div>
                   <div className="p-4">

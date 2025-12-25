@@ -1,13 +1,36 @@
-import React from 'react';
-import { mockCoupons } from '../data/mockData';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { getUserCoupons } from '../services/couponService';
 import { FileText, Filter } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { toast } from 'sonner';
+import { formatFirestoreDateTime } from '../utils/dateUtils';
 
 const CouponsPage = () => {
   const { user } = useAuth();
+  const [coupons, setCoupons] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      loadCoupons();
+    }
+  }, [user]);
+
+  const loadCoupons = async () => {
+    try {
+      setLoading(true);
+      const userCoupons = await getUserCoupons(user.id, 100);
+      setCoupons(userCoupons);
+    } catch (error) {
+      console.error('Error loading coupons:', error);
+      toast.error('Kuponlar yüklenirken hata oluştu');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!user) {
     return (
@@ -17,9 +40,8 @@ const CouponsPage = () => {
     );
   }
 
-  const userCoupons = mockCoupons.filter((c) => c.userId === user.id);
-  const pendingCoupons = userCoupons.filter((c) => c.status === 'pending');
-  const settledCoupons = userCoupons.filter((c) => c.status !== 'pending');
+  const pendingCoupons = coupons.filter((c) => c.status === 'pending');
+  const settledCoupons = coupons.filter((c) => c.status !== 'pending');
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -34,46 +56,48 @@ const CouponsPage = () => {
     }
   };
 
-  const CouponCard = ({ coupon }) => (
-    <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736]">
-        <div className="flex items-center gap-3">
-          <span className="text-white font-mono font-medium">{coupon.id}</span>
-          {getStatusBadge(coupon.status)}
+  const CouponCard = ({ coupon }) => {
+    return (
+      <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736]">
+          <div className="flex items-center gap-3">
+            <span className="text-white font-mono font-medium text-xs">{coupon.uniqueId || coupon.id}</span>
+            {getStatusBadge(coupon.status)}
+          </div>
+          <span className="text-xs text-gray-500">
+            {formatFirestoreDateTime(coupon.createdAt)}
+          </span>
         </div>
-        <span className="text-xs text-gray-500">
-          {new Date(coupon.createdAt).toLocaleString('tr-TR')}
-        </span>
-      </div>
-      <div className="p-4">
-        <div className="space-y-2 mb-4">
-          {coupon.selections.map((sel, idx) => (
-            <div key={idx} className="flex items-center justify-between text-sm bg-[#1a2332] rounded-lg p-3">
-              <div>
-                <p className="text-white font-medium">{sel.matchName}</p>
-                <p className="text-xs text-gray-500">Seçim: {sel.selection}</p>
+        <div className="p-4">
+          <div className="space-y-2 mb-4">
+            {coupon.selections?.map((sel, idx) => (
+              <div key={idx} className="flex items-center justify-between text-sm bg-[#1a2332] rounded-lg p-3">
+                <div>
+                  <p className="text-white font-medium">{sel.matchName}</p>
+                  <p className="text-xs text-gray-500">{sel.marketName}: {sel.option}</p>
+                </div>
+                <span className="text-amber-500 font-bold">{sel.odds?.toFixed(2) || '0.00'}</span>
               </div>
-              <span className="text-amber-500 font-bold">{sel.odds.toFixed(2)}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-[#1e2736]">
+            <div className="text-center">
+              <p className="text-gray-500 text-xs mb-1">Yatırılan</p>
+              <p className="text-white font-bold">{coupon.stake?.toLocaleString('tr-TR') || '0'} ₺</p>
             </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-[#1e2736]">
-          <div className="text-center">
-            <p className="text-gray-500 text-xs mb-1">Yatırılan</p>
-            <p className="text-white font-bold">{coupon.stake} ₺</p>
-          </div>
-          <div className="text-center">
-            <p className="text-gray-500 text-xs mb-1">Toplam Oran</p>
-            <p className="text-amber-500 font-bold">{coupon.totalOdds.toFixed(2)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-gray-500 text-xs mb-1">Olası Kazanç</p>
-            <p className="text-green-500 font-bold">{coupon.potentialWin.toFixed(2)} ₺</p>
+            <div className="text-center">
+              <p className="text-gray-500 text-xs mb-1">Toplam Oran</p>
+              <p className="text-amber-500 font-bold">{coupon.totalOdds?.toFixed(2) || '0.00'}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-gray-500 text-xs mb-1">Olası Kazanç</p>
+              <p className="text-green-500 font-bold">{coupon.potentialWin?.toLocaleString('tr-TR') || '0'} ₺</p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -85,7 +109,7 @@ const CouponsPage = () => {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">Kuponlarım</h1>
-            <p className="text-sm text-gray-400">Toplam {userCoupons.length} kupon</p>
+            <p className="text-sm text-gray-400">Toplam {coupons.length} kupon</p>
           </div>
         </div>
         <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]">

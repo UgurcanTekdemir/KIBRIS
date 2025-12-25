@@ -16,7 +16,9 @@ import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import CouponsPage from "./pages/CouponsPage";
 import AdminPanel from "./pages/AdminPanel";
+import SuperAdminPanel from "./pages/SuperAdminPanel";
 import AgentPanel from "./pages/AgentPanel";
+import PlayerPanel from "./pages/PlayerPanel";
 import BetSlipPage from "./pages/BetSlipPage";
 
 // Helper function to get storage key
@@ -157,7 +159,9 @@ function AppContent() {
           <Route path="coupons" element={<CouponsPage />} />
           <Route path="betslip" element={<BetSlipPage />} />
           <Route path="admin" element={<AdminPanel />} />
+          <Route path="superadmin" element={<SuperAdminPanel />} />
           <Route path="agent" element={<AgentPanel />} />
+          <Route path="player" element={<PlayerPanel />} />
         </Routes>
       </Layout>
     </>

@@ -15,7 +15,7 @@ const AuthPage = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -32,7 +32,13 @@ const AuthPage = () => {
     setError('');
     setLoading(true);
 
-    const result = login(formData.username, formData.password);
+    if (!formData.email || !formData.password) {
+      setError('E-posta ve şifre gereklidir');
+      setLoading(false);
+      return;
+    }
+
+    const result = await login(formData.email, formData.password);
     setLoading(false);
 
     if (result.success) {
@@ -47,19 +53,36 @@ const AuthPage = () => {
     e.preventDefault();
     setError('');
 
+    if (!formData.username || !formData.email || !formData.password) {
+      setError('Tüm alanları doldurun');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Şifreler eşleşmiyor');
       return;
     }
 
+    if (formData.password.length < 6) {
+      setError('Şifre en az 6 karakter olmalıdır');
+      return;
+    }
+
     setLoading(true);
-    // Simulate registration
-    setTimeout(() => {
+    try {
+      const result = await register(formData.email, formData.password, formData.username, 'player');
+      if (result.success) {
+        toast.success('Kayıt başarılı! Giriş yapabilirsiniz.');
+        setIsSignIn(true);
+        setFormData({ username: '', email: '', password: '', confirmPassword: '' });
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Kayıt sırasında bir hata oluştu');
+    } finally {
       setLoading(false);
-      toast.success('Kayıt başarılı! Giriş yapabilirsiniz.');
-      setIsSignIn(true);
-      setFormData({ username: '', email: '', password: '', confirmPassword: '' });
-    }, 1000);
+    }
   };
 
   return (
@@ -155,14 +178,14 @@ const AuthPage = () => {
           <form onSubmit={handleLogin}>
             <div className="inputBox">
               <input
-                type="text"
-                name="username"
-                value={formData.username}
+                type="email"
+                name="email"
+                value={formData.email}
                 onChange={handleChange}
                 required
               />
-              <User className="icon" size={18} />
-              <span>Kullanıcı Adı</span>
+              <Mail className="icon" size={18} />
+              <span>E-posta Adresi</span>
             </div>
             <div className="inputBox">
               <input
@@ -187,15 +210,6 @@ const AuthPage = () => {
             </p>
           </form>
 
-          {/* Demo Accounts */}
-          <div className="demo-accounts">
-            <p className="demo-title">Demo Hesaplar:</p>
-            <div className="demo-list">
-              <p><span className="demo-label">Admin:</span> admin / admin123</p>
-              <p><span className="demo-label">Bayi:</span> bayi1 / bayi123</p>
-              <p><span className="demo-label">Kullanıcı:</span> kullanici1 / user123</p>
-            </div>
-          </div>
         </div>
         </div>
       </div>

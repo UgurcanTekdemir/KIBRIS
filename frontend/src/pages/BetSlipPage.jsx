@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useBetSlip } from '../context/BetSlipContext';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -6,13 +6,15 @@ import { ArrowLeft, X, Trash2, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
+import { createCoupon } from '../services/couponService';
 
 const BetSlipPage = () => {
   const { selections, stake, setStake, removeSelection, clearSelections, totalOdds, potentialWin } = useBetSlip();
-  const { user, updateBalance } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-  const handlePlaceBet = () => {
+  const handlePlaceBet = async () => {
     if (!user) {
       toast.error('Bahis yapabilmek için giriş yapmalısınız!');
       return;
@@ -21,7 +23,7 @@ const BetSlipPage = () => {
       toast.error('Geçerli bir miktar giriniz!');
       return;
     }
-    if (stake > user.balance) {
+    if (stake > (user.balance || 0)) {
       toast.error('Yetersiz bakiye!');
       return;
     }
@@ -30,10 +32,36 @@ const BetSlipPage = () => {
       return;
     }
 
-    updateBalance(-stake);
-    toast.success(`Kupon oluşturuldu! Toplam oran: ${totalOdds.toFixed(2)}`);
-    clearSelections();
-    navigate('/coupons');
+    setLoading(true);
+    try {
+      // Create coupon in Firestore
+      const couponData = {
+        userId: user.id,
+        agentId: user.parentId || null,
+        selections: selections.map(s => ({
+          matchId: s.matchId,
+          matchName: s.matchName,
+          league: s.league,
+          marketName: s.marketName,
+          option: s.option,
+          odds: s.odds,
+        })),
+        stake,
+        totalOdds,
+        potentialWin,
+      };
+
+      const coupon = await createCoupon(couponData);
+      toast.success(`Kupon oluşturuldu! Kupon No: ${coupon.uniqueId}`);
+      clearSelections();
+      await refreshUser();
+      navigate('/coupons');
+    } catch (error) {
+      console.error('Error creating coupon:', error);
+      toast.error(error.message || 'Kupon oluşturulurken hata oluştu');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -157,9 +185,9 @@ const BetSlipPage = () => {
               <Button
                 onClick={handlePlaceBet}
                 className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 sm:py-4 text-base sm:text-lg"
-                disabled={!user || stake <= 0}
+                disabled={!user || stake <= 0 || loading}
               >
-                Kupon Oluştur
+                {loading ? 'Kupon Oluşturuluyor...' : 'Kupon Oluştur'}
               </Button>
             </div>
           </>

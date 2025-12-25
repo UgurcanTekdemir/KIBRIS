@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { mockUsers, mockCoupons } from '../data/mockData';
+import { 
+  getAgentPlayers, 
+  banUser, 
+  unbanUser 
+} from '../services/userService';
+import { addCredit, removeCredit } from '../services/creditService';
+import { getAgentCoupons } from '../services/couponService';
+import { getAgentTransactions } from '../services/transactionService';
+import { formatFirestoreDate } from '../utils/dateUtils';
 import {
-  LayoutDashboard, Users, FileText, Wallet,
-  TrendingUp, Plus, Search, UserPlus
+  LayoutDashboard, Users, FileText, Wallet, TrendingUp, TrendingDown,
+  Plus, Search, UserPlus, Ban, CheckCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,11 +22,46 @@ import {
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 
 const AgentPanel = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const [players, setPlayers] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [balanceAmount, setBalanceAmount] = useState('');
+  
+  // Dialog states
+  const [creditDialogOpen, setCreditDialogOpen] = useState(false);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditType, setCreditType] = useState('add');
+
+  useEffect(() => {
+    if (user && user.role === 'agent') {
+      loadData();
+    }
+  }, [user]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [playersData, couponsData, transactionsData] = await Promise.all([
+        getAgentPlayers(user.id),
+        getAgentCoupons(user.id, 200),
+        getAgentTransactions(user.id, 200),
+      ]);
+      setPlayers(playersData);
+      setCoupons(couponsData);
+      setTransactions(transactionsData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast.error('Veriler yüklenirken hata oluştu');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!user || user.role !== 'agent') {
     return (
@@ -28,34 +71,78 @@ const AgentPanel = () => {
     );
   }
 
-  // Agent's sub-users
-  const subUsers = mockUsers.filter((u) => u.parentId === user.id);
-  const subUserIds = subUsers.map((u) => u.id);
-  const subCoupons = mockCoupons.filter((c) => subUserIds.includes(c.userId));
+  // Calculate statistics
+  const totalPlayers = players.length;
+  const totalPlayerBalance = players.reduce((sum, p) => sum + (p.balance || 0), 0);
+  const totalPlayerCredit = players.reduce((sum, p) => sum + (p.credit || 0), 0);
+  const pendingCoupons = coupons.filter(c => c.status === 'pending');
+  const totalBets = transactions.filter(t => t.type === 'bet').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const totalWins = transactions.filter(t => t.type === 'win').reduce((sum, t) => sum + t.amount, 0);
+  const totalCommissions = transactions.filter(t => t.type === 'commission').reduce((sum, t) => sum + t.amount, 0);
+  const netProfit = totalCommissions - totalWins;
 
-  const totalSubBalance = subUsers.reduce((a, b) => a + b.balance, 0);
-  const pendingCoupons = subCoupons.filter((c) => c.status === 'pending');
+  const handleCreditOperation = async () => {
+    if (!selectedPlayer || !creditAmount) {
+      toast.error('Lütfen miktar girin');
+      return;
+    }
 
-  const handleAddBalance = () => {
-    const amount = parseFloat(balanceAmount);
+    const amount = parseFloat(creditAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Geçerli bir miktar girin');
       return;
     }
-    toast.success(`Bakiye yüklendi: ${amount} ₺`);
-    setBalanceAmount('');
+
+    try {
+      if (creditType === 'add') {
+        await addCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi eklendi`);
+        toast.success(`${amount} ₺ kredi eklendi`);
+      } else {
+        await removeCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi çıkarıldı`);
+        toast.success(`${amount} ₺ kredi çıkarıldı`);
+      }
+      setCreditDialogOpen(false);
+      setCreditAmount('');
+      setSelectedPlayer(null);
+      await loadData();
+      await refreshUser();
+    } catch (error) {
+      toast.error(error.message || 'İşlem başarısız');
+    }
   };
 
+  const handleBanUser = async (userId, isBanned) => {
+    try {
+      if (isBanned) {
+        await unbanUser(userId);
+        toast.success('Oyuncu yasağı kaldırıldı');
+      } else {
+        await banUser(userId);
+        toast.success('Oyuncu yasaklandı');
+      }
+      await loadData();
+    } catch (error) {
+      toast.error('İşlem başarısız');
+    }
+  };
+
+  const filteredPlayers = players.filter(p => 
+    p.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-          <LayoutDashboard size={24} className="text-blue-500" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-white">Bayi Panel</h1>
-          <p className="text-sm text-gray-400">Kullanıcı yönetimi</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+            <LayoutDashboard size={24} className="text-blue-500" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Bayi Panel</h1>
+            <p className="text-sm text-gray-400">Oyuncu yönetimi</p>
+          </div>
         </div>
       </div>
 
@@ -66,21 +153,14 @@ const AgentPanel = () => {
             <Wallet size={16} />
             <span className="text-sm">Bakiyem</span>
           </div>
-          <p className="text-2xl font-bold text-white">{user.balance.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-2xl font-bold text-white">{(user.balance || 0).toLocaleString('tr-TR')} ₺</p>
         </div>
         <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
           <div className="flex items-center gap-2 text-gray-400 mb-2">
             <Users size={16} />
-            <span className="text-sm">Alt Kullanıcı</span>
+            <span className="text-sm">Oyuncu</span>
           </div>
-          <p className="text-2xl font-bold text-blue-500">{subUsers.length}</p>
-        </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingUp size={16} />
-            <span className="text-sm">Toplam Alt Bakiye</span>
-          </div>
-          <p className="text-2xl font-bold text-green-500">{totalSubBalance.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-2xl font-bold text-blue-500">{totalPlayers}</p>
         </div>
         <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
           <div className="flex items-center gap-2 text-gray-400 mb-2">
@@ -89,195 +169,279 @@ const AgentPanel = () => {
           </div>
           <p className="text-2xl font-bold text-amber-500">{pendingCoupons.length}</p>
         </div>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
+          <div className="flex items-center gap-2 text-gray-400 mb-2">
+            <TrendingUp size={16} />
+            <span className="text-sm">Net Kar/Zarar</span>
+          </div>
+          <p className={`text-2xl font-bold ${netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+            {netProfit.toLocaleString('tr-TR')} ₺
+          </p>
+        </div>
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="users">
+      <Tabs defaultValue="players">
         <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
-          <TabsTrigger value="users" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
+          <TabsTrigger value="players" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
             <Users size={16} className="mr-2" />
-            Kullanıcılarım
+            Oyuncularım
           </TabsTrigger>
           <TabsTrigger value="coupons" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
             <FileText size={16} className="mr-2" />
             Kuponlar
           </TabsTrigger>
+          <TabsTrigger value="transactions" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
+            <FileText size={16} className="mr-2" />
+            İşlemler
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
+            <TrendingUp size={16} className="mr-2" />
+            Analiz
+          </TabsTrigger>
         </TabsList>
 
-        {/* Users Tab */}
-        <TabsContent value="users" className="mt-0">
-          <div className="flex items-center justify-between mb-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <Input
-                placeholder="Kullanıcı ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 bg-[#0d1117] border-[#1e2736] text-white"
-              />
-            </div>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button className="bg-amber-500 hover:bg-amber-600 text-black">
-                  <UserPlus size={16} className="mr-2" />
-                  Yeni Kullanıcı
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="bg-[#0d1117] border-[#1e2736]">
-                <DialogHeader>
-                  <DialogTitle className="text-white">Yeni Kullanıcı Oluştur</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 mt-4">
-                  <div>
-                    <Label className="text-gray-400">Kullanıcı Adı</Label>
-                    <Input
-                      placeholder="kullanici_adi"
-                      className="bg-[#1a2332] border-[#2a3a4d] text-white mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-gray-400">Şifre</Label>
-                    <Input
-                      type="password"
-                      placeholder="******"
-                      className="bg-[#1a2332] border-[#2a3a4d] text-white mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-gray-400">Başlangıç Kredisi</Label>
-                    <Input
-                      type="number"
-                      placeholder="1000"
-                      className="bg-[#1a2332] border-[#2a3a4d] text-white mt-1"
-                    />
-                  </div>
-                  <Button className="w-full bg-amber-500 hover:bg-amber-600 text-black">
-                    Oluştur
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {subUsers.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
-                <Users size={32} className="text-gray-600" />
+        {/* Players Tab */}
+        <TabsContent value="players">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="relative flex-1 max-w-md">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Input
+                  placeholder="Oyuncu ara..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 bg-[#080b10] border-[#1e2736] text-white"
+                />
               </div>
-              <p className="text-gray-500">Henüz alt kullanıcınız yok</p>
             </div>
-          ) : (
-            <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-[#0a0e14]">
-                  <tr>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Kullanıcı</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Bakiye</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Kredi</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">İşlemler</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1e2736]">
-                  {subUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-[#1a2332]">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm">
-                            {u.username.charAt(0).toUpperCase()}
-                          </div>
-                          <span className="text-white font-medium">{u.username}</span>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#1e2736]">
+                    <TableHead className="text-gray-400">Kullanıcı Adı</TableHead>
+                    <TableHead className="text-gray-400">E-posta</TableHead>
+                    <TableHead className="text-gray-400">Bakiye</TableHead>
+                    <TableHead className="text-gray-400">Kredi</TableHead>
+                    <TableHead className="text-gray-400">Durum</TableHead>
+                    <TableHead className="text-gray-400">İşlemler</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPlayers.map((player) => (
+                    <TableRow key={player.id} className="border-[#1e2736]">
+                      <TableCell className="text-white">{player.username}</TableCell>
+                      <TableCell className="text-gray-400">{player.email}</TableCell>
+                      <TableCell className="text-white">{(player.balance || 0).toLocaleString('tr-TR')} ₺</TableCell>
+                      <TableCell className="text-white">{(player.credit || 0).toLocaleString('tr-TR')} ₺</TableCell>
+                      <TableCell>
+                        {player.isBanned ? (
+                          <Badge variant="destructive">Yasaklı</Badge>
+                        ) : (
+                          <Badge className="bg-green-500/20 text-green-500">Aktif</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedPlayer(player);
+                              setCreditType('add');
+                              setCreditDialogOpen(true);
+                            }}
+                            className="border-[#2a3a4d] text-xs"
+                          >
+                            Kredi Ekle
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedPlayer(player);
+                              setCreditType('remove');
+                              setCreditDialogOpen(true);
+                            }}
+                            className="border-[#2a3a4d] text-xs"
+                          >
+                            Kredi Çıkar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleBanUser(player.id, player.isBanned)}
+                            className="border-[#2a3a4d] text-xs"
+                          >
+                            {player.isBanned ? <CheckCircle size={14} /> : <Ban size={14} />}
+                          </Button>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-white font-medium">{u.balance.toLocaleString('tr-TR')} ₺</td>
-                      <td className="px-4 py-3 text-green-500 font-medium">{u.credit.toLocaleString('tr-TR')} ₺</td>
-                      <td className="px-4 py-3">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" className="bg-green-500/20 text-green-500 hover:bg-green-500/30">
-                              <Plus size={14} className="mr-1" />
-                              Yükle
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="bg-[#0d1117] border-[#1e2736]">
-                            <DialogHeader>
-                              <DialogTitle className="text-white">Bakiye Yükle - {u.username}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 mt-4">
-                              <div>
-                                <Label className="text-gray-400">Miktar</Label>
-                                <Input
-                                  type="number"
-                                  value={balanceAmount}
-                                  onChange={(e) => setBalanceAmount(e.target.value)}
-                                  placeholder="0.00"
-                                  className="bg-[#1a2332] border-[#2a3a4d] text-white mt-1"
-                                />
-                              </div>
-                              <Button
-                                onClick={handleAddBalance}
-                                className="w-full bg-green-500 hover:bg-green-600 text-white"
-                              >
-                                Yükle
-                              </Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
-          )}
+          </div>
         </TabsContent>
 
         {/* Coupons Tab */}
-        <TabsContent value="coupons" className="mt-0">
-          {subCoupons.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
-                <FileText size={32} className="text-gray-600" />
-              </div>
-              <p className="text-gray-500">Henüz kupon yok</p>
+        <TabsContent value="coupons">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#1e2736]">
+                    <TableHead className="text-gray-400">Kupon No</TableHead>
+                    <TableHead className="text-gray-400">Oyuncu</TableHead>
+                    <TableHead className="text-gray-400">Yatırılan</TableHead>
+                    <TableHead className="text-gray-400">Oran</TableHead>
+                    <TableHead className="text-gray-400">Olası Kazanç</TableHead>
+                    <TableHead className="text-gray-400">Durum</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {coupons.slice(0, 100).map((coupon) => {
+                    const player = players.find(p => p.id === coupon.userId);
+                    return (
+                      <TableRow key={coupon.id} className="border-[#1e2736]">
+                        <TableCell className="text-white font-mono text-xs">{coupon.uniqueId || coupon.id}</TableCell>
+                        <TableCell className="text-gray-400">{player?.username || '-'}</TableCell>
+                        <TableCell className="text-white">{coupon.stake.toLocaleString('tr-TR')} ₺</TableCell>
+                        <TableCell className="text-amber-500 font-medium">{coupon.totalOdds?.toFixed(2) || '0.00'}</TableCell>
+                        <TableCell className="text-green-500 font-medium">{coupon.potentialWin?.toLocaleString('tr-TR') || '0'} ₺</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            coupon.status === 'pending' ? 'bg-amber-500/20 text-amber-500' :
+                            coupon.status === 'won' ? 'bg-green-500/20 text-green-500' :
+                            'bg-red-500/20 text-red-500'
+                          }>
+                            {coupon.status === 'pending' ? 'Beklemede' : 
+                             coupon.status === 'won' ? 'Kazanıldı' : 'Kaybedildi'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
-          ) : (
-            <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-[#0a0e14]">
-                  <tr>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Kupon ID</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Kullanıcı</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Yatırılan</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Oran</th>
-                    <th className="text-left text-gray-400 text-sm font-medium px-4 py-3">Durum</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1e2736]">
-                  {subCoupons.map((c) => (
-                    <tr key={c.id} className="hover:bg-[#1a2332]">
-                      <td className="px-4 py-3 text-white font-mono">{c.id}</td>
-                      <td className="px-4 py-3 text-gray-400">
-                        {mockUsers.find((u) => u.id === c.userId)?.username}
-                      </td>
-                      <td className="px-4 py-3 text-white">{c.stake} ₺</td>
-                      <td className="px-4 py-3 text-amber-500 font-medium">{c.totalOdds.toFixed(2)}</td>
-                      <td className="px-4 py-3">
-                        <Badge className={
-                          c.status === 'pending' ? 'bg-amber-500/20 text-amber-500' :
-                          c.status === 'won' ? 'bg-green-500/20 text-green-500' :
-                          'bg-red-500/20 text-red-500'
+          </div>
+        </TabsContent>
+
+        {/* Transactions Tab */}
+        <TabsContent value="transactions">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#1e2736]">
+                    <TableHead className="text-gray-400">Tarih</TableHead>
+                    <TableHead className="text-gray-400">Oyuncu</TableHead>
+                    <TableHead className="text-gray-400">Tip</TableHead>
+                    <TableHead className="text-gray-400">Miktar</TableHead>
+                    <TableHead className="text-gray-400">Açıklama</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {transactions.slice(0, 100).map((transaction) => {
+                    const player = players.find(p => p.id === transaction.userId);
+                    return (
+                      <TableRow key={transaction.id} className="border-[#1e2736]">
+                      <TableCell className="text-gray-400">
+                        {formatFirestoreDate(transaction.createdAt)}
+                      </TableCell>
+                        <TableCell className="text-white">{player?.username || transaction.userId}</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            transaction.type === 'bet' ? 'bg-red-500/20 text-red-500' :
+                            transaction.type === 'win' ? 'bg-green-500/20 text-green-500' :
+                            transaction.type === 'commission' ? 'bg-amber-500/20 text-amber-500' :
+                            'bg-blue-500/20 text-blue-500'
+                          }>
+                            {transaction.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className={
+                          transaction.amount > 0 ? 'text-green-500' : 'text-red-500'
                         }>
-                          {c.status === 'pending' ? 'Beklemede' : c.status === 'won' ? 'Kazanıldı' : 'Kaybedildi'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          {transaction.amount > 0 ? '+' : ''}{transaction.amount.toLocaleString('tr-TR')} ₺
+                        </TableCell>
+                        <TableCell className="text-gray-400">{transaction.description}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
-          )}
+          </div>
+        </TabsContent>
+
+        {/* Analytics Tab */}
+        <TabsContent value="analytics">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-4">İstatistikler</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Toplam Bahis</span>
+                  <span className="text-white font-semibold">{totalBets.toLocaleString('tr-TR')} ₺</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Toplam Kazanç</span>
+                  <span className="text-green-500 font-semibold">{totalWins.toLocaleString('tr-TR')} ₺</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Toplam Komisyon</span>
+                  <span className="text-amber-500 font-semibold">{totalCommissions.toLocaleString('tr-TR')} ₺</span>
+                </div>
+                <div className="flex justify-between border-t border-[#1e2736] pt-3">
+                  <span className="text-gray-400">Net Kar/Zarar</span>
+                  <span className={`font-semibold ${netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {netProfit.toLocaleString('tr-TR')} ₺
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
+
+      {/* Credit Dialog */}
+      <Dialog open={creditDialogOpen} onOpenChange={setCreditDialogOpen}>
+        <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white">
+          <DialogHeader>
+            <DialogTitle>
+              {creditType === 'add' ? 'Kredi Ekle' : 'Kredi Çıkar'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Oyuncu</Label>
+              <Input value={selectedPlayer?.username || ''} disabled className="bg-[#080b10] border-[#1e2736]" />
+            </div>
+            <div>
+              <Label>Miktar (₺)</Label>
+              <Input
+                type="number"
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                className="bg-[#080b10] border-[#1e2736] text-white"
+                placeholder="0"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setCreditDialogOpen(false)}>
+                İptal
+              </Button>
+              <Button onClick={handleCreditOperation}>
+                {creditType === 'add' ? 'Ekle' : 'Çıkar'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

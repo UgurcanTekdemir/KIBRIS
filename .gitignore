@@ -34,6 +34,8 @@ dist
 
 *token.json*
 *credentials.json*
+*service-account*.json
+firebase-service-account-key.json
 
 # Logs and debug files
 npm-debug.log*
