@@ -22,9 +22,31 @@ git push origin main
    - **Install Command**: `npm install --legacy-peer-deps` ← **ÖNEMLİ!**
 
 4. **Environment Variables Ekle**:
+   
+   **Backend API URL:**
    - **Key**: `REACT_APP_API_URL`
    - **Value**: Backend URL'iniz (örn: `https://your-backend.railway.app`)
-   - Production, Preview ve Development için aynı değeri ekleyin
+   
+   **Firebase Configuration (GEREKLİ):**
+   - **Key**: `REACT_APP_FIREBASE_API_KEY`
+   - **Value**: Firebase API Key'iniz
+   
+   - **Key**: `REACT_APP_FIREBASE_AUTH_DOMAIN`
+   - **Value**: `your-project-id.firebaseapp.com`
+   
+   - **Key**: `REACT_APP_FIREBASE_PROJECT_ID`
+   - **Value**: Firebase Project ID'niz
+   
+   - **Key**: `REACT_APP_FIREBASE_STORAGE_BUCKET`
+   - **Value**: `your-project-id.firebasestorage.app`
+   
+   - **Key**: `REACT_APP_FIREBASE_MESSAGING_SENDER_ID`
+   - **Value**: Firebase Messaging Sender ID'niz
+   
+   - **Key**: `REACT_APP_FIREBASE_APP_ID`
+   - **Value**: Firebase App ID'niz
+   
+   ⚠️ **ÖNEMLİ**: Tüm environment variable'ları Production, Preview ve Development için ekleyin!
 
 5. **Deploy** butonuna tıklayın! 🎉
 
@@ -57,13 +79,27 @@ Backend'inizi önce deploy etmeniz gerekiyor! Backend için şu platformları ö
 
 ### Environment Variables
 
-Vercel Dashboard'da şu environment variable'ı ekleyin:
+Vercel Dashboard'da şu environment variable'ları ekleyin:
 
+**Backend API:**
 ```
 REACT_APP_API_URL=https://your-backend-url.railway.app
 ```
 
-⚠️ **ÖNEMLİ**: Değer `http://` değil `https://` ile başlamalı!
+**Firebase Configuration (GEREKLİ):**
+```
+REACT_APP_FIREBASE_API_KEY=your_firebase_api_key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your-project-id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your-project-id.firebasestorage.app
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+REACT_APP_FIREBASE_APP_ID=your_app_id
+```
+
+⚠️ **ÖNEMLİ**: 
+- Backend URL değeri `http://` değil `https://` ile başlamalı!
+- Firebase değerlerini [Firebase Console](https://console.firebase.google.com) > Project Settings > General sekmesinden alabilirsiniz
+- **ASLA** API key'leri kod içine yazmayın - sadece environment variable olarak kullanın!
 
 ### CORS Ayarları
 

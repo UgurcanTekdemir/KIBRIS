@@ -58,9 +58,9 @@
     "zod": "^3.24.4"
   },
   "scripts": {
-    "start": "PORT=3000 craco start",
-    "dev": "PORT=3000 craco start",
-    "build": "craco build",
+    "start": "PORT=3000 env-cmd -f .env craco start",
+    "dev": "PORT=3000 env-cmd -f .env craco start",
+    "build": "env-cmd -f .env craco build",
     "test": "craco test"
   },
   "browserslist": {
@@ -79,6 +79,7 @@
     "@craco/craco": "^7.1.0",
     "@eslint/js": "9.23.0",
     "autoprefixer": "^10.4.20",
+    "env-cmd": "^11.0.0",
     "eslint": "9.23.0",
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-jsx-a11y": "6.10.2",

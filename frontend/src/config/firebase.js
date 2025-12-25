@@ -3,14 +3,61 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
+// Get environment variables from window.__ENV__ (loaded from public/env.js) or process.env
+const getEnvVar = (key) => {
+  // First try window.__ENV__ (runtime loaded from env.js)
+  if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__[key]) {
+    return window.__ENV__[key];
+  }
+  // Fallback to process.env (webpack DefinePlugin)
+  return process.env[key];
+};
+
+// Validate required environment variables
+const requiredEnvVars = {
+  apiKey: getEnvVar('REACT_APP_FIREBASE_API_KEY'),
+  authDomain: getEnvVar('REACT_APP_FIREBASE_AUTH_DOMAIN'),
+  projectId: getEnvVar('REACT_APP_FIREBASE_PROJECT_ID'),
+  storageBucket: getEnvVar('REACT_APP_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnvVar('REACT_APP_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnvVar('REACT_APP_FIREBASE_APP_ID'),
+};
+
+// Check for missing environment variables
+const envVarNames = {
+  apiKey: 'REACT_APP_FIREBASE_API_KEY',
+  authDomain: 'REACT_APP_FIREBASE_AUTH_DOMAIN',
+  projectId: 'REACT_APP_FIREBASE_PROJECT_ID',
+  storageBucket: 'REACT_APP_FIREBASE_STORAGE_BUCKET',
+  messagingSenderId: 'REACT_APP_FIREBASE_MESSAGING_SENDER_ID',
+  appId: 'REACT_APP_FIREBASE_APP_ID',
+};
+
+const missingVars = Object.entries(requiredEnvVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => envVarNames[key]);
+
+if (missingVars.length > 0) {
+  console.error('❌ Missing Firebase environment variables:', missingVars);
+  console.error('window.__ENV__:', typeof window !== 'undefined' ? window.__ENV__ : 'window not available');
+  console.error('process.env sample:', {
+    NODE_ENV: process.env.NODE_ENV,
+    hasREACT_APP: Object.keys(process.env).filter(k => k.startsWith('REACT_APP_')).length
+  });
+  throw new Error(
+    `Missing required Firebase environment variables: ${missingVars.join(', ')}\n` +
+    `Please ensure .env file exists in the frontend directory and env.js is loaded.`
+  );
+}
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyAbt5TMnnoebYDFOLEhWeh6Q_mA1P1QdFk",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "my-kibris.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "my-kibris",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "my-kibris.firebasestorage.app",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "142431125566",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:142431125566:web:89dfc357ffad71f91b516f"
+  apiKey: requiredEnvVars.apiKey,
+  authDomain: requiredEnvVars.authDomain,
+  projectId: requiredEnvVars.projectId,
+  storageBucket: requiredEnvVars.storageBucket,
+  messagingSenderId: requiredEnvVars.messagingSenderId,
+  appId: requiredEnvVars.appId,
 };
 
 // Initialize Firebase

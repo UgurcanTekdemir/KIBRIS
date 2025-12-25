@@ -1,6 +1,27 @@
 // craco.config.js
 const path = require("path");
-require("dotenv").config();
+const webpack = require("webpack");
+const fs = require("fs");
+
+// Load .env file explicitly - read it directly to ensure it's loaded
+const envPath = path.resolve(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  require("dotenv").config({ path: envPath });
+  // Also read and parse manually to ensure it works
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const [key, ...valueParts] = trimmed.split('=');
+      if (key && valueParts.length > 0) {
+        const value = valueParts.join('=').trim();
+        process.env[key.trim()] = value;
+      }
+    }
+  });
+  console.log('✅ Loaded .env file - REACT_APP_* vars:', 
+    Object.keys(process.env).filter(k => k.startsWith('REACT_APP_')).length);
+}
 
 // Check if we're in development/preview mode (not production build)
 // Craco sets NODE_ENV=development for start, NODE_ENV=production for build
@@ -60,6 +81,69 @@ const webpackConfig = {
             '**/public/**',
         ],
       };
+
+      // Manually inject REACT_APP_* environment variables into webpack
+      // This is necessary because Create React App's automatic .env loading may not work with craco
+      
+      // Read .env file directly in webpack config to ensure it's loaded
+      const envFile = path.resolve(__dirname, '.env');
+      let envVarsFromFile = {};
+      
+      if (fs.existsSync(envFile)) {
+        const envContent = fs.readFileSync(envFile, 'utf8');
+        envContent.split('\n').forEach(line => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            const [key, ...valueParts] = trimmed.split('=');
+            if (key && valueParts.length > 0 && key.startsWith('REACT_APP_')) {
+              const value = valueParts.join('=').trim();
+              envVarsFromFile[key.trim()] = value;
+            }
+          }
+        });
+      }
+      
+      // Also get from process.env (in case env-cmd loaded them)
+      const reactAppEnvVars = {};
+      const reactAppKeys = Object.keys(process.env).filter(key => key.startsWith('REACT_APP_'));
+      
+      // Merge: file values take priority, then process.env
+      Object.keys(envVarsFromFile).forEach(key => {
+        reactAppEnvVars[`process.env.${key}`] = JSON.stringify(envVarsFromFile[key]);
+      });
+      
+      reactAppKeys.forEach(key => {
+        if (!reactAppEnvVars[`process.env.${key}`]) {
+          reactAppEnvVars[`process.env.${key}`] = JSON.stringify(process.env[key]);
+        }
+      });
+
+      console.log('🔧 Webpack Config - Found REACT_APP_* vars from file:', Object.keys(envVarsFromFile).length);
+      console.log('🔧 Webpack Config - Found REACT_APP_* vars from process.env:', reactAppKeys.length);
+      console.log('🔧 Webpack Config - Total vars to inject:', Object.keys(reactAppEnvVars).length);
+
+      // Remove ALL DefinePlugin instances first
+      const originalPluginsLength = webpackConfig.plugins.length;
+      webpackConfig.plugins = webpackConfig.plugins.filter(
+        plugin => !plugin || !plugin.constructor || plugin.constructor.name !== 'DefinePlugin'
+      );
+      const removedCount = originalPluginsLength - webpackConfig.plugins.length;
+      console.log('🔧 Webpack Config - Removed', removedCount, 'existing DefinePlugin(s)');
+
+      // Create our own DefinePlugin with all necessary vars
+      const allEnvVars = {
+        // Preserve NODE_ENV and other standard vars that Create React App expects
+        'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+        'process.env.PUBLIC_URL': JSON.stringify(process.env.PUBLIC_URL || ''),
+        // Add all REACT_APP_* vars
+        ...reactAppEnvVars
+      };
+
+      // Add our DefinePlugin at the beginning to ensure it's processed first
+      webpackConfig.plugins.unshift(new webpack.DefinePlugin(allEnvVars));
+      
+      console.log('🔧 Webpack Config - Added DefinePlugin with', Object.keys(allEnvVars).length, 'vars');
+      console.log('🔧 Webpack Config - Sample injected vars:', Object.keys(reactAppEnvVars).slice(0, 3));
 
       // Add health check plugin to webpack if enabled
       if (config.enableHealthCheck && healthPluginInstance) {
