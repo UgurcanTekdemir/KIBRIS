@@ -5,18 +5,20 @@ import {
   getAllPlayers, 
   banUser, 
   unbanUser,
-  createUser 
+  createUser,
+  updateUser
 } from '../services/userService';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
-import { addCredit, removeCredit, getSentCreditHistory } from '../services/creditService';
+import { createFirestoreUserForAuth } from '../utils/createFirestoreUsers';
+import { addCredit, removeCredit, getSentCreditHistory, getPendingCredits, approveCredit } from '../services/creditService';
 import { addBalance, removeBalance } from '../services/balanceService';
 import { getAllTransactions } from '../services/transactionService';
 import { getAllCoupons } from '../services/couponService';
 import { formatFirestoreDate, formatFirestoreDateTime } from '../utils/dateUtils';
 import {
   LayoutDashboard, Users, FileText, Wallet, TrendingUp, TrendingDown,
-  Plus, Search, UserPlus, Ban, CheckCircle, XCircle
+  Plus, Search, UserPlus, Ban, CheckCircle, XCircle, Shield, UserCog
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -59,6 +61,47 @@ const SuperAdminPanel = () => {
     username: '',
     password: '',
   });
+  
+  // Player creation dialog state
+  const [newPlayerDialogOpen, setNewPlayerDialogOpen] = useState(false);
+  const [newPlayerData, setNewPlayerData] = useState({
+    email: '',
+    username: '',
+    password: '',
+    parentId: '', // Optional agent ID
+  });
+  
+  // Dialog for creating Firestore user for existing Firebase Auth user
+  const [createFirestoreUserDialogOpen, setCreateFirestoreUserDialogOpen] = useState(false);
+  const [firestoreUserData, setFirestoreUserData] = useState({
+    email: '',
+    password: '',
+    role: 'player',
+    username: '',
+    parentId: '',
+  });
+  
+  // Analytics date filters
+  const [analyticsStartDate, setAnalyticsStartDate] = useState('');
+  const [analyticsEndDate, setAnalyticsEndDate] = useState('');
+  
+  // Ban dialog state
+  const [banDialogOpen, setBanDialogOpen] = useState(false);
+  const [userToBan, setUserToBan] = useState(null);
+  const [banReason, setBanReason] = useState('');
+  
+  // Coupon detail dialog state
+  const [couponDetailDialogOpen, setCouponDetailDialogOpen] = useState(false);
+  const [selectedCoupon, setSelectedCoupon] = useState(null);
+  
+  // Role management state
+  const [roleManagementSearchTerm, setRoleManagementSearchTerm] = useState('');
+  const [roleChangeDialogOpen, setRoleChangeDialogOpen] = useState(false);
+  const [userToChangeRole, setUserToChangeRole] = useState(null);
+  const [newRole, setNewRole] = useState('player');
+  
+  // Pending credits state
+  const [pendingCredits, setPendingCredits] = useState([]);
 
   useEffect(() => {
     if (user && user.role === 'superadmin') {
@@ -69,16 +112,18 @@ const SuperAdminPanel = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [agentsData, playersData, transactionsData, couponsData] = await Promise.all([
+      const [agentsData, playersData, transactionsData, couponsData, pendingCreditsData] = await Promise.all([
         getAllAgents(),
         getAllPlayers(),
         getAllTransactions(200),
         getAllCoupons(200),
+        getPendingCredits(user.id, 200),
       ]);
       setAgents(agentsData);
       setPlayers(playersData);
       setTransactions(transactionsData);
       setCoupons(couponsData);
+      setPendingCredits(pendingCreditsData);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Veriler yüklenirken hata oluştu');
@@ -90,7 +135,10 @@ const SuperAdminPanel = () => {
   if (!user || user.role !== 'superadmin') {
     return (
       <div className="max-w-4xl mx-auto text-center py-16">
-        <h2 className="text-xl font-semibold text-white">Bu sayfaya erişim yetkiniz yok</h2>
+        <h2 className="text-xl font-semibold text-white mb-4">Bu sayfaya erişim yetkiniz yok</h2>
+        <p className="text-gray-400 mb-6">
+          SuperAdmin paneline erişmek için Firestore'da rolünüzün 'superadmin' olarak ayarlanması gerekiyor.
+        </p>
       </div>
     );
   }
@@ -120,7 +168,7 @@ const SuperAdminPanel = () => {
       if (operationType === 'credit') {
         if (creditType === 'add') {
           await addCredit(user.id, selectedAgent.id, amount, `Süperadmin tarafından kredi eklendi`);
-          toast.success(`${amount} ₺ kredi eklendi`);
+          toast.success(`${amount} ₺ kredi beklemede olarak eklendi`);
         } else {
           await removeCredit(user.id, selectedAgent.id, amount, `Süperadmin tarafından kredi çıkarıldı`);
           toast.success(`${amount} ₺ kredi çıkarıldı`);
@@ -146,18 +194,52 @@ const SuperAdminPanel = () => {
     }
   };
 
+  const handleApproveCredit = async (creditId) => {
+    try {
+      await approveCredit(creditId, user.id);
+      toast.success('Kredi onaylandı ve bakiyeye eklendi');
+      await loadData();
+      await refreshUser();
+    } catch (error) {
+      toast.error(error.message || 'Kredi onaylanamadı');
+    }
+  };
+
   const handleBanUser = async (userId, isBanned) => {
     try {
       if (isBanned) {
         await unbanUser(userId);
         toast.success('Kullanıcı yasağı kaldırıldı');
       } else {
-        await banUser(userId);
-        toast.success('Kullanıcı yasaklandı');
+        // Open ban dialog instead of directly banning
+        const user = [...agents, ...players].find(u => u.id === userId);
+        if (user) {
+          setUserToBan(user);
+          setBanDialogOpen(true);
+        }
       }
       await loadData();
     } catch (error) {
       toast.error('İşlem başarısız');
+    }
+  };
+
+  const handleConfirmBan = async () => {
+    if (!userToBan) {
+      toast.error('Kullanıcı seçilmedi');
+      return;
+    }
+
+    try {
+      await banUser(userToBan.id, banReason || '');
+      toast.success('Kullanıcı yasaklandı');
+      setBanDialogOpen(false);
+      setUserToBan(null);
+      setBanReason('');
+      await loadData();
+    } catch (error) {
+      console.error('Ban error:', error);
+      toast.error('Yasaklama işlemi başarısız: ' + (error.message || 'Bilinmeyen hata'));
     }
   };
 
@@ -213,6 +295,102 @@ const SuperAdminPanel = () => {
       }
       
       toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreatePlayer = async (e) => {
+    e.preventDefault();
+    if (!newPlayerData.email || !newPlayerData.username || !newPlayerData.password) {
+      toast.error('Tüm alanları doldurun');
+      return;
+    }
+
+    if (newPlayerData.password.length < 6) {
+      toast.error('Şifre en az 6 karakter olmalıdır');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        newPlayerData.email,
+        newPlayerData.password
+      );
+      const firebaseUser = userCredential.user;
+
+      // Create user document in Firestore
+      const userData = {
+        email: newPlayerData.email,
+        username: newPlayerData.username,
+        role: 'player',
+        parentId: newPlayerData.parentId || null, // Agent ID if selected, otherwise null
+        balance: 0,
+        credit: 0,
+        isBanned: false,
+      };
+
+      await createUser(firebaseUser.uid, userData);
+      
+      toast.success('Oyuncu başarıyla oluşturuldu');
+      setNewPlayerDialogOpen(false);
+      setNewPlayerData({ email: '', username: '', password: '', parentId: '' });
+      await loadData();
+    } catch (error) {
+      console.error('Error creating player:', error);
+      let errorMessage = 'Oyuncu oluşturulamadı';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'Bu e-posta adresi zaten kullanılıyor';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Şifre çok zayıf';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Geçersiz e-posta adresi';
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateFirestoreUser = async (e) => {
+    e.preventDefault();
+    if (!firestoreUserData.email || !firestoreUserData.password || !firestoreUserData.role) {
+      toast.error('E-posta, şifre ve rol gereklidir');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await createFirestoreUserForAuth(
+        firestoreUserData.email,
+        firestoreUserData.password,
+        firestoreUserData.role,
+        firestoreUserData.username || firestoreUserData.email.split('@')[0],
+        firestoreUserData.parentId || null
+      );
+
+      if (result.success) {
+        toast.success(result.message);
+        setCreateFirestoreUserDialogOpen(false);
+        setFirestoreUserData({
+          email: '',
+          password: '',
+          role: 'player',
+          username: '',
+          parentId: '',
+        });
+        await loadData();
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      console.error('Error creating Firestore user:', error);
+      toast.error('Firestore kullanıcısı oluşturulamadı: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -352,90 +530,403 @@ const SuperAdminPanel = () => {
     }
   };
 
+  const handleRoleChange = async () => {
+    if (!userToChangeRole || !newRole) {
+      toast.error('Lütfen kullanıcı ve rol seçin');
+      return;
+    }
+
+    if (userToChangeRole.role === newRole) {
+      toast.error('Kullanıcı zaten bu role sahip');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await updateUser(userToChangeRole.id, { role: newRole });
+      toast.success(`${userToChangeRole.username} kullanıcısının rolü '${newRole}' olarak güncellendi`);
+      setRoleChangeDialogOpen(false);
+      setUserToChangeRole(null);
+      setNewRole('player');
+      await loadData();
+    } catch (error) {
+      console.error('Error changing role:', error);
+      toast.error('Rol değiştirme başarısız: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get all users for role management (agents + players)
+  const allUsersForRoleManagement = [...agents, ...players];
+  const filteredUsersForRoleManagement = allUsersForRoleManagement.filter(u =>
+    u.username?.toLowerCase().includes(roleManagementSearchTerm.toLowerCase()) ||
+    u.email?.toLowerCase().includes(roleManagementSearchTerm.toLowerCase())
+  );
+
+  const getRoleLabel = (role) => {
+    switch (role) {
+      case 'superadmin':
+        return 'SuperAdmin';
+      case 'agent':
+        return 'Bayi';
+      case 'player':
+        return 'Oyuncu';
+      default:
+        return role || 'Belirtilmemiş';
+    }
+  };
+
+  const getRoleBadgeColor = (role) => {
+    switch (role) {
+      case 'superadmin':
+        return 'bg-purple-500/20 text-purple-500';
+      case 'agent':
+        return 'bg-blue-500/20 text-blue-500';
+      case 'player':
+        return 'bg-green-500/20 text-green-500';
+      default:
+        return 'bg-gray-500/20 text-gray-400';
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto px-2 sm:px-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
-            <LayoutDashboard size={24} className="text-red-500" />
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
+            <LayoutDashboard size={20} className="sm:w-6 sm:h-6 text-red-500" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Süperadmin Panel</h1>
-            <p className="text-sm text-gray-400">Sistem yönetimi</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Süperadmin Panel</h1>
+            <p className="text-xs sm:text-sm text-gray-400">Sistem yönetimi</p>
           </div>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Users size={16} />
-            <span className="text-sm">Toplam Bayi</span>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <Users size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Bayi</span>
           </div>
-          <p className="text-2xl font-bold text-white">{totalAgents}</p>
+          <p className="text-lg sm:text-2xl font-bold text-white">{totalAgents}</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Users size={16} />
-            <span className="text-sm">Toplam Oyuncu</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <Users size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Oyuncu</span>
           </div>
-          <p className="text-2xl font-bold text-blue-500">{totalPlayers}</p>
+          <p className="text-lg sm:text-2xl font-bold text-blue-500">{totalPlayers}</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingUp size={16} />
-            <span className="text-sm">Toplam Kredi</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <TrendingUp size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Kredi</span>
           </div>
-          <p className="text-2xl font-bold text-green-500">{totalCredits.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-lg sm:text-2xl font-bold text-green-500">{totalCredits.toLocaleString('tr-TR')} ₺</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Wallet size={16} />
-            <span className="text-sm">Toplam Komisyon</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <Wallet size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Komisyon</span>
           </div>
-          <p className="text-2xl font-bold text-amber-500">{totalCommissions.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-lg sm:text-2xl font-bold text-amber-500">{totalCommissions.toLocaleString('tr-TR')} ₺</p>
         </div>
       </div>
 
       {/* Main Content */}
       <Tabs defaultValue="agents">
-        <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
-          <TabsTrigger value="agents" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <Users size={16} className="mr-2" />
-            Bayiler
+        <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-4 sm:mb-6 overflow-x-scroll overflow-y-hidden scrollbar-hide -mx-2 sm:mx-0 px-2 sm:px-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <TabsTrigger value="agents" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <Users size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Bayiler</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Bayi</span>
           </TabsTrigger>
-          <TabsTrigger value="players" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <Users size={16} className="mr-2" />
-            Oyuncular
+          <TabsTrigger value="players" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <Users size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Oyuncular</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Oyuncu</span>
           </TabsTrigger>
-          <TabsTrigger value="coupons" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <FileText size={16} className="mr-2" />
-            Kuponlar
+          <TabsTrigger value="coupons" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <FileText size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Kuponlar</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Kupon</span>
           </TabsTrigger>
-          <TabsTrigger value="transactions" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <FileText size={16} className="mr-2" />
-            İşlemler
+          <TabsTrigger value="transactions" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <FileText size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">İşlemler</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">İşlem</span>
           </TabsTrigger>
-          <TabsTrigger value="analytics" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <TrendingUp size={16} className="mr-2" />
-            Analiz
+          <TabsTrigger value="analytics" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <TrendingUp size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Analiz</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Analiz</span>
+          </TabsTrigger>
+          <TabsTrigger value="role-management" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <Shield size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Rol Yönetimi</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Rol</span>
+          </TabsTrigger>
+          <TabsTrigger value="credits" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-[10px] sm:text-sm whitespace-nowrap px-2 sm:px-3 flex-shrink-0 group">
+            <Wallet size={12} className="sm:w-4 sm:h-4 mr-0.5 sm:mr-2" />
+            <span className="hidden group-hover:inline data-[state=active]:inline sm:inline">Kredi Geçmişi</span>
+            <span className="xs:hidden group-hover:hidden data-[state=active]:hidden">Kredi</span>
           </TabsTrigger>
         </TabsList>
 
         {/* Agents Tab */}
         <TabsContent value="agents">
-          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-3 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-4 mb-4">
               <div className="relative flex-1 max-w-md">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Search size={14} className="sm:w-4 sm:h-4 absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                 <Input
                   placeholder="Bayi ara..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 bg-[#080b10] border-[#1e2736] text-white"
+                  className="pl-7 sm:pl-9 bg-[#080b10] border-[#1e2736] text-white text-sm"
                 />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Dialog open={createFirestoreUserDialogOpen} onOpenChange={setCreateFirestoreUserDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-blue-500 hover:bg-blue-600 text-white text-xs sm:text-sm whitespace-nowrap">
+                      <UserPlus size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Mevcut Kullanıcı için Firestore Kaydı Oluştur</span>
+                      <span className="sm:hidden">Firestore Kaydı</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Mevcut Firebase Auth Kullanıcısı için Firestore Kaydı Oluştur</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleCreateFirestoreUser} className="space-y-4">
+                      <div>
+                        <Label>E-posta</Label>
+                        <Input
+                          type="email"
+                          value={firestoreUserData.email}
+                          onChange={(e) => setFirestoreUserData({ ...firestoreUserData, email: e.target.value })}
+                          placeholder="kullanici@example.com"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Şifre (Doğrulama için)</Label>
+                        <Input
+                          type="password"
+                          value={firestoreUserData.password}
+                          onChange={(e) => setFirestoreUserData({ ...firestoreUserData, password: e.target.value })}
+                          placeholder="Firebase Auth şifresi"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Rol</Label>
+                        <select
+                          value={firestoreUserData.role}
+                          onChange={(e) => setFirestoreUserData({ ...firestoreUserData, role: e.target.value })}
+                          className="w-full px-3 py-2 bg-[#080b10] border border-[#1e2736] rounded-lg text-white"
+                          required
+                        >
+                          <option value="superadmin">SuperAdmin</option>
+                          <option value="agent">Agent (Bayi)</option>
+                          <option value="player">Player (Oyuncu)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label>Kullanıcı Adı (Opsiyonel)</Label>
+                        <Input
+                          type="text"
+                          value={firestoreUserData.username}
+                          onChange={(e) => setFirestoreUserData({ ...firestoreUserData, username: e.target.value })}
+                          placeholder="Boş bırakılırsa e-posta kullanılır"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                        />
+                      </div>
+                      {firestoreUserData.role !== 'superadmin' && (
+                        <div>
+                          <Label>Parent ID (Opsiyonel - Agent/Oyuncu için)</Label>
+                          <Input
+                            type="text"
+                            value={firestoreUserData.parentId}
+                            onChange={(e) => setFirestoreUserData({ ...firestoreUserData, parentId: e.target.value })}
+                            placeholder="Üst kullanıcı UID (boş bırakılabilir)"
+                            className="bg-[#080b10] border-[#1e2736] text-white"
+                          />
+                        </div>
+                      )}
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setCreateFirestoreUserDialogOpen(false)}
+                          className="border-[#2a3a4d]"
+                        >
+                          İptal
+                        </Button>
+                        <Button type="submit" className="bg-blue-500 hover:bg-blue-600">
+                          Oluştur
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                <div className="flex items-center gap-2">
+                  <Dialog open={newAgentDialogOpen} onOpenChange={setNewAgentDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-amber-500 hover:bg-amber-600 text-black text-xs sm:text-sm">
+                        <Plus size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                        <span className="hidden sm:inline">Yeni Bayi</span>
+                        <span className="sm:hidden">Bayi</span>
+                      </Button>
+                    </DialogTrigger>
+                  </Dialog>
+                  <Dialog open={newPlayerDialogOpen} onOpenChange={setNewPlayerDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="bg-blue-500 hover:bg-blue-600 text-white text-xs sm:text-sm">
+                        <UserPlus size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                        <span className="hidden sm:inline">Yeni Oyuncu</span>
+                        <span className="sm:hidden">Oyuncu</span>
+                      </Button>
+                    </DialogTrigger>
+                  <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Yeni Bayi Oluştur</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleCreateAgent} className="space-y-4">
+                      <div>
+                        <Label>E-posta</Label>
+                        <Input
+                          type="email"
+                          value={newAgentData.email}
+                          onChange={(e) => setNewAgentData({ ...newAgentData, email: e.target.value })}
+                          placeholder="bayi@example.com"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Kullanıcı Adı</Label>
+                        <Input
+                          type="text"
+                          value={newAgentData.username}
+                          onChange={(e) => setNewAgentData({ ...newAgentData, username: e.target.value })}
+                          placeholder="Bayi kullanıcı adı"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Şifre</Label>
+                        <Input
+                          type="password"
+                          value={newAgentData.password}
+                          onChange={(e) => setNewAgentData({ ...newAgentData, password: e.target.value })}
+                          placeholder="En az 6 karakter"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setNewAgentDialogOpen(false)}
+                          className="border-[#2a3a4d]"
+                        >
+                          İptal
+                        </Button>
+                        <Button type="submit" className="bg-amber-500 hover:bg-amber-600 text-black">
+                          Oluştur
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                <Dialog open={newPlayerDialogOpen} onOpenChange={setNewPlayerDialogOpen}>
+                  <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Yeni Oyuncu Oluştur</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleCreatePlayer} className="space-y-4">
+                      <div>
+                        <Label>E-posta</Label>
+                        <Input
+                          type="email"
+                          value={newPlayerData.email}
+                          onChange={(e) => setNewPlayerData({ ...newPlayerData, email: e.target.value })}
+                          placeholder="oyuncu@example.com"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Kullanıcı Adı</Label>
+                        <Input
+                          type="text"
+                          value={newPlayerData.username}
+                          onChange={(e) => setNewPlayerData({ ...newPlayerData, username: e.target.value })}
+                          placeholder="Oyuncu kullanıcı adı"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label>Şifre</Label>
+                        <Input
+                          type="password"
+                          value={newPlayerData.password}
+                          onChange={(e) => setNewPlayerData({ ...newPlayerData, password: e.target.value })}
+                          placeholder="En az 6 karakter"
+                          className="bg-[#080b10] border-[#1e2736] text-white"
+                          required
+                          minLength={6}
+                        />
+                      </div>
+                      <div>
+                        <Label>Bayi (Opsiyonel)</Label>
+                        <select
+                          value={newPlayerData.parentId}
+                          onChange={(e) => setNewPlayerData({ ...newPlayerData, parentId: e.target.value })}
+                          className="w-full px-3 py-2 bg-[#080b10] border border-[#1e2736] rounded-lg text-white"
+                        >
+                          <option value="">Bayi seçin (opsiyonel)</option>
+                          {agents.map((agent) => (
+                            <option key={agent.id} value={agent.id}>
+                              {agent.username} ({agent.email})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Bayi seçilmezse, oyuncu doğrudan SuperAdmin'e bağlı olur
+                        </p>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setNewPlayerDialogOpen(false);
+                            setNewPlayerData({ email: '', username: '', password: '', parentId: '' });
+                          }}
+                          className="border-[#2a3a4d]"
+                        >
+                          İptal
+                        </Button>
+                        <Button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white" disabled={loading}>
+                          {loading ? 'Oluşturuluyor...' : 'Oluştur'}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                </div>
               </div>
             </div>
 
@@ -466,18 +957,20 @@ const SuperAdminPanel = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 sm:gap-2 flex-nowrap overflow-x-auto">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => {
                               setSelectedAgent(agent);
                               setCreditType('add');
+                              setOperationType('credit');
                               setCreditDialogOpen(true);
                             }}
-                            className="border-[#2a3a4d] text-xs"
+                            className="bg-amber-500 hover:bg-amber-600 text-white border-amber-500 text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto"
                           >
-                            Kredi Ekle
+                            <span className="hidden sm:inline">Kredi Ekle</span>
+                            <span className="sm:hidden">Kredi</span>
                           </Button>
                           <Button
                             size="sm"
@@ -485,19 +978,21 @@ const SuperAdminPanel = () => {
                             onClick={() => {
                               setSelectedAgent(agent);
                               setCreditType('remove');
+                              setOperationType('credit');
                               setCreditDialogOpen(true);
                             }}
-                            className="border-[#2a3a4d] text-xs"
+                            className="bg-red-500 hover:bg-red-600 text-white border-red-500 text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto"
                           >
-                            Kredi Çıkar
+                            <span className="hidden sm:inline">Kredi Çıkar</span>
+                            <span className="sm:hidden">Çıkar</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleBanUser(agent.id, agent.isBanned)}
-                            className="border-[#2a3a4d] text-xs"
+                            className="bg-red-500 hover:bg-red-600 text-white border-red-500 px-2 sm:px-3 py-1 h-auto"
                           >
-                            {agent.isBanned ? <CheckCircle size={14} /> : <Ban size={14} />}
+                            {agent.isBanned ? <CheckCircle size={12} className="sm:w-3.5 sm:h-3.5" /> : <Ban size={12} className="sm:w-3.5 sm:h-3.5" />}
                           </Button>
                         </div>
                       </TableCell>
@@ -554,7 +1049,7 @@ const SuperAdminPanel = () => {
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-1 sm:gap-2 flex-nowrap overflow-x-auto">
                             <Button
                               size="sm"
                               variant="outline"
@@ -564,9 +1059,10 @@ const SuperAdminPanel = () => {
                                 setPlayerOperationType('balance');
                                 setPlayerDialogOpen(true);
                               }}
-                              className="border-[#2a3a4d] text-xs"
+                              className="border-[#2a3a4d] text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto bg-blue-500/20 hover:bg-blue-500/30"
                             >
-                              Bakiye Ekle
+                              <span className="hidden sm:inline">Bakiye Ekle</span>
+                              <span className="sm:hidden">Bakiye</span>
                             </Button>
                             <Button
                               size="sm"
@@ -577,9 +1073,10 @@ const SuperAdminPanel = () => {
                                 setPlayerOperationType('balance');
                                 setPlayerDialogOpen(true);
                               }}
-                              className="border-[#2a3a4d] text-xs"
+                              className="border-[#2a3a4d] text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto"
                             >
-                              Bakiye Çıkar
+                              <span className="hidden sm:inline">Bakiye Çıkar</span>
+                              <span className="sm:hidden">Çıkar</span>
                             </Button>
                             <Button
                               size="sm"
@@ -590,9 +1087,10 @@ const SuperAdminPanel = () => {
                                 setPlayerOperationType('credit');
                                 setPlayerDialogOpen(true);
                               }}
-                              className="border-[#2a3a4d] text-xs"
+                              className="bg-amber-500 hover:bg-amber-600 text-white border-amber-500 text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto"
                             >
-                              Kredi Ekle
+                              <span className="hidden sm:inline">Kredi Ekle</span>
+                              <span className="sm:hidden">Kredi</span>
                             </Button>
                             <Button
                               size="sm"
@@ -603,17 +1101,18 @@ const SuperAdminPanel = () => {
                                 setPlayerOperationType('credit');
                                 setPlayerDialogOpen(true);
                               }}
-                              className="border-[#2a3a4d] text-xs"
+                              className="bg-red-500 hover:bg-red-600 text-white border-red-500 text-[10px] sm:text-xs px-2 sm:px-3 py-1 h-auto"
                             >
-                              Kredi Çıkar
+                              <span className="hidden sm:inline">Kredi Çıkar</span>
+                              <span className="sm:hidden">Çıkar</span>
                             </Button>
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => handleBanUser(player.id, player.isBanned)}
-                              className="border-[#2a3a4d] text-xs"
+                              className="bg-red-500 hover:bg-red-600 text-white border-red-500 px-2 sm:px-3 py-1 h-auto"
                             >
-                              {player.isBanned ? <CheckCircle size={14} /> : <Ban size={14} />}
+                              {player.isBanned ? <CheckCircle size={12} className="sm:w-3.5 sm:h-3.5" /> : <Ban size={12} className="sm:w-3.5 sm:h-3.5" />}
                             </Button>
                           </div>
                         </TableCell>
@@ -768,6 +1267,157 @@ const SuperAdminPanel = () => {
             </div>
           </div>
         </TabsContent>
+
+        {/* Role Management Tab */}
+        <TabsContent value="role-management">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-3 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-4 mb-4">
+              <div className="relative flex-1 max-w-md">
+                <Search size={14} className="sm:w-4 sm:h-4 absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Input
+                  placeholder="Kullanıcı ara (isim veya e-posta)..."
+                  value={roleManagementSearchTerm}
+                  onChange={(e) => setRoleManagementSearchTerm(e.target.value)}
+                  className="pl-7 sm:pl-9 bg-[#080b10] border-[#1e2736] text-white text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#1e2736]">
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Kullanıcı Adı</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">E-posta</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Mevcut Rol</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Bakiye</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Kredi</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Durum</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">İşlemler</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsersForRoleManagement.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                        Kullanıcı bulunamadı
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredUsersForRoleManagement.map((userItem) => (
+                      <TableRow key={userItem.id} className="border-[#1e2736]">
+                        <TableCell className="text-white text-xs sm:text-sm">{userItem.username || '-'}</TableCell>
+                        <TableCell className="text-gray-400 text-xs sm:text-sm">{userItem.email || '-'}</TableCell>
+                        <TableCell>
+                          <Badge className={getRoleBadgeColor(userItem.role)}>
+                            {getRoleLabel(userItem.role)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-white text-xs sm:text-sm">
+                          {(userItem.balance || 0).toLocaleString('tr-TR')} ₺
+                        </TableCell>
+                        <TableCell className="text-white text-xs sm:text-sm">
+                          {(userItem.credit || 0).toLocaleString('tr-TR')} ₺
+                        </TableCell>
+                        <TableCell>
+                          {userItem.isBanned ? (
+                            <Badge variant="destructive" className="text-xs">Yasaklı</Badge>
+                          ) : (
+                            <Badge className="bg-green-500/20 text-green-500 text-xs">Aktif</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setUserToChangeRole(userItem);
+                              setNewRole(userItem.role || 'player');
+                              setRoleChangeDialogOpen(true);
+                            }}
+                            className="border-[#2a3a4d] text-xs sm:text-sm"
+                          >
+                            <UserCog size={14} className="sm:w-4 sm:h-4 mr-1" />
+                            <span className="hidden sm:inline">Rol Değiştir</span>
+                            <span className="sm:hidden">Rol</span>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Credits Tab */}
+        <TabsContent value="credits">
+          <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-3 sm:p-6">
+            <h3 className="text-lg sm:text-xl font-semibold text-white mb-4">Bekleyen Krediler</h3>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#1e2736]">
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Tarih</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Kime</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Miktar</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Durum</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">Açıklama</TableHead>
+                    <TableHead className="text-gray-400 text-xs sm:text-sm">İşlemler</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingCredits.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-gray-500 py-4">
+                        Bekleyen kredi yok
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pendingCredits.map((credit) => (
+                      <TableRow key={credit.id} className="border-[#1e2736]">
+                        <TableCell className="text-gray-400 text-xs sm:text-sm">
+                          {credit.createdAt ? formatFirestoreDate(credit.createdAt) : '-'}
+                        </TableCell>
+                        <TableCell className="text-white text-xs sm:text-sm">
+                          {credit.toUsername || credit.toUserId}
+                        </TableCell>
+                        <TableCell className="text-white text-xs sm:text-sm font-semibold">
+                          {credit.amount?.toLocaleString('tr-TR')} ₺
+                        </TableCell>
+                        <TableCell>
+                          {credit.status === 'pending' ? (
+                            <Badge className="bg-amber-500/20 text-amber-500 text-xs sm:text-sm">Beklemede</Badge>
+                          ) : credit.status === 'paid' ? (
+                            <Badge className="bg-green-500/20 text-green-500 text-xs sm:text-sm">Ödendi</Badge>
+                          ) : (
+                            <Badge className="bg-gray-500/20 text-gray-400 text-xs sm:text-sm">İptal</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-gray-400 text-xs sm:text-sm">
+                          {credit.description || '-'}
+                        </TableCell>
+                        <TableCell>
+                          {credit.status === 'pending' && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleApproveCredit(credit.id)}
+                              className="bg-green-500 hover:bg-green-600 text-white text-xs"
+                            >
+                              <CheckCircle size={14} className="mr-1" />
+                              Ödendi
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* Credit/Balance Dialog */}
@@ -896,9 +1546,73 @@ const SuperAdminPanel = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Role Change Dialog */}
+      <Dialog open={roleChangeDialogOpen} onOpenChange={setRoleChangeDialogOpen}>
+        <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rol Değiştir</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Kullanıcı</Label>
+              <Input 
+                value={userToChangeRole?.username || ''} 
+                disabled 
+                className="bg-[#080b10] border-[#1e2736]" 
+              />
+              <p className="text-xs text-gray-400 mt-1">{userToChangeRole?.email}</p>
+            </div>
+            <div>
+              <Label>Mevcut Rol</Label>
+              <Input 
+                value={getRoleLabel(userToChangeRole?.role)} 
+                disabled 
+                className="bg-[#080b10] border-[#1e2736]" 
+              />
+            </div>
+            <div>
+              <Label>Yeni Rol</Label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className="w-full px-3 py-2 bg-[#080b10] border border-[#1e2736] rounded-lg text-white"
+              >
+                <option value="superadmin">SuperAdmin</option>
+                <option value="agent">Agent (Bayi)</option>
+                <option value="player">Player (Oyuncu)</option>
+              </select>
+            </div>
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <p className="text-xs text-amber-500">
+                ⚠️ Rol değişikliği anında uygulanır. Kullanıcı sayfayı yenilediğinde yeni rolüyle giriş yapacaktır.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setRoleChangeDialogOpen(false);
+                  setUserToChangeRole(null);
+                  setNewRole('player');
+                }}
+              >
+                İptal
+              </Button>
+              <Button 
+                onClick={handleRoleChange}
+                disabled={loading || !userToChangeRole || userToChangeRole?.role === newRole}
+                className="bg-amber-500 hover:bg-amber-600 text-black"
+              >
+                {loading ? 'Değiştiriliyor...' : 'Rolü Değiştir'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Ban User Dialog */}
       <Dialog open={banDialogOpen} onOpenChange={setBanDialogOpen}>
-        <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white">
+        <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Kullanıcıyı Yasakla</DialogTitle>
           </DialogHeader>

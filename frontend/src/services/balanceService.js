@@ -3,13 +3,20 @@
  * Handles balance operations for superadmin and agents
  */
 import { 
+  collection,
   doc,
+  getDocs,
+  query,
+  where,
+  orderBy,
   serverTimestamp,
   writeBatch 
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { getUserById, updateUser } from './userService';
 import { createTransaction } from './transactionService';
+
+const TRANSACTIONS_COLLECTION = 'transactions';
 
 /**
  * Add balance to user (instant transfer)
@@ -50,8 +57,8 @@ export const addBalance = async (fromUserId, toUserId, amount, description = '')
     }
 
     // Update balances using batch
-    const batch = writeBatch();
-    const toUserRef = db.collection('users').doc(toUserId);
+    const batch = writeBatch(db);
+    const toUserRef = doc(db, 'users', toUserId);
     
     const currentBalance = toUser.balance || 0;
     const newBalance = currentBalance + amountNum;
@@ -120,7 +127,7 @@ export const removeBalance = async (fromUserId, toUserId, amount, description = 
     }
 
     // Update balances using batch
-    const batch = writeBatch();
+    const batch = writeBatch(db);
     const toUserRef = doc(db, 'users', toUserId);
     
     const newBalance = currentBalance - amountNum;
@@ -144,6 +151,63 @@ export const removeBalance = async (fromUserId, toUserId, amount, description = 
     return { success: true, newBalance };
   } catch (error) {
     console.error('Error removing balance:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get balance history sent by an agent/superadmin
+ */
+export const getSentBalanceHistory = async (fromUserId, limit = 100) => {
+  try {
+    // Get balance transactions where agentId matches fromUserId
+    const q = query(
+      collection(db, TRANSACTIONS_COLLECTION),
+      where('agentId', '==', fromUserId),
+      orderBy('createdAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    
+    // Filter for balance operations only
+    const balanceTransactions = snapshot.docs
+      .map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }))
+      .filter(t => t.type === 'balance_add' || t.type === 'balance_remove')
+      .slice(0, limit);
+    
+    return balanceTransactions;
+  } catch (error) {
+    // If index is building, try without orderBy as fallback
+    if (error.code === 'failed-precondition' || error.message.includes('index')) {
+      console.warn('Index is building, fetching balance history without orderBy...');
+      try {
+        const q = query(
+          collection(db, TRANSACTIONS_COLLECTION),
+          where('agentId', '==', fromUserId)
+        );
+        const snapshot = await getDocs(q);
+        const transactions = snapshot.docs
+          .map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+          }))
+          .filter(t => t.type === 'balance_add' || t.type === 'balance_remove');
+        
+        // Sort manually
+        transactions.sort((a, b) => {
+          const aDate = a.createdAt?.toDate?.() || a.createdAt?.seconds ? new Date(a.createdAt.seconds * 1000) : new Date(0);
+          const bDate = b.createdAt?.toDate?.() || b.createdAt?.seconds ? new Date(b.createdAt.seconds * 1000) : new Date(0);
+          return bDate - aDate;
+        });
+        return transactions.slice(0, limit);
+      } catch (fallbackError) {
+        console.error('Error getting balance history (fallback):', fallbackError);
+        throw error; // Throw original error
+      }
+    }
+    console.error('Error getting balance history:', error);
     throw error;
   }
 };

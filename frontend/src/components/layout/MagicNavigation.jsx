@@ -1,16 +1,9 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Zap, Calendar, User, FileText, Wallet, LogOut, Settings, ChevronDown } from 'lucide-react';
+import { Home, Zap, Calendar, User, FileText, Wallet, LogOut, Shield, Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { Button } from '../ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
 
 const MagicNavigation = () => {
   const location = useLocation();
@@ -25,12 +18,41 @@ const MagicNavigation = () => {
 
   const getRoleLabel = (role) => {
     switch (role) {
+      case 'superadmin':
+        return 'SuperAdmin';
       case 'admin':
         return 'Admin';
       case 'agent':
         return 'Bayi';
       default:
         return 'Kullanıcı';
+    }
+  };
+
+  // Get role-based button info
+  const getRoleButtonInfo = (role) => {
+    switch (role) {
+      case 'superadmin':
+        return {
+          path: '/superadmin',
+          label: 'SuperAdmin Panel',
+          icon: Shield,
+          className: 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white'
+        };
+      case 'agent':
+        return {
+          path: '/agent',
+          label: 'Agent Panel',
+          icon: Building2,
+          className: 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white'
+        };
+      default:
+        return {
+          path: '/dashboard',
+          label: 'Profil',
+          icon: User,
+          className: 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black'
+        };
     }
   };
 
@@ -150,67 +172,30 @@ const MagicNavigation = () => {
                 </span>
               </div>
 
-              {/* User Menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-1.5 sm:gap-2 text-gray-300 hover:text-white hover:bg-[#1a2332] px-2 sm:px-3">
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center">
-                      <User size={14} className="text-black sm:w-4 sm:h-4" />
-                    </div>
-                    <span className="hidden sm:block text-sm">{user.username}</span>
-                    <ChevronDown size={14} className="hidden sm:block" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-[#1a2332] border-[#2a3a4d]">
-                  <div className="px-3 py-2 border-b border-[#2a3a4d]">
-                    <p className="text-white font-medium">{user.username}</p>
-                    <p className="text-xs text-amber-500">{getRoleLabel(user.role)}</p>
-                    <p className="text-sm text-gray-400 mt-1 xs:hidden">
-                      Bakiye: {(() => {
-                        if (!user || user.balance === undefined || user.balance === null) return '0';
-                        const balance = typeof user.balance === 'number' ? user.balance : parseFloat(user.balance);
-                        if (isNaN(balance) || balance === 0 || !isFinite(balance)) return '0';
-                        try {
-                          return balance.toLocaleString('tr-TR');
-                        } catch (e) {
-                          return balance.toString();
-                        }
-                      })()} ₺
-                    </p>
-                  </div>
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard" className="flex items-center gap-2 text-gray-300 hover:text-white cursor-pointer">
-                      <User size={16} />
-                      Hesabım
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/coupons" className="flex items-center gap-2 text-gray-300 hover:text-white cursor-pointer">
-                      <FileText size={16} />
-                      Kuponlarım
-                    </Link>
-                  </DropdownMenuItem>
-                  {(user.role === 'admin' || user.role === 'agent') && (
-                    <DropdownMenuItem asChild>
-                      <Link
-                        to={user.role === 'admin' ? '/admin' : '/agent'}
-                        className="flex items-center gap-2 text-gray-300 hover:text-white cursor-pointer"
-                      >
-                        <Settings size={16} />
-                        {user.role === 'admin' ? 'Admin Panel' : 'Bayi Panel'}
-                      </Link>
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuSeparator className="bg-[#2a3a4d]" />
-                  <DropdownMenuItem
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 text-red-400 hover:text-red-300 cursor-pointer"
-                  >
-                    <LogOut size={16} />
-                    Çıkış Yap
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Role-based Panel Button */}
+              {(() => {
+                const roleButton = getRoleButtonInfo(user.role);
+                const RoleIcon = roleButton.icon;
+                return (
+                  <Link to={roleButton.path}>
+                    <Button className={`${roleButton.className} font-semibold text-sm px-3 sm:px-4 flex items-center gap-2`}>
+                      <RoleIcon size={16} />
+                      <span className="hidden sm:block">{roleButton.label}</span>
+                      <span className="sm:hidden">{roleButton.label.split(' ')[0]}</span>
+                    </Button>
+                  </Link>
+                );
+              })()}
+
+              {/* Logout Button */}
+              <Button
+                variant="ghost"
+                onClick={handleLogout}
+                className="text-gray-300 hover:text-red-400 hover:bg-[#1a2332] px-2 sm:px-3"
+                title="Çıkış Yap"
+              >
+                <LogOut size={18} className="sm:w-5 sm:h-5" />
+              </Button>
             </>
           ) : (
             <div className="flex items-center gap-2">

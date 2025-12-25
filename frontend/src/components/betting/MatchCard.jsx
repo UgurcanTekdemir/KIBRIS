@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useBetSlip } from '../../context/BetSlipContext';
-import { Clock, ChevronRight } from 'lucide-react';
+import { useOddsTracking } from '../../hooks/useOddsTracking';
+import { Clock, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 
 // Format date for display - always show actual date, not "Bugün" or "Yarın"
 function formatMatchDateTime(date, time) {
@@ -19,6 +20,9 @@ function formatMatchDateTime(date, time) {
 
 const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
   const { addSelection, isSelected } = useBetSlip();
+  
+  // Track odds changes (only for live matches)
+  const { getOddsChange } = useOddsTracking(match.id, match, match.isLive ? 5000 : 30000);
   
   const dateTimeDisplay = useMemo(() => {
     return formatMatchDateTime(match.date, match.time);
@@ -130,6 +134,10 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                 const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                 // Only show if odds value is valid (> 0)
                 if (oddsValue <= 0) return null;
+                
+                // Get odds change indicator
+                const oddsChange = getOddsChange(mainMarket.name, opt.label);
+                
                 return (
                   <button
                     key={opt.label}
@@ -141,7 +149,15 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                     }`}
                   >
                     <span className="text-[9px] sm:text-[10px] text-gray-400 block leading-tight">{opt.label}</span>
-                    <span className="font-bold text-xs sm:text-sm">{oddsValue.toFixed(2)}</span>
+                    <span className="font-bold text-xs sm:text-sm flex items-center justify-center gap-0.5">
+                      {oddsChange && oddsChange.direction === 'up' && (
+                        <ArrowUp size={10} className="text-green-500" />
+                      )}
+                      {oddsChange && oddsChange.direction === 'down' && (
+                        <ArrowDown size={10} className="text-red-500" />
+                      )}
+                      {oddsValue.toFixed(2)}
+                    </span>
                   </button>
                 );
               })}
@@ -253,6 +269,10 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               // Only show if odds value is valid (> 0)
               if (oddsValue <= 0) return null;
+              
+              // Get odds change indicator
+              const oddsChange = getOddsChange(mainMarket.name, opt.label);
+              
               return (
                 <button
                   key={opt.label}
@@ -264,7 +284,15 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                   }`}
                 >
                   <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
-                  <span className="font-bold">{oddsValue.toFixed(2)}</span>
+                  <span className="font-bold flex items-center justify-center gap-1">
+                    {oddsChange && oddsChange.direction === 'up' && (
+                      <ArrowUp size={14} className="text-green-500" />
+                    )}
+                    {oddsChange && oddsChange.direction === 'down' && (
+                      <ArrowDown size={14} className="text-red-500" />
+                    )}
+                    {oddsValue.toFixed(2)}
+                  </span>
                 </button>
               );
             })}
@@ -291,6 +319,10 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                   {validOptions.map((opt) => {
                     const selected = isSelected(match.id, market.name, opt.label);
                     const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+                    
+                    // Get odds change indicator
+                    const oddsChange = getOddsChange(market.name, opt.label);
+                    
                     return (
                       <button
                         key={opt.label}
@@ -302,7 +334,15 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                         }`}
                       >
                         <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
-                        <span className="font-bold text-sm">{oddsValue.toFixed(2)}</span>
+                        <span className="font-bold text-sm flex items-center justify-center gap-1">
+                          {oddsChange && oddsChange.direction === 'up' && (
+                            <ArrowUp size={12} className="text-green-500" />
+                          )}
+                          {oddsChange && oddsChange.direction === 'down' && (
+                            <ArrowDown size={12} className="text-red-500" />
+                          )}
+                          {oddsValue.toFixed(2)}
+                        </span>
                       </button>
                     );
                   })}

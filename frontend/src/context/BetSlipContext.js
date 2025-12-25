@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { shouldLockBetting } from '../utils/liveMatchSafety';
 
 const BetSlipContext = createContext(null);
 
@@ -6,7 +7,12 @@ export const BetSlipProvider = ({ children }) => {
   const [selections, setSelections] = useState([]);
   const [stake, setStake] = useState(0);
 
-  const addSelection = (match, marketName, option, odds) => {
+  const addSelection = (match, marketName, option, odds, isLocked = false) => {
+    // Prevent adding locked selections
+    if (isLocked) {
+      return;
+    }
+
     // Check if the exact same selection already exists (toggle off)
     const existingSelectionIndex = selections.findIndex(
       (s) =>
@@ -36,6 +42,8 @@ export const BetSlipProvider = ({ children }) => {
         marketName,
         option,
         odds,
+        isLive: match.isLive || false,
+        isLocked: false, // New selection is not locked
       };
       setSelections(updated);
     } else {
@@ -49,6 +57,8 @@ export const BetSlipProvider = ({ children }) => {
           marketName,
           option,
           odds,
+          isLive: match.isLive || false,
+          isLocked: false, // New selection is not locked
         },
       ]);
     }

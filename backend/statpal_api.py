@@ -443,6 +443,8 @@ class StatPalApiService:
         time_str = statpal_match.get("time") or statpal_match.get("match_time", "")
         
         # Try to parse datetime
+        # StatPal API provides dates/times in local timezone (likely Turkey time, UTC+3)
+        # We need to parse as local time first, then convert to UTC for storage
         if date_str:
             try:
                 if time_str:
@@ -450,12 +452,23 @@ class StatPalApiService:
                     datetime_str = f"{date_str} {time_str}"
                     # Try StatPal format first: "DD.MM.YYYY HH:MM"
                     try:
+                        # Parse as naive datetime (local time, likely Turkey time UTC+3)
                         commence_time = datetime.strptime(datetime_str, "%d.%m.%Y %H:%M")
+                        # Assume StatPal times are in Turkey timezone (UTC+3)
+                        # Convert to UTC by subtracting 3 hours
+                        turkey_tz = timezone(timedelta(hours=3))
+                        commence_time = commence_time.replace(tzinfo=turkey_tz)
+                        commence_time = commence_time.astimezone(timezone.utc)
                     except ValueError:
                         # Try other formats
                         for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%d/%m/%Y %H:%M"]:
                             try:
                                 commence_time = datetime.strptime(datetime_str, fmt)
+                                # If format doesn't include timezone, assume Turkey time (UTC+3)
+                                if commence_time.tzinfo is None:
+                                    turkey_tz = timezone(timedelta(hours=3))
+                                    commence_time = commence_time.replace(tzinfo=turkey_tz)
+                                    commence_time = commence_time.astimezone(timezone.utc)
                                 break
                             except ValueError:
                                 continue
@@ -463,9 +476,17 @@ class StatPalApiService:
                     # Just date - try StatPal format first
                     try:
                         commence_time = datetime.strptime(date_str, "%d.%m.%Y")
+                        # Set to midnight in Turkey time, then convert to UTC
+                        turkey_tz = timezone(timedelta(hours=3))
+                        commence_time = commence_time.replace(tzinfo=turkey_tz)
+                        commence_time = commence_time.astimezone(timezone.utc)
                     except ValueError:
                         try:
                             commence_time = datetime.strptime(date_str, "%Y-%m-%d")
+                            # Set to midnight in Turkey time, then convert to UTC
+                            turkey_tz = timezone(timedelta(hours=3))
+                            commence_time = commence_time.replace(tzinfo=turkey_tz)
+                            commence_time = commence_time.astimezone(timezone.utc)
                         except ValueError:
                             pass
             except (ValueError, TypeError) as e:
@@ -962,7 +983,7 @@ class StatPalApiService:
     async def get_match_by_id(self, match_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a specific match by ID.
-        Searches in live matches, daily matches, and popular league matches.
+        Searches in live matches, daily matches (today, tomorrow, and past 2 weeks), and popular league matches.
         
         Args:
             match_id: Match ID to search for (can be main_id, fallback_id_1, etc.)
@@ -971,19 +992,19 @@ class StatPalApiService:
             Match data if found, None otherwise
         """
         try:
-            # Try all possible match IDs
-            match_ids_to_search = [match_id]
+            # Helper function to check if match ID matches
+            def match_id_matches(match, search_id):
+                return (str(match.get("id", "")) == str(search_id) or
+                        str(match.get("main_id", "")) == str(search_id) or
+                        str(match.get("fallback_id_1", "")) == str(search_id) or
+                        str(match.get("fallback_id_2", "")) == str(search_id) or
+                        str(match.get("fallback_id_3", "")) == str(search_id))
             
             # 1. Search in live matches
             try:
                 live_matches = await self.get_live_matches()
                 for match in live_matches:
-                    # Check all possible IDs
-                    if (str(match.get("id", "")) == str(match_id) or
-                        str(match.get("main_id", "")) == str(match_id) or
-                        str(match.get("fallback_id_1", "")) == str(match_id) or
-                        str(match.get("fallback_id_2", "")) == str(match_id) or
-                        str(match.get("fallback_id_3", "")) == str(match_id)):
+                    if match_id_matches(match, match_id):
                         return match
             except Exception as e:
                 logger.debug(f"Failed to search in live matches: {e}")
@@ -996,27 +1017,40 @@ class StatPalApiService:
                 all_daily = today_matches + tomorrow_matches
                 
                 for match in all_daily:
-                    if (str(match.get("id", "")) == str(match_id) or
-                        str(match.get("main_id", "")) == str(match_id) or
-                        str(match.get("fallback_id_1", "")) == str(match_id) or
-                        str(match.get("fallback_id_2", "")) == str(match_id) or
-                        str(match.get("fallback_id_3", "")) == str(match_id)):
+                    if match_id_matches(match, match_id):
                         return match
             except Exception as e:
                 logger.debug(f"Failed to search in daily matches: {e}")
             
-            # 3. Search in popular league matches
+            # 3. Search in past matches (last 2 weeks) - for finished matches
+            try:
+                now = datetime.now(timezone.utc)
+                for days_ago in range(1, 15):  # Search last 14 days
+                    past_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+                    try:
+                        past_matches = await self.get_daily_matches(date=past_date)
+                        for match in past_matches:
+                            if match_id_matches(match, match_id):
+                                # Check if match is finished
+                                status = (match.get("status", "") or "").upper()
+                                finished_statuses = ["FT", "FINISHED", "CANCELED", "CANCELLED"]
+                                if status in finished_statuses:
+                                    logger.debug(f"Found finished match {match_id} from {past_date}")
+                                    return match
+                    except Exception as e:
+                        logger.debug(f"Failed to search in past matches for date {past_date}: {e}")
+                        continue
+            except Exception as e:
+                logger.debug(f"Failed to search in past matches: {e}")
+            
+            # 4. Search in popular league matches
             try:
                 popular_league_ids = ["3037", "3258", "3232", "3231", "3054", "3062"]
                 for league_id in popular_league_ids:
                     try:
                         league_matches = await self.get_league_matches(league_id)
                         for match in league_matches:
-                            if (str(match.get("id", "")) == str(match_id) or
-                                str(match.get("main_id", "")) == str(match_id) or
-                                str(match.get("fallback_id_1", "")) == str(match_id) or
-                                str(match.get("fallback_id_2", "")) == str(match_id) or
-                                str(match.get("fallback_id_3", "")) == str(match_id)):
+                            if match_id_matches(match, match_id):
                                 return match
                     except Exception as e:
                         logger.debug(f"Failed to search in league {league_id}: {e}")
@@ -1472,6 +1506,7 @@ class StatPalApiService:
                 return match_data
             
             # Fallback: Try direct API call (if endpoint exists)
+            # This is especially important for finished matches that might not be in daily matches
             try:
                 response = await self._get(f"soccer/matches/{match_id}")
                 if isinstance(response, dict):
@@ -1494,10 +1529,13 @@ class StatPalApiService:
                         except Exception as e:
                             logger.debug(f"Failed to fetch away team logo: {e}")
                     
+                    logger.debug(f"Found match {match_id} via direct API call")
                     return transformed
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != 404:
                     logger.debug("Direct API call failed for match %s: %s", match_id, exc)
+                else:
+                    logger.debug("Match %s not found via direct API call (404)", match_id)
             
             return None
             

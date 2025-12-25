@@ -28,6 +28,26 @@ const MatchesPage = () => {
 
   // Fetch matches for today, tomorrow, and future
   const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
+  
+  // Check if matches have loaded with odds (markets)
+  const hasMatchesWithOdds = useMemo(() => {
+    if (loading) return false;
+    if (!allMatches || allMatches.length === 0) return false;
+    // Check if at least one match has markets with valid odds
+    return allMatches.some(match => {
+      if (!match.markets || !Array.isArray(match.markets)) return false;
+      return match.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+    });
+  }, [allMatches, loading]);
+  
+  // Show loading until matches with odds are loaded
+  const isLoading = loading || !hasMatchesWithOdds;
 
   const filteredMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];
@@ -127,7 +147,7 @@ const MatchesPage = () => {
           <div>
             <h1 className="text-2xl font-bold text-white">Tüm Maçlar</h1>
             <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${filteredMatches.length} maç listeleniyor`}
+              {isLoading ? 'Oranlar yükleniyor...' : `${filteredMatches.length} maç listeleniyor`}
             </p>
           </div>
         </div>
@@ -160,7 +180,7 @@ const MatchesPage = () => {
             variant="outline" 
             className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
             onClick={refetch}
-            disabled={loading}
+            disabled={isLoading}
           >
             <Filter size={16} />
           </Button>
@@ -202,7 +222,7 @@ const MatchesPage = () => {
         </TabsList>
 
         <TabsContent value="upcoming" className="mt-0">
-          {loading ? (
+          {isLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
                 <MatchCardSkeleton key={i} />
@@ -215,7 +235,7 @@ const MatchesPage = () => {
                   <MatchCard key={match.id} match={match} />
                 ))}
               </div>
-              {upcomingMatches.length === 0 && !loading && (
+              {upcomingMatches.length === 0 && !isLoading && (
                 <div className="text-center py-16 text-gray-500">
                   {searchTerm ? 'Arama kriterlerinize uygun gelecek maç bulunamadı' : 'Yakın zamanda maç bulunamadı'}
                 </div>
@@ -225,7 +245,7 @@ const MatchesPage = () => {
         </TabsContent>
 
         <TabsContent value="past" className="mt-0">
-          {loading ? (
+          {isLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
                 <MatchCardSkeleton key={i} />
@@ -238,7 +258,7 @@ const MatchesPage = () => {
                   <MatchCard key={match.id} match={match} />
                 ))}
               </div>
-              {pastMatches.length === 0 && !loading && (
+              {pastMatches.length === 0 && !isLoading && (
                 <div className="text-center py-16 text-gray-500">
                   {searchTerm ? 'Arama kriterlerinize uygun geçmiş maç bulunamadı' : 'Geçmiş maç bulunamadı'}
                 </div>

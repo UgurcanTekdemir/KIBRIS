@@ -42,6 +42,17 @@ service cloud.firestore {
       // Agents can read their players (check parentId)
       allow read: if isAgent() && resource.data.parentId == request.auth.uid;
       
+      // NEW: Users can create their own document when registering
+      // IMPORTANT: All new registrations must be 'player' role only
+      // Role changes can only be done by SuperAdmin from the panel
+      allow create: if isAuthenticated() && 
+        request.auth.uid == userId &&
+        request.resource.data.keys().hasAll(['email', 'username', 'role', 'balance', 'credit', 'isBanned']) &&
+        request.resource.data.role == 'player' && // Only 'player' role allowed for new registrations
+        request.resource.data.balance == 0 &&
+        request.resource.data.credit == 0 &&
+        request.resource.data.isBanned == false;
+      
       // Users can update their own data (limited fields)
       allow update: if isAuthenticated() && request.auth.uid == userId && 
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt']);
@@ -78,9 +89,11 @@ service cloud.firestore {
         isSuperadmin()
       );
       
-      // Only system (backend) can create transactions
-      // This is handled server-side
-      allow create: if false; // Transactions created server-side only
+      // Superadmin and agents can create transactions (for balance/credit operations)
+      allow create: if isAuthenticated() && (
+        isSuperadmin() ||
+        (isAgent() && request.resource.data.agentId == request.auth.uid)
+      );
     }
     
     // Credit history collection
@@ -92,8 +105,14 @@ service cloud.firestore {
         isSuperadmin()
       );
       
-      // Only system (backend) can create credit history
-      allow create: if false; // Credit history created server-side only
+      // Superadmin and agents can create credit history (for pending credits)
+      allow create: if isAuthenticated() && (
+        isSuperadmin() ||
+        (isAgent() && request.resource.data.fromUserId == request.auth.uid)
+      );
+      
+      // Superadmin can update credit history (for approval)
+      allow update: if isSuperadmin();
     }
   }
 }

@@ -27,6 +27,26 @@ const LeaguePage = () => {
 
   // Fetch all matches and filter by league
   const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
+  
+  // Check if matches have loaded with odds (markets)
+  const hasMatchesWithOdds = useMemo(() => {
+    if (loading) return false;
+    if (!allMatches || allMatches.length === 0) return false;
+    // Check if at least one match has markets with valid odds
+    return allMatches.some(match => {
+      if (!match.markets || !Array.isArray(match.markets)) return false;
+      return match.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+    });
+  }, [allMatches, loading]);
+  
+  // Show loading until matches with odds are loaded
+  const isLoading = loading || !hasMatchesWithOdds;
 
   // Filter matches by league sport_key and date (only show upcoming matches within 7 days, exclude finished)
   const leagueMatches = useMemo(() => {
@@ -122,7 +142,7 @@ const LeaguePage = () => {
               {leagueInfo.name}
             </h1>
             <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${leagueMatches.length} maç bulundu`}
+              {isLoading ? 'Oranlar yükleniyor...' : `${leagueMatches.length} maç bulundu`}
             </p>
           </div>
         </div>
@@ -146,7 +166,7 @@ const LeaguePage = () => {
       )}
 
       {/* Matches Grid */}
-      {loading ? (
+      {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[...Array(6)].map((_, i) => (
             <MatchCardSkeleton key={i} />
@@ -161,7 +181,7 @@ const LeaguePage = () => {
           </div>
 
           {/* Empty State */}
-          {leagueMatches.length === 0 && !loading && (
+          {leagueMatches.length === 0 && !isLoading && (
             <div className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
                 <Trophy size={40} className="text-gray-600" />

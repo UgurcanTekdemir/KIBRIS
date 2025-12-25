@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatchDetails } from '../hooks/useMatches';
 import { useLiveMatchEvents } from '../hooks/useLiveMatchEvents';
 import { useLiveMatchStatistics } from '../hooks/useLiveMatchStatistics';
+import { useOddsTracking } from '../hooks/useOddsTracking';
 import { matchAPI } from '../services/api';
 import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategories';
 
@@ -41,6 +42,9 @@ const MatchDetailPage = () => {
   const shouldFetchEvents = match?.isLive || match?.isFinished;
   const { events } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
   const { statistics } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
+  
+  // Track odds changes
+  const { getOddsChange } = useOddsTracking(id, match, match?.isLive ? 5000 : 30000);
   
   const dateTimeDisplay = useMemo(() => {
     if (!match) return '';
@@ -303,6 +307,10 @@ const MatchDetailPage = () => {
                             .map((opt) => {
                               const selected = isSelected(match.id, market.name, opt.label);
                               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+                              
+                              // Get odds change indicator
+                              const oddsChange = getOddsChange(market.name, opt.label);
+                              
                               return (
                                 <button
                                   key={opt.label}
@@ -314,7 +322,15 @@ const MatchDetailPage = () => {
                                   }`}
                                 >
                                   <span className="text-xs text-gray-300 block mb-1">{opt.label}</span>
-                                  <span className="font-bold text-base">{oddsValue.toFixed(2)}</span>
+                                  <span className="font-bold text-base flex items-center justify-center gap-1">
+                                    {oddsChange && oddsChange.direction === 'up' && (
+                                      <ArrowUp size={14} className="text-green-500" />
+                                    )}
+                                    {oddsChange && oddsChange.direction === 'down' && (
+                                      <ArrowDown size={14} className="text-red-500" />
+                                    )}
+                                    {oddsValue.toFixed(2)}
+                                  </span>
                                 </button>
                               );
                             })}

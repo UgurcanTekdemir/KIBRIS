@@ -9,6 +9,26 @@ import { useLiveMatches } from '../hooks/useMatches';
 const LiveMatchesPage = () => {
   // Get only live matches (isLive === true)
   const { matches, loading, error, refetch } = useLiveMatches(1);
+  
+  // Check if matches have loaded with odds (markets)
+  const hasMatchesWithOdds = useMemo(() => {
+    if (loading) return false;
+    if (!matches || matches.length === 0) return false;
+    // Check if at least one match has markets with valid odds
+    return matches.some(match => {
+      if (!match.markets || !Array.isArray(match.markets)) return false;
+      return match.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+    });
+  }, [matches, loading]);
+  
+  // Show loading until matches with odds are loaded
+  const isLoading = loading || !hasMatchesWithOdds;
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -42,7 +62,7 @@ const LiveMatchesPage = () => {
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             </h1>
             <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${matches.length} canlı maç bulundu`}
+              {isLoading ? 'Oranlar yükleniyor...' : `${matches.length} canlı maç bulundu`}
             </p>
           </div>
         </div>
@@ -50,9 +70,9 @@ const LiveMatchesPage = () => {
           variant="outline" 
           className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
           onClick={refetch}
-          disabled={loading}
+          disabled={isLoading}
         >
-          <RefreshCw size={16} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
           Yenile
         </Button>
       </div>
@@ -86,7 +106,7 @@ const LiveMatchesPage = () => {
       )}
 
       {/* Matches Grid */}
-      {loading ? (
+      {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[...Array(4)].map((_, i) => (
             <MatchCardSkeleton key={i} />
@@ -101,7 +121,7 @@ const LiveMatchesPage = () => {
           </div>
 
           {/* Empty State */}
-          {matches.length === 0 && !loading && (
+          {matches.length === 0 && !isLoading && (
             <div className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
                 <Zap size={40} className="text-gray-600" />

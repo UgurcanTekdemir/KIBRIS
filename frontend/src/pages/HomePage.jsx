@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ScrollArea, ScrollBar } from '../components/ui/scroll-area';
 import { useMatches } from '../hooks/useMatches';
+import SetRoleHelper from '../components/SetRoleHelper';
 
 // Popular Leagues Component
 function PopularLeagues({ allMatches }) {
@@ -69,6 +70,26 @@ const HomePage = () => {
   
   // Fetch matches from API
   const { matches: allMatches, loading, error } = useMatches({ matchType: 1 });
+  
+  // Check if matches have loaded with odds (markets)
+  const hasMatchesWithOdds = useMemo(() => {
+    if (loading) return false;
+    if (!allMatches || allMatches.length === 0) return false;
+    // Check if at least one match has markets with valid odds
+    return allMatches.some(match => {
+      if (!match.markets || !Array.isArray(match.markets)) return false;
+      return match.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+    });
+  }, [allMatches, loading]);
+  
+  // Show loading until matches with odds are loaded
+  const isLoading = loading || !hasMatchesWithOdds;
 
   // Filter matches by today and upcoming
   // Exclude past/finished matches explicitly
@@ -143,6 +164,8 @@ const HomePage = () => {
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-3 sm:space-y-4 lg:space-y-6">
+      {/* Role Helper - Temporary component for setting roles */}
+      <SetRoleHelper />
       {/* Search Bar */}
       <div className="relative mb-2 sm:mb-0">
         <Search className="absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
@@ -171,7 +194,7 @@ const HomePage = () => {
           <div className="flex items-center gap-1.5 sm:gap-2">
             <Calendar size={16} className="text-amber-500 sm:w-4 sm:h-4 md:w-5 md:h-5" />
             <h2 className="text-base sm:text-lg md:text-xl font-bold text-white">Bugünün Maçları</h2>
-            {loading && <Loader2 size={14} className="animate-spin text-gray-400" />}
+            {isLoading && <Loader2 size={14} className="animate-spin text-gray-400" />}
           </div>
           <Link to="/matches" className="flex items-center gap-0.5 sm:gap-1 text-amber-500 hover:text-amber-400 text-[10px] sm:text-xs md:text-sm font-medium">
             Tümünü Gör
@@ -187,9 +210,9 @@ const HomePage = () => {
         
         <div className="overflow-x-auto pb-2 -mx-2 sm:-mx-3 sm:mx-0 sm:px-0 scrollbar-hide">
           <div className="flex gap-2 sm:gap-3 px-2 sm:px-0">
-            {loading ? (
+            {isLoading ? (
               <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
-                Maçlar yükleniyor...
+                Oranlar yükleniyor...
               </div>
             ) : filteredTodayMatches.length > 0 ? (
               filteredTodayMatches.slice(0, 4).map((match) => (

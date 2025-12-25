@@ -701,8 +701,10 @@ function formatTimeFromISO(dateObj) {
     return '';
   }
   
-  const hours = String(dateObj.getUTCHours()).padStart(2, '0');
-  const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
+  // Use local time instead of UTC to show correct time for user's timezone
+  // This ensures times match what users see on Google/search engines
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
   return `${hours}:${minutes}`;
 }
 

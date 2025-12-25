@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { useAuth } from '../../context/AuthContext';
-import { X, Trash2, Receipt, AlertCircle } from 'lucide-react';
+import { X, Trash2, Receipt, AlertCircle, Lock } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
@@ -10,6 +10,11 @@ import { toast } from 'sonner';
 const BetSlip = () => {
   const { selections, stake, setStake, removeSelection, clearSelections, totalOdds, potentialWin } = useBetSlip();
   const { user, updateBalance } = useAuth();
+
+  // Check if any selection is from a locked live match
+  const hasLockedSelections = useMemo(() => {
+    return selections.some(selection => selection.isLocked === true);
+  }, [selections]);
 
   const handlePlaceBet = () => {
     if (!user) {
@@ -26,6 +31,10 @@ const BetSlip = () => {
     }
     if (selections.length === 0) {
       toast.error('En az bir seçim yapınız!');
+      return;
+    }
+    if (hasLockedSelections) {
+      toast.error('Kuponunuzda kilitli maçlar var. Lütfen kilitli seçimleri kaldırın.');
       return;
     }
 
@@ -77,31 +86,42 @@ const BetSlip = () => {
       {/* Selections */}
       <ScrollArea className="h-[calc(100vh-400px)] min-h-[200px] max-h-[400px]">
         <div className="p-3 space-y-2">
-          {selections.map((selection, index) => (
-            <div
-              key={`${selection.matchId}-${selection.marketName}-${index}`}
-              className="bg-[#1a2332] rounded-lg p-3 relative group"
-            >
-              <button
-                onClick={() => removeSelection(selection.matchId, selection.marketName)}
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-500"
+          {selections.map((selection, index) => {
+            const isLocked = selection.isLocked === true;
+            return (
+              <div
+                key={`${selection.matchId}-${selection.marketName}-${index}`}
+                className={`bg-[#1a2332] rounded-lg p-3 relative group ${
+                  isLocked ? 'border border-red-500/50 opacity-75' : ''
+                }`}
               >
-                <X size={16} />
-              </button>
-              <p className="text-xs text-gray-500 mb-1">{selection.league}</p>
-              <p className="text-white text-sm font-medium mb-1 pr-6">
-                {selection.matchName}
-              </p>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-400">
-                  {selection.marketName}: <span className="text-amber-500">{selection.option}</span>
-                </span>
-                <span className="text-amber-500 font-bold text-sm">
-                  {selection.odds.toFixed(2)}
-                </span>
+                <button
+                  onClick={() => removeSelection(selection.matchId, selection.marketName)}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-500"
+                >
+                  <X size={16} />
+                </button>
+                {isLocked && (
+                  <div className="absolute top-2 left-2 flex items-center gap-1 text-red-500 text-xs">
+                    <Lock size={12} />
+                    <span>Kilitli</span>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mb-1">{selection.league}</p>
+                <p className="text-white text-sm font-medium mb-1 pr-6">
+                  {selection.matchName}
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">
+                    {selection.marketName}: <span className="text-amber-500">{selection.option}</span>
+                  </span>
+                  <span className={`font-bold text-sm ${isLocked ? 'text-gray-600' : 'text-amber-500'}`}>
+                    {isLocked ? '🔒' : selection.odds.toFixed(2)}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </ScrollArea>
 
@@ -146,6 +166,16 @@ const BetSlip = () => {
           </div>
         </div>
 
+        {/* Warning if selections are locked */}
+        {hasLockedSelections && (
+          <div className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <Lock size={16} className="text-red-500 flex-shrink-0" />
+            <p className="text-xs text-red-500">
+              Kuponunuzda kilitli maçlar var. Tehlikeli durum geçene kadar bahis yapılamaz.
+            </p>
+          </div>
+        )}
+
         {/* Warning if not logged in */}
         {!user && (
           <div className="flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
@@ -157,10 +187,17 @@ const BetSlip = () => {
         {/* Place Bet Button */}
         <Button
           onClick={handlePlaceBet}
-          className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3"
-          disabled={!user || stake <= 0 || selections.length === 0}
+          className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!user || stake <= 0 || selections.length === 0 || hasLockedSelections}
         >
-          Kupon Oluştur
+          {hasLockedSelections ? (
+            <span className="flex items-center gap-2">
+              <Lock size={16} />
+              Kilitli - Bahis Yapılamaz
+            </span>
+          ) : (
+            'Kupon Oluştur'
+          )}
         </Button>
       </div>
     </div>

@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { useLiveMatchEvents } from '../../hooks/useLiveMatchEvents';
 import { useLiveMatchStatistics } from '../../hooks/useLiveMatchStatistics';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useOddsTracking } from '../../hooks/useOddsTracking';
+import { ChevronDown, ChevronUp, Lock, ArrowUp, ArrowDown } from 'lucide-react';
+import { shouldLockBetting } from '../../utils/liveMatchSafety';
 
 // Format event type to emoji/icon
 function getEventIcon(event) {
@@ -50,6 +52,14 @@ const LiveMatchCard = ({ match }) => {
   const { statistics } = useLiveMatchStatistics(match.id, match.isLive, 30000);
   
   const mainMarket = match.markets?.[0];
+
+  // Track odds changes
+  const { getOddsChange } = useOddsTracking(match.id, match, 5000);
+
+  // Check if betting should be locked due to dangerous situations
+  const lockStatus = useMemo(() => {
+    return shouldLockBetting(match, events, statistics);
+  }, [match, events, statistics]);
   
   // Get recent events (last 3-5)
   const recentEvents = useMemo(() => {
@@ -116,8 +126,14 @@ const LiveMatchCard = ({ match }) => {
   const handleOddsClick = (e, opt) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Prevent betting if locked
+    if (lockStatus.isLocked) {
+      return;
+    }
+    
     const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-    addSelection(match, mainMarket.name, opt.label, oddsValue);
+    addSelection(match, mainMarket.name, opt.label, oddsValue, lockStatus.isLocked);
   };
 
   return (
@@ -231,6 +247,16 @@ const LiveMatchCard = ({ match }) => {
         </div>
       )}
 
+      {/* Lock Warning */}
+      {lockStatus.isLocked && (
+        <div className="px-3 sm:px-4 py-2 bg-red-500/10 border-t border-red-500/20">
+          <div className="flex items-center gap-2 text-red-500 text-xs">
+            <Lock size={14} />
+            <span>{lockStatus.reason}</span>
+          </div>
+        </div>
+      )}
+
       {/* Quick Odds */}
       {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
         <div className="px-3 sm:px-4 pb-3">
@@ -240,18 +266,40 @@ const LiveMatchCard = ({ match }) => {
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               // Only show if odds value is valid (> 0)
               if (oddsValue <= 0) return null;
+              const isDisabled = lockStatus.isLocked;
+              
+              // Get odds change indicator
+              const oddsChange = getOddsChange(mainMarket.name, opt.label);
+              
               return (
                 <button
                   key={opt.label}
                   onClick={(e) => handleOddsClick(e, opt)}
-                  className={`flex-1 py-2 px-2 rounded-lg text-center transition-all ${
-                    selected
+                  disabled={isDisabled}
+                  className={`flex-1 py-2 px-2 rounded-lg text-center transition-all relative ${
+                    isDisabled
+                      ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-50'
+                      : selected
                       ? 'bg-amber-500 text-black'
                       : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                   }`}
                 >
                   <span className="text-[10px] sm:text-xs text-gray-400 block leading-tight">{opt.label}</span>
-                  <span className="font-bold text-sm sm:text-base">{oddsValue.toFixed(2)}</span>
+                  <span className="font-bold text-sm sm:text-base flex items-center justify-center gap-1">
+                    {isDisabled ? (
+                      <Lock size={12} className="inline" />
+                    ) : (
+                      <>
+                        {oddsChange && oddsChange.direction === 'up' && (
+                          <ArrowUp size={14} className="text-green-500" />
+                        )}
+                        {oddsChange && oddsChange.direction === 'down' && (
+                          <ArrowDown size={14} className="text-red-500" />
+                        )}
+                        {oddsValue.toFixed(2)}
+                      </>
+                    )}
+                  </span>
                 </button>
               );
             })}

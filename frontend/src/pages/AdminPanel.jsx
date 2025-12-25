@@ -141,67 +141,67 @@ const AdminPanel = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto px-2 sm:px-4">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
-          <LayoutDashboard size={24} className="text-red-500" />
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
+          <LayoutDashboard size={20} className="sm:w-6 sm:h-6 text-red-500" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-white">Admin Panel</h1>
-          <p className="text-sm text-gray-400">Sistem yönetimi</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Admin Panel</h1>
+          <p className="text-xs sm:text-sm text-gray-400">Sistem yönetimi</p>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Users size={16} />
-            <span className="text-sm">Toplam Kullanıcı</span>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <Users size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Kullanıcı</span>
           </div>
-          <p className="text-2xl font-bold text-white">{allUsers.length}</p>
+          <p className="text-lg sm:text-2xl font-bold text-white">{allUsers.length}</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <FileText size={16} />
-            <span className="text-sm">Toplam Kupon</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <FileText size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Kupon</span>
           </div>
-          <p className="text-2xl font-bold text-amber-500">{allCoupons.length}</p>
+          <p className="text-lg sm:text-2xl font-bold text-amber-500">{allCoupons.length}</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingUp size={16} />
-            <span className="text-sm">Toplam Yükleme</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <TrendingUp size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Yükleme</span>
           </div>
-          <p className="text-2xl font-bold text-green-500">{totalDeposits.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-lg sm:text-2xl font-bold text-green-500">{totalDeposits.toLocaleString('tr-TR')} ₺</p>
         </div>
-        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingDown size={16} />
-            <span className="text-sm">Toplam Bahis</span>
+        <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-2 sm:p-4">
+          <div className="flex items-center gap-1 sm:gap-2 text-gray-400 mb-1 sm:mb-2">
+            <TrendingDown size={14} className="sm:w-4 sm:h-4" />
+            <span className="text-xs sm:text-sm">Toplam Bahis</span>
           </div>
-          <p className="text-2xl font-bold text-red-500">{totalBets.toLocaleString('tr-TR')} ₺</p>
+          <p className="text-lg sm:text-2xl font-bold text-red-500">{totalBets.toLocaleString('tr-TR')} ₺</p>
         </div>
       </div>
 
       {/* Main Content */}
       <Tabs defaultValue="users">
-        <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
-          <TabsTrigger value="users" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <Users size={16} className="mr-2" />
+        <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-4 sm:mb-6 overflow-x-auto">
+          <TabsTrigger value="users" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-xs sm:text-sm whitespace-nowrap">
+            <Users size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             Kullanıcılar
           </TabsTrigger>
-          <TabsTrigger value="coupons" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <FileText size={16} className="mr-2" />
+          <TabsTrigger value="coupons" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-xs sm:text-sm whitespace-nowrap">
+            <FileText size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             Kuponlar
           </TabsTrigger>
-          <TabsTrigger value="banners" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <Image size={16} className="mr-2" />
+          <TabsTrigger value="banners" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-xs sm:text-sm whitespace-nowrap">
+            <Image size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             Bannerlar
           </TabsTrigger>
-          <TabsTrigger value="settings" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-            <Settings size={16} className="mr-2" />
+          <TabsTrigger value="settings" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black text-xs sm:text-sm whitespace-nowrap">
+            <Settings size={14} className="sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             Ayarlar
           </TabsTrigger>
         </TabsList>
@@ -266,7 +266,7 @@ const AdminPanel = () => {
                               <Wallet size={16} />
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="bg-[#0d1117] border-[#1e2736]">
+                          <DialogContent className="bg-[#0d1117] border-[#1e2736] max-w-[95vw] sm:max-w-md">
                             <DialogHeader>
                               <DialogTitle className="text-white">Bakiye İşlemleri - {u.username}</DialogTitle>
                             </DialogHeader>

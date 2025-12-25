@@ -61,6 +61,7 @@ export const AuthProvider = ({ children }) => {
 
   /**
    * Register new user
+   * All new registrations are automatically set as 'player' role
    */
   const register = async (email, password, username, role = 'player', parentId = null) => {
     try {
@@ -69,11 +70,13 @@ export const AuthProvider = ({ children }) => {
       const firebaseUser = userCredential.user;
 
       // Create user document in Firestore
+      // IMPORTANT: All new registrations are always 'player' role
+      // Role changes can only be done by SuperAdmin from the panel
       const userData = {
         email,
         username,
-        role,
-        parentId,
+        role: 'player', // Force 'player' role for all new registrations
+        parentId: null, // New registrations don't have parentId initially
         balance: 0,
         credit: 0,
         isBanned: false,

@@ -9,8 +9,12 @@ const getEnvVar = (key) => {
   if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__[key]) {
     return window.__ENV__[key];
   }
-  // Fallback to process.env (webpack DefinePlugin)
-  return process.env[key];
+  // Fallback to process.env (webpack DefinePlugin) - only if process is defined
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key];
+  }
+  // Return undefined if not found
+  return undefined;
 };
 
 // Validate required environment variables
@@ -40,10 +44,12 @@ const missingVars = Object.entries(requiredEnvVars)
 if (missingVars.length > 0) {
   console.error('❌ Missing Firebase environment variables:', missingVars);
   console.error('window.__ENV__:', typeof window !== 'undefined' ? window.__ENV__ : 'window not available');
-  console.error('process.env sample:', {
-    NODE_ENV: process.env.NODE_ENV,
-    hasREACT_APP: Object.keys(process.env).filter(k => k.startsWith('REACT_APP_')).length
-  });
+  if (typeof process !== 'undefined' && process.env) {
+    console.error('process.env sample:', {
+      NODE_ENV: process.env.NODE_ENV,
+      hasREACT_APP: Object.keys(process.env).filter(k => k.startsWith('REACT_APP_')).length
+    });
+  }
   throw new Error(
     `Missing required Firebase environment variables: ${missingVars.join(', ')}\n` +
     `Please ensure .env file exists in the frontend directory and env.js is loaded.`

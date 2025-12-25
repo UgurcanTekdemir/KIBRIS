@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { User, Lock, Mail, ArrowLeft } from 'lucide-react';
+import { User, Lock, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
+import { Button } from '../components/ui/button';
 
 const AuthPage = () => {
   const location = useLocation();
@@ -15,6 +22,7 @@ const AuthPage = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const { login, register } = useAuth();
   const navigate = useNavigate();
 
@@ -72,14 +80,18 @@ const AuthPage = () => {
     try {
       const result = await register(formData.email, formData.password, formData.username, 'player');
       if (result.success) {
+        // Show success dialog
+        setShowSuccessDialog(true);
         toast.success('Kayıt başarılı! Giriş yapabilirsiniz.');
-        setIsSignIn(true);
         setFormData({ username: '', email: '', password: '', confirmPassword: '' });
       } else {
         setError(result.error);
+        toast.error(result.error || 'Kayıt başarısız oldu');
       }
     } catch (error) {
-      setError('Kayıt sırasında bir hata oluştu');
+      const errorMessage = 'Kayıt sırasında bir hata oluştu';
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -213,6 +225,46 @@ const AuthPage = () => {
         </div>
         </div>
       </div>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="bg-[#0d1117] border-[#1e2736] text-white max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-center justify-center">
+              <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center">
+                <CheckCircle size={32} className="text-green-500" />
+              </div>
+              <span className="text-xl">Kayıt Başarılı!</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-gray-300 text-center">
+              Hesabınız başarıyla oluşturuldu. Şimdi giriş yapabilirsiniz.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={() => {
+                  setShowSuccessDialog(false);
+                  setIsSignIn(true);
+                }}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+              >
+                Giriş Yap
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowSuccessDialog(false);
+                  navigate('/');
+                }}
+                className="w-full border-[#1e2736] text-gray-300 hover:text-white"
+              >
+                Ana Sayfaya Dön
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
