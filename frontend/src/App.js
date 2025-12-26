@@ -12,6 +12,7 @@ import MatchesPage from "./pages/MatchesPage";
 import MatchDetailPage from "./pages/MatchDetailPage";
 import LeaguePage from "./pages/LeaguePage";
 import LeaguesPage from "./pages/LeaguesPage";
+import LeagueStandingsPage from "./pages/LeagueStandingsPage";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
 import CouponsPage from "./pages/CouponsPage";
@@ -155,6 +156,7 @@ function AppContent() {
           <Route path="match/:id" element={<MatchDetailPage />} />
           <Route path="leagues" element={<LeaguesPage />} />
           <Route path="league/:id" element={<LeaguePage />} />
+          <Route path="league-standings/:id" element={<LeagueStandingsPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="coupons" element={<CouponsPage />} />
           <Route path="betslip" element={<BetSlipPage />} />

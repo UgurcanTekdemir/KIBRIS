@@ -286,6 +286,19 @@ export function mapApiMatchToInternal(apiMatch) {
   const status = (apiMatch.status || '').toUpperCase();
   const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELLED' || status === 'CANCELED';
   const isPostponed = status === 'POSTPONED';
+
+  // Guardrail: A match cannot be live if its kickoff time is still in the future.
+  // StatPal (or our backend transform) may occasionally mark is_live incorrectly for scheduled matches.
+  // We treat "future kickoff" as a hard override.
+  const FUTURE_KICKOFF_GRACE_MS = 2 * 60 * 1000; // 2 minutes
+  const isKickoffInFuture =
+    commenceTime instanceof Date &&
+    !isNaN(commenceTime.getTime()) &&
+    commenceTime.getTime() - Date.now() > FUTURE_KICKOFF_GRACE_MS;
+  if (isKickoffInFuture) {
+    isLive = false;
+    minute = null;
+  }
   
   // Also check status field for live indicators (1H, 2H, HT, LIVE, INPLAY, etc.)
   const statusUpper = (apiMatch.status || '').toUpperCase();
@@ -300,7 +313,7 @@ export function mapApiMatchToInternal(apiMatch) {
   // IMPORTANT: If backend explicitly sets is_live to true, trust it
   // BUT: If match is finished (FT), don't show it as live even if backend says is_live=true
   // (StatPal /live endpoint returns recently finished matches, but we only want truly live ones)
-  if ((apiMatch.is_live === true || apiMatch.isLive === true) && !isFinished) {
+  if ((apiMatch.is_live === true || apiMatch.isLive === true) && !isFinished && !isKickoffInFuture) {
     isLive = true;
   }
   
@@ -694,33 +707,53 @@ function getLeagueFlag(countryOrLeague) {
 /**
  * Format time from ISO 8601 date string
  * @param {Date} dateObj - Date object
- * @returns {string} Formatted time (HH:MM)
+ * @returns {string} Formatted time (HH:MM) in Turkey timezone (UTC+3)
  */
 function formatTimeFromISO(dateObj) {
   if (!dateObj || !(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
     return '';
   }
   
-  // Use local time instead of UTC to show correct time for user's timezone
-  // This ensures times match what users see on Google/search engines
-  const hours = String(dateObj.getHours()).padStart(2, '0');
-  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  // Convert to Turkey timezone (Europe/Istanbul, UTC+3)
+  // API returns UTC time, we need to show it in Turkey time
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(dateObj);
+  const hours = parts.find(p => p.type === 'hour')?.value || '00';
+  const minutes = parts.find(p => p.type === 'minute')?.value || '00';
+  
   return `${hours}:${minutes}`;
 }
 
 /**
  * Format date from ISO 8601 date string
  * @param {Date} dateObj - Date object
- * @returns {string} Formatted date (YYYY-MM-DD)
+ * @returns {string} Formatted date (YYYY-MM-DD) in Turkey timezone
  */
 function formatDateFromISO(dateObj) {
   if (!dateObj || !(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
     return '';
   }
   
-  const year = dateObj.getUTCFullYear();
-  const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getUTCDate()).padStart(2, '0');
+  // Convert to Turkey timezone (Europe/Istanbul, UTC+3)
+  // This ensures the date matches the time shown to users
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  
+  const parts = formatter.formatToParts(dateObj);
+  const year = parts.find(p => p.type === 'year')?.value || '0000';
+  const month = parts.find(p => p.type === 'month')?.value || '01';
+  const day = parts.find(p => p.type === 'day')?.value || '01';
+  
   return `${year}-${month}-${day}`;
 }
 

@@ -107,12 +107,12 @@ const AgentPanel = () => {
 
     try {
       if (operationType === 'credit') {
-        if (creditType === 'add') {
-          await addCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi eklendi`);
+      if (creditType === 'add') {
+        await addCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi eklendi`);
           toast.success(`${amount} ₺ kredi beklemede olarak eklendi`);
-        } else {
-          await removeCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi çıkarıldı`);
-          toast.success(`${amount} ₺ kredi çıkarıldı`);
+      } else {
+        await removeCredit(user.id, selectedPlayer.id, amount, `Bayi tarafından kredi çıkarıldı`);
+        toast.success(`${amount} ₺ kredi çıkarıldı`);
         }
       } else {
         // Balance operation

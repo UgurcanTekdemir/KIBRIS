@@ -129,7 +129,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
         {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
           <div className="px-2 sm:px-3 pb-2 sm:pb-3">
             <div className="flex gap-1 sm:gap-1.5">
-              {mainMarket.options.map((opt) => {
+              {mainMarket.options.map((opt, optIdx) => {
                 const selected = isSelected(match.id, mainMarket.name, opt.label);
                 const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                 // Only show if odds value is valid (> 0)
@@ -140,7 +140,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                 
                 return (
                   <button
-                    key={opt.label}
+                    key={`${mainMarket.name}-${opt.label}-${optIdx}`}
                     onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
                     className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all ${
                       selected
@@ -264,7 +264,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
       {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
         <div className="px-3 sm:px-4 pb-3 sm:pb-4">
           <div className="flex gap-2">
-            {mainMarket.options.map((opt) => {
+            {mainMarket.options.map((opt, optIdx) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               // Only show if odds value is valid (> 0)
@@ -275,7 +275,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               
               return (
                 <button
-                  key={opt.label}
+                  key={`${mainMarket.name}-${opt.label}-${optIdx}`}
                   onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
                   className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                     selected
@@ -316,7 +316,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               <div key={idx}>
                 <p className="text-xs text-gray-500 mb-2">{market.name}</p>
                 <div className="flex gap-2">
-                  {validOptions.map((opt) => {
+                  {validOptions.map((opt, optIdx) => {
                     const selected = isSelected(match.id, market.name, opt.label);
                     const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                     
@@ -325,7 +325,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                     
                     return (
                       <button
-                        key={opt.label}
+                        key={`${market.name}-${opt.label}-${optIdx}`}
                         onClick={(e) => handleOddsClick(e, market, opt.label, oddsValue)}
                         className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                           selected

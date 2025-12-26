@@ -159,8 +159,16 @@ export const matchAPI = {
    * @returns {Promise<Object>} Match details
    */
   async getMatchDetails(matchId) {
-    const response = await fetchAPI(`/matches/${matchId}`);
-    return response.data || null;
+    try {
+      const response = await fetchAPI(`/matches/${matchId}`);
+      return response.data || null;
+    } catch (error) {
+      // Match not found is a valid scenario for some IDs; callers can decide how to fallback.
+      if (error instanceof ApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   },
 
   /**
@@ -216,8 +224,16 @@ export const matchAPI = {
    * @returns {Promise<Object>} Match statistics
    */
   async getMatchStatistics(matchId) {
-    const response = await fetchAPI(`/matches/${matchId}/statistics`);
-    return response.data || null;
+    try {
+      const response = await fetchAPI(`/matches/${matchId}/statistics`);
+      return response.data || null;
+    } catch (error) {
+      // Some matches simply don't have statistics available; treat as empty instead of error.
+      if (error instanceof ApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   },
 
   /**
@@ -228,6 +244,53 @@ export const matchAPI = {
   async getMatchLineups(matchId) {
     const response = await fetchAPI(`/matches/${matchId}/lineups`);
     return response.data || null;
+  },
+
+  /**
+   * Get league standings from StatPal Soccer(V2) via backend passthrough
+   * @param {string} leagueId - StatPal league id
+   * @param {string|null} season - Optional season (backend may ignore if not supported)
+   * @returns {Promise<Object|null>} Standings payload
+   */
+  async getLeagueStandings(leagueId, season = null) {
+    if (!leagueId) return null;
+    const qs = season ? `?season=${encodeURIComponent(season)}` : '';
+    const response = await fetchAPI(`/standings/statpal/${leagueId}${qs}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get available seasons from StatPal Soccer(V2)
+   * Note: current backend endpoint returns a global seasons list (leagueId is kept for compatibility).
+   * @param {string|null} leagueId
+   * @returns {Promise<Array>}
+   */
+  async getLeagueSeasons(leagueId = null) {
+    const response = await fetchAPI('/seasons/statpal');
+    return response.data || [];
+  },
+
+  /**
+   * Get head-to-head data from StatPal Soccer(V2)
+   */
+  async getHeadToHead(team1Id, team2Id) {
+    if (!team1Id || !team2Id) return null;
+    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
+    return response.data || null;
+  },
+
+  /**
+   * Get injuries & suspensions from StatPal Soccer(V2)
+   * @param {string|null} teamId
+   * @param {string|null} leagueId - kept for compatibility (may be ignored if backend doesn't support)
+   */
+  async getInjuriesSuspensions(teamId = null, leagueId = null) {
+    const qs = new URLSearchParams();
+    if (teamId) qs.set('team_id', teamId);
+    if (leagueId) qs.set('league_id', leagueId);
+    const query = qs.toString();
+    const response = await fetchAPI(`/injuries-suspensions/statpal${query ? `?${query}` : ''}`);
+    return response.data || [];
   },
 };
 
@@ -395,9 +458,8 @@ export const statpalAPI = {
    * @returns {Promise<Array>} List of injuries/suspensions
    */
   async getInjuries(teamId = null) {
-    const params = teamId ? `?team_id=${teamId}` : '';
-    const response = await fetchAPI(`/injuries/statpal${params}`);
-    return response.data || [];
+    // Deprecated alias: StatPal Soccer(V2) provides injuries & suspensions via a combined endpoint.
+    return await this.getInjuriesSuspensions(teamId);
   },
 
   /**
@@ -407,7 +469,8 @@ export const statpalAPI = {
    * @returns {Promise<Object>} Head-to-head statistics
    */
   async getHeadToHead(team1Id, team2Id) {
-    const response = await fetchAPI(`/teams/statpal/${team1Id}/vs/${team2Id}`);
+    // Deprecated alias: use /head-to-head/statpal
+    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
     return response.data || null;
   },
 
@@ -597,16 +660,7 @@ export const statpalAPI = {
     return response.data || [];
   },
 
-  /**
-   * Get head-to-head statistics from StatPal API
-   * @param {number} team1Id - First team ID
-   * @param {number} team2Id - Second team ID
-   * @returns {Promise<Object>} Head-to-head statistics
-   */
-  async getHeadToHead(team1Id, team2Id) {
-    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
-    return response.data || null;
-  },
+  // Note: getHeadToHead is defined above (kept here previously as a duplicate).
 };
 
 /**

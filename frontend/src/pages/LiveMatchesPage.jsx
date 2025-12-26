@@ -9,7 +9,7 @@ import { useLiveMatches } from '../hooks/useMatches';
 const LiveMatchesPage = () => {
   // Get only live matches (isLive === true)
   const { matches, loading, error, refetch } = useLiveMatches(1);
-  
+
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
     if (loading) return false;
@@ -62,7 +62,11 @@ const LiveMatchesPage = () => {
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             </h1>
             <p className="text-sm text-gray-400">
-              {isLoading ? 'Oranlar yükleniyor...' : `${matches.length} canlı maç bulundu`}
+              {isLoading 
+                ? 'Veriler çekiliyor lütfen bekleyiniz...' 
+                : matches.length === 0 
+                  ? 'Şu an canlı maç bulunmamaktadır'
+                  : `${matches.length} canlı maç bulundu`}
             </p>
           </div>
         </div>
@@ -107,35 +111,45 @@ const LiveMatchesPage = () => {
 
       {/* Matches Grid */}
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[...Array(4)].map((_, i) => (
-            <MatchCardSkeleton key={i} />
-          ))}
-        </div>
-      ) : (
         <>
+          {/* Loading Message */}
+          <div className="text-center py-16">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
+              <RefreshCw size={40} className="text-amber-500 animate-spin" />
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">Veriler çekiliyor lütfen bekleyiniz</h3>
+            <p className="text-gray-500 mb-4">
+              Canlı maçlar ve oranlar yükleniyor...
+            </p>
+          </div>
+          {/* Loading Skeletons */}
           <div className="grid gap-4 md:grid-cols-2">
-            {matches.map((match) => (
-              <LiveMatchCard key={match.id} match={match} />
+            {[...Array(4)].map((_, i) => (
+              <MatchCardSkeleton key={i} />
             ))}
           </div>
-
-          {/* Empty State */}
-          {matches.length === 0 && !isLoading && (
-            <div className="text-center py-16">
-              <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
-                <Zap size={40} className="text-gray-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Şu anda canlı maç yok</h3>
-              <p className="text-gray-500 mb-4">
-                Şu anda oynanan canlı maç bulunmamaktadır.
-              </p>
-              <p className="text-gray-400 text-sm">
-                Tüm maçları görmek için <a href="/matches" className="text-amber-500 hover:text-amber-400">Maçlar</a> sayfasını ziyaret edin.
-              </p>
-            </div>
-          )}
         </>
+      ) : matches.length === 0 ? (
+        /* Empty State - No Live Matches */
+        <div className="text-center py-16">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
+            <Zap size={40} className="text-gray-600" />
+          </div>
+          <h3 className="text-xl font-semibold text-white mb-2">Şu an canlı maç bulunmamaktadır</h3>
+          <p className="text-gray-500 mb-4">
+            Şu anda oynanan canlı maç bulunmamaktadır.
+          </p>
+          <p className="text-gray-400 text-sm">
+            Tüm maçları görmek için <a href="/matches" className="text-amber-500 hover:text-amber-400">Maçlar</a> sayfasını ziyaret edin.
+          </p>
+        </div>
+      ) : (
+        /* Matches List */
+        <div className="grid gap-4 md:grid-cols-2">
+          {matches.map((match, idx) => (
+            <LiveMatchCard key={match.id || `live-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} />
+          ))}
+        </div>
       )}
     </div>
   );

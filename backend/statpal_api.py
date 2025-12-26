@@ -14,7 +14,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 STATPAL_API_BASE_URL = "https://statpal.io/api/v2"
-STATPAL_ACCESS_KEY = os.environ.get("STATPAL_ACCESS_KEY", "75d51040-917d-4a51-a957-4fa2222cc9f3")
+# SECURITY: Do not hardcode access keys in source code. Provide STATPAL_ACCESS_KEY via environment variables.
+STATPAL_ACCESS_KEY = os.environ.get("STATPAL_ACCESS_KEY", "")
 
 # League mapping for Turkish names and flags
 LEAGUE_MAP = {
@@ -76,6 +77,11 @@ class StatPalApiService:
         Returns:
             JSON response data
         """
+        if not self.access_key:
+            raise Exception(
+                "STATPAL_ACCESS_KEY environment variable is not set. "
+                "Please configure it (e.g. in backend/.env) to enable StatPal Soccer(V2) requests."
+            )
         url = f"{self.base_url}/{path.lstrip('/')}"
         query_params = {"access_key": self.access_key}
         if params:
@@ -606,7 +612,75 @@ class StatPalApiService:
         
         return transformed
 
-    async def get_live_matches(self) -> List[Dict[str, Any]]:
+    def _match_unique_key(self, match: Dict[str, Any]) -> Optional[str]:
+        """
+        Build a stable unique key for a match across different StatPal endpoints.
+        Prefer the transformed 'id', fallback to other known ids.
+        """
+        for field in ("id", "main_id", "fallback_id_1", "fallback_id_2", "fallback_id_3", "match_id"):
+            value = match.get(field)
+            if value is None:
+                continue
+            value_str = str(value).strip()
+            if value_str:
+                return value_str
+        return None
+
+    def _match_quality_score(self, match: Dict[str, Any]) -> int:
+        """
+        Heuristic score to pick the 'best' duplicate when multiple records share the same match id.
+        Higher is better.
+        """
+        score = 0
+        if match.get("is_live") is True:
+            score += 100
+        # Odds / markets presence
+        bookmakers = match.get("bookmakers")
+        if isinstance(bookmakers, list) and bookmakers:
+            score += 50 + min(len(bookmakers), 10)
+        # Score/minute presence
+        if match.get("scores"):
+            score += 10
+        if match.get("minute") is not None:
+            score += 5
+        # Completed status tends to have more stable data
+        status = str(match.get("status") or "").upper()
+        if status in ("FT", "FINISHED"):
+            score += 2
+        return score
+
+    def _dedupe_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deduplicate matches by unique id while preserving the original order.
+        If duplicates exist, keep the one with the highest quality score.
+        """
+        if not matches:
+            return []
+
+        best_by_key: Dict[str, Dict[str, Any]] = {}
+        for m in matches:
+            key = self._match_unique_key(m)
+            if not key:
+                continue
+            prev = best_by_key.get(key)
+            if not prev or self._match_quality_score(m) > self._match_quality_score(prev):
+                best_by_key[key] = m
+
+        seen: set = set()
+        result: List[Dict[str, Any]] = []
+        for m in matches:
+            key = self._match_unique_key(m)
+            if not key:
+                result.append(m)
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(best_by_key.get(key, m))
+
+        return result
+
+    async def get_live_matches(self, include_logos: bool = False) -> List[Dict[str, Any]]:
         """
         Get live soccer matches from StatPal API.
         
@@ -714,22 +788,23 @@ class StatPalApiService:
                     
                     logger.debug(f"Marking match from /live endpoint as live: {transformed.get('id')} - Status: {status}")
                     
-                    # Fetch logos if not already present
-                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
-                        try:
-                            home_logo = await self.get_team_logo(transformed.get("home_team"))
-                            if home_logo:
-                                transformed["home_team_logo"] = home_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch home team logo: {e}")
-                    
-                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
-                        try:
-                            away_logo = await self.get_team_logo(transformed.get("away_team"))
-                            if away_logo:
-                                transformed["away_team_logo"] = away_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    # Fetch logos only when explicitly requested (performance)
+                    if include_logos:
+                        if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                            try:
+                                home_logo = await self.get_team_logo(transformed.get("home_team"))
+                                if home_logo:
+                                    transformed["home_team_logo"] = home_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch home team logo: {e}")
+                        
+                        if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                            try:
+                                away_logo = await self.get_team_logo(transformed.get("away_team"))
+                                if away_logo:
+                                    transformed["away_team_logo"] = away_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch away team logo: {e}")
                     
                     # Add odds if available
                     match_id_str = transformed.get("id", "")
@@ -741,7 +816,8 @@ class StatPalApiService:
                     logger.warning("Failed to transform match data: %s - %s", match, exc)
                     continue
             
-            # Cache the results
+            # Deduplicate and cache the results
+            transformed_matches = self._dedupe_matches(transformed_matches)
             self._cache[cache_key] = (transformed_matches, datetime.now())
             
             return transformed_matches
@@ -756,6 +832,8 @@ class StatPalApiService:
         sports: Optional[List[str]] = None,
         date: Optional[str] = None,
         league: Optional[str] = None,
+        include_past: bool = False,
+        include_prematch_odds: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Get all matches from StatPal API (live + daily + fixtures).
@@ -769,12 +847,19 @@ class StatPalApiService:
             List of matches in The Odds API-like format
         """
         try:
+            # Fast-path caching: matches endpoint can be expensive; cache the aggregated response briefly.
+            cache_key = f"all_matches_{date or 'today'}_{league or 'all'}_{'past' if include_past else 'nopast'}_{'odds' if include_prematch_odds else 'noodds'}"
+            if cache_key in self._cache:
+                cached_data, cached_time = self._cache[cache_key]
+                if (datetime.now() - cached_time).total_seconds() < 60:
+                    return cached_data
+
             all_matches = []
             existing_ids = set()
             
             # 1. Get live matches
             try:
-                live_matches = await self.get_live_matches()
+                live_matches = await self.get_live_matches(include_logos=False)
                 for match in live_matches:
                     match_id = match.get("id")
                     if match_id:
@@ -783,27 +868,29 @@ class StatPalApiService:
             except Exception as e:
                 logger.warning(f"Failed to get live matches: {e}")
             
-            # 2. Get daily matches for today, tomorrow, and past 2 weeks (to get both upcoming and past matches)
+            # 2. Get daily matches for today + tomorrow (keep it fast).
             try:
                 # Get today's matches
-                today_matches = await self.get_daily_matches(date=None)
+                today_matches = await self.get_daily_matches(date=None, include_logos=False)
                 # Also get tomorrow's matches for more upcoming matches
                 tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-                tomorrow_matches = await self.get_daily_matches(date=tomorrow)
-                # Get past matches from last 14 days
-                past_daily_matches = []
-                for days_ago in range(1, 15):  # Last 14 days (excluding today)
-                    past_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-                    try:
-                        past_matches = await self.get_daily_matches(date=past_date)
-                        past_daily_matches.extend(past_matches)
-                        # Small delay to avoid rate limiting
-                        await asyncio.sleep(0.05)
-                    except Exception as e:
-                        logger.debug(f"Failed to get daily matches for {past_date}: {e}")
-                        continue
-                # Combine today, tomorrow, and past matches
-                daily_matches = today_matches + tomorrow_matches + past_daily_matches
+                tomorrow_matches = await self.get_daily_matches(date=tomorrow, include_logos=False)
+
+                daily_matches = today_matches + tomorrow_matches
+
+                # Optional: include past daily matches (can be heavy).
+                if include_past:
+                    past_daily_matches = []
+                    for days_ago in range(1, 15):  # Last 14 days (excluding today)
+                        past_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+                        try:
+                            past_matches = await self.get_daily_matches(date=past_date, include_logos=False)
+                            past_daily_matches.extend(past_matches)
+                            await asyncio.sleep(0.05)
+                        except Exception as e:
+                            logger.debug(f"Failed to get daily matches for {past_date}: {e}")
+                            continue
+                    daily_matches = daily_matches + past_daily_matches
                 
                 # Remove duplicates (matches that are already in live_matches)
                 unique_daily = []
@@ -816,57 +903,8 @@ class StatPalApiService:
             except Exception as e:
                 logger.warning(f"Failed to get daily matches: {e}")
             
-            # 3. Always try to get matches from popular leagues (both upcoming and finished from last 2 weeks)
-            # This ensures we have upcoming matches for prematch odds and past matches for history
-            try:
-                # Get popular league IDs and fetch their matches
-                popular_league_ids = ["3037", "3258", "3232", "3102", "3054", "3062"]  # Premier League, Super Lig, La Liga, Serie A, Ligue 1, Bundesliga
-                for league_id in popular_league_ids:  # Get from all 6 popular leagues
-                    try:
-                        league_matches = await self.get_league_matches(league_id)
-                        # Get both upcoming and finished matches (for past matches display)
-                        for match in league_matches:
-                            match_id = match.get("id")
-                            # Check if match is within last 2 weeks (for finished matches)
-                            match_date = match.get("commence_time") or match.get("date")
-                            if match_date:
-                                try:
-                                    if isinstance(match_date, str):
-                                        match_datetime = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
-                                    else:
-                                        match_datetime = match_date
-                                    if match_datetime.tzinfo is None:
-                                        match_datetime = match_datetime.replace(tzinfo=timezone.utc)
-                                    
-                                    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
-                                    # Include if upcoming OR if finished within last 2 weeks
-                                    status = match.get("status", "").upper()
-                                    is_finished = status in ["FT", "FINISHED", "CANCELED", "CANCELLED"]
-                                    is_within_2_weeks = match_datetime >= two_weeks_ago
-                                    
-                                    if (not is_finished) or (is_finished and is_within_2_weeks):
-                                        if match_id and match_id not in existing_ids:
-                                            existing_ids.add(match_id)
-                                            all_matches.append(match)
-                                except (ValueError, TypeError, AttributeError):
-                                    # If date parsing fails, include if not finished (safer)
-                                    status = match.get("status", "").upper()
-                                    if status not in ["FT", "FINISHED", "CANCELED", "CANCELLED"]:
-                                        if match_id and match_id not in existing_ids:
-                                            existing_ids.add(match_id)
-                                            all_matches.append(match)
-                            else:
-                                # No date, include if not finished
-                                status = match.get("status", "").upper()
-                                if status not in ["FT", "FINISHED", "CANCELED", "CANCELLED"]:
-                                    if match_id and match_id not in existing_ids:
-                                        existing_ids.add(match_id)
-                                        all_matches.append(match)
-                    except Exception as e:
-                        logger.debug(f"Failed to get matches for league {league_id}: {e}")
-                        continue
-            except Exception as e:
-                logger.debug(f"Failed to get popular league matches: {e}")
+            # 3. (Removed) Fetching full league match lists is very expensive and not required
+            # for the matches listing. League pages can call get_league_matches explicitly.
             
             # 4. If league ID provided, get league matches
             if league:
@@ -912,12 +950,13 @@ class StatPalApiService:
                 if league_id:
                     unique_league_ids.add(str(league_id))
             
-            # 8. Get prematch odds for all unique leagues (for upcoming matches only)
+            # 8. Get prematch odds for a limited set of leagues (for upcoming matches only)
             prematch_odds_map = {}
-            if unique_league_ids:
+            if include_prematch_odds and unique_league_ids:
                 try:
-                    # Limit concurrent requests to avoid rate limiting (max 10 at a time)
-                    league_ids_list = list(unique_league_ids)[:10]  # Limit to 10 leagues
+                    # Limit requests to avoid slow startup / rate limiting.
+                    # Note: odds endpoint can be expensive; keep this small.
+                    league_ids_list = list(unique_league_ids)[:6]  # Limit to 6 leagues
                     for league_id in league_ids_list:
                         try:
                             league_prematch_odds = await self.get_prematch_odds(league_id)
@@ -979,8 +1018,11 @@ class StatPalApiService:
                         match["bookmakers"] = live_odds_map[match_id_str]
                         break
             
-            # Combine upcoming and past matches (upcoming first)
-            all_matches = upcoming_matches + past_matches
+            # Combine upcoming and past matches (upcoming first) + dedupe
+            all_matches = self._dedupe_matches(upcoming_matches + past_matches)
+
+            # Cache aggregated result (short TTL)
+            self._cache[cache_key] = (all_matches, datetime.now())
             
             # 7. Filter by league name if provided (and not league ID)
             if league and not league.isdigit():
@@ -995,7 +1037,7 @@ class StatPalApiService:
                         league.lower() in match_sport_key.lower()):
                         filtered_matches.append(match)
                 
-                return filtered_matches
+                return self._dedupe_matches(filtered_matches)
             
             return all_matches
             
@@ -1303,7 +1345,7 @@ class StatPalApiService:
             logger.error("Failed to get available countries from StatPal API: %s", exc)
             return []
 
-    async def get_daily_matches(self, date: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_daily_matches(self, date: Optional[str] = None, include_logos: bool = False) -> List[Dict[str, Any]]:
         """
         Get daily matches from StatPal API.
         
@@ -1345,22 +1387,23 @@ class StatPalApiService:
                 try:
                     transformed = self._transform_match_data(match)
                     
-                    # Fetch logos if not already present
-                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
-                        try:
-                            home_logo = await self.get_team_logo(transformed.get("home_team"))
-                            if home_logo:
-                                transformed["home_team_logo"] = home_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch home team logo: {e}")
-                    
-                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
-                        try:
-                            away_logo = await self.get_team_logo(transformed.get("away_team"))
-                            if away_logo:
-                                transformed["away_team_logo"] = away_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    # Fetch logos only when explicitly requested (performance)
+                    if include_logos:
+                        if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                            try:
+                                home_logo = await self.get_team_logo(transformed.get("home_team"))
+                                if home_logo:
+                                    transformed["home_team_logo"] = home_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch home team logo: {e}")
+                        
+                        if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                            try:
+                                away_logo = await self.get_team_logo(transformed.get("away_team"))
+                                if away_logo:
+                                    transformed["away_team_logo"] = away_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch away team logo: {e}")
                     
                     transformed_matches.append(transformed)
                 except Exception as exc:
@@ -1383,7 +1426,7 @@ class StatPalApiService:
             logger.error("Failed to get daily matches from StatPal API: %s", exc)
             return []
 
-    async def get_league_matches(self, league_id: str, season: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_league_matches(self, league_id: str, season: Optional[str] = None, include_logos: bool = False) -> List[Dict[str, Any]]:
         """
         Get all matches for a specific league from StatPal API.
         
@@ -1421,22 +1464,23 @@ class StatPalApiService:
                 try:
                     transformed = self._transform_match_data(match)
                     
-                    # Fetch logos if not already present
-                    if not transformed.get("home_team_logo") and transformed.get("home_team"):
-                        try:
-                            home_logo = await self.get_team_logo(transformed.get("home_team"))
-                            if home_logo:
-                                transformed["home_team_logo"] = home_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch home team logo: {e}")
-                    
-                    if not transformed.get("away_team_logo") and transformed.get("away_team"):
-                        try:
-                            away_logo = await self.get_team_logo(transformed.get("away_team"))
-                            if away_logo:
-                                transformed["away_team_logo"] = away_logo
-                        except Exception as e:
-                            logger.debug(f"Failed to fetch away team logo: {e}")
+                    # Fetch logos only when explicitly requested (performance)
+                    if include_logos:
+                        if not transformed.get("home_team_logo") and transformed.get("home_team"):
+                            try:
+                                home_logo = await self.get_team_logo(transformed.get("home_team"))
+                                if home_logo:
+                                    transformed["home_team_logo"] = home_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch home team logo: {e}")
+                        
+                        if not transformed.get("away_team_logo") and transformed.get("away_team"):
+                            try:
+                                away_logo = await self.get_team_logo(transformed.get("away_team"))
+                                if away_logo:
+                                    transformed["away_team_logo"] = away_logo
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch away team logo: {e}")
                     
                     transformed_matches.append(transformed)
                 except Exception as exc:

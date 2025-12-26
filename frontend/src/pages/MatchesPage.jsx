@@ -47,7 +47,7 @@ const MatchesPage = () => {
   }, [allMatches, loading]);
   
   // Show loading until matches with odds are loaded
-  const isLoading = loading || !hasMatchesWithOdds;
+  const isLoading = loading;
 
   const filteredMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];
@@ -204,6 +204,23 @@ const MatchesPage = () => {
         </Alert>
       )}
 
+      {/* No-odds Warning (prevents infinite skeleton when API returns matches without odds) */}
+      {!loading && !error && filteredMatches.length > 0 && !hasMatchesWithOdds && (
+        <Alert className="mb-6 bg-amber-500/10 border-amber-500/30">
+          <AlertCircle className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-white">
+            Şu an maçlar listeleniyor fakat oran verisi bulunamadı. Birkaç dakika sonra tekrar deneyin.
+            <Button
+              variant="link"
+              onClick={refetch}
+              className="ml-2 text-amber-500 hover:text-amber-400 p-0 h-auto"
+            >
+              Yenile
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Tabs */}
       <Tabs defaultValue="upcoming" className="w-full">
         <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
@@ -232,7 +249,10 @@ const MatchesPage = () => {
             <>
               <div className="grid gap-4 md:grid-cols-2">
                 {upcomingMatches.map((match) => (
-                  <MatchCard key={match.id} match={match} />
+                  <MatchCard
+                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
+                    match={match}
+                  />
                 ))}
               </div>
               {upcomingMatches.length === 0 && !isLoading && (
@@ -255,7 +275,10 @@ const MatchesPage = () => {
             <>
               <div className="grid gap-4 md:grid-cols-2">
                 {pastMatches.map((match) => (
-                  <MatchCard key={match.id} match={match} />
+                  <MatchCard
+                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
+                    match={match}
+                  />
                 ))}
               </div>
               {pastMatches.length === 0 && !isLoading && (
@@ -270,7 +293,10 @@ const MatchesPage = () => {
                   <h3 className="text-lg font-semibold text-gray-400 mb-4">Ertelenen Maçlar</h3>
                   <div className="grid gap-4 md:grid-cols-2">
                     {postponedMatches.map((match) => (
-                      <MatchCard key={match.id} match={match} />
+                      <MatchCard
+                        key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
+                        match={match}
+                      />
                     ))}
                   </div>
                 </div>

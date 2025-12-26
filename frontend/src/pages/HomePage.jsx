@@ -215,8 +215,8 @@ const HomePage = () => {
                 Oranlar yükleniyor...
               </div>
             ) : filteredTodayMatches.length > 0 ? (
-              filteredTodayMatches.slice(0, 4).map((match) => (
-                <MatchCard key={match.id} match={match} compact={true} />
+              filteredTodayMatches.slice(0, 4).map((match, idx) => (
+                <MatchCard key={match.id || `home-today-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} compact={true} />
               ))
             ) : (
               <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
@@ -266,8 +266,8 @@ const HomePage = () => {
         {/* Mobile: Stack, Desktop: Grid */}
         <div className="grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-2">
           {filteredUpcomingMatches.length > 0 ? (
-            filteredUpcomingMatches.slice(0, 4).map((match) => (
-              <MatchCard key={match.id} match={match} compact={true} />
+            filteredUpcomingMatches.slice(0, 4).map((match, idx) => (
+              <MatchCard key={match.id || `home-upcoming-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} compact={true} />
             ))
           ) : (
             <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm col-span-1 sm:col-span-2">

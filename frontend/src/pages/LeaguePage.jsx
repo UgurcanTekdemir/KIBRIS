@@ -27,7 +27,7 @@ const LeaguePage = () => {
 
   // Fetch all matches and filter by league
   const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
-  
+
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
     if (loading) return false;
@@ -175,8 +175,8 @@ const LeaguePage = () => {
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            {leagueMatches.map((match) => (
-              <MatchCard key={match.id} match={match} />
+            {leagueMatches.map((match, idx) => (
+              <MatchCard key={match.id || `league-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} />
             ))}
           </div>
 

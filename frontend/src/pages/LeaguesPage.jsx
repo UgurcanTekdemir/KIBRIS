@@ -263,7 +263,7 @@ const LeaguesPage = () => {
                 return (
                   <Link
                     key={leagueId}
-                    to={`/league/${leagueId}`}
+                    to={`/league-standings/${leagueId}`}
                     className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4 hover:border-amber-500/50 transition-all group"
                   >
                     <div className="flex items-center gap-3 mb-3">
@@ -297,7 +297,7 @@ const LeaguesPage = () => {
 
                     <div className="mt-3 pt-3 border-t border-[#1e2736]">
                       <span className="text-xs text-amber-500 font-medium">
-                        Maçları Gör →
+                        Puan Durumu →
                       </span>
                     </div>
                   </Link>

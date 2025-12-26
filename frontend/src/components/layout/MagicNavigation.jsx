@@ -182,18 +182,18 @@ const MagicNavigation = () => {
                       <RoleIcon size={16} />
                       <span className="hidden sm:block">{roleButton.label}</span>
                       <span className="sm:hidden">{roleButton.label.split(' ')[0]}</span>
-                    </Button>
-                  </Link>
+                  </Button>
+                    </Link>
                 );
               })()}
 
               {/* Logout Button */}
               <Button
                 variant="ghost"
-                onClick={handleLogout}
+                    onClick={handleLogout}
                 className="text-gray-300 hover:text-red-400 hover:bg-[#1a2332] px-2 sm:px-3"
                 title="Çıkış Yap"
-              >
+                  >
                 <LogOut size={18} className="sm:w-5 sm:h-5" />
               </Button>
             </>

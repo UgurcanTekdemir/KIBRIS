@@ -90,36 +90,30 @@ const MatchDetailPage = () => {
     );
   }
 
-  if (error || !match) {
+  if (error || (!loading && !match)) {
     return (
       <div className="max-w-4xl mx-auto">
-        <button 
+        <Button
+          variant="ghost"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors"
+          className="mb-6 text-gray-400 hover:text-white"
         >
-          <ArrowLeft size={18} />
-          <span>Geri</span>
-        </button>
-        <Alert variant="destructive" className="bg-red-500/10 border-red-500/30">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="text-white">
-            {error || 'Maç bulunamadı'}
-          </AlertDescription>
-        </Alert>
-        <div className="text-center py-8 text-gray-400">
-          <p>Match ID: {id}</p>
-          <p>Loading: {loading ? 'true' : 'false'}</p>
-          <p>Error: {error || 'none'}</p>
-          <p>Match: {match ? 'exists' : 'null'}</p>
-        </div>
-        <div className="text-center py-8">
-          <Button 
-            variant="outline" 
-            className="border-[#2a3a4d] text-white"
-            onClick={() => navigate(-1)}
+          <ArrowLeft size={16} className="mr-2" />
+          Geri Dön
+        </Button>
+        <div className="text-center py-16">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
+            <AlertCircle size={40} className="text-red-500" />
+          </div>
+          <h3 className="text-xl font-semibold text-white mb-2">Maç Bulunamadı</h3>
+          <p className="text-gray-500 mb-4">
+            {error || 'Bu maçın detayları şu anda mevcut değil. Maç listesine dönerek başka bir maç seçebilirsiniz.'}
+          </p>
+          <Button
+            onClick={() => navigate('/matches')}
+            className="bg-amber-500 hover:bg-amber-600 text-black"
           >
-            <ArrowLeft size={16} className="mr-2" />
-            Geri
+            Maçlara Dön
           </Button>
         </div>
       </div>
@@ -304,7 +298,7 @@ const MatchDetailPage = () => {
                               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                               return oddsValue > 0;
                             })
-                            .map((opt) => {
+                            .map((opt, optIdx) => {
                               const selected = isSelected(match.id, market.name, opt.label);
                               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                               
@@ -313,7 +307,7 @@ const MatchDetailPage = () => {
                               
                               return (
                                 <button
-                                  key={opt.label}
+                                  key={`${market.name}-${opt.label}-${optIdx}`}
                                   onClick={() => addSelection(match, market.name, opt.label, oddsValue)}
                                   className={`min-w-[80px] flex-1 max-w-[140px] py-2 px-3 rounded-lg text-center transition-all ${
                                     selected

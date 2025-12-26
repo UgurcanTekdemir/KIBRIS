@@ -6,6 +6,13 @@ const Loader = () => {
   const [isFading, setIsFading] = useState(false);
 
   useEffect(() => {
+    // Safety: Never block the UI indefinitely. If the window "load" event never fires
+    // (e.g. slow/blocked external assets), hide the loader after a short timeout.
+    const forceHideTimer = setTimeout(() => {
+      setIsFading(true);
+      setTimeout(() => setIsLoading(false), 400);
+    }, 2000);
+
     // Wait for window load event
     const handleLoad = () => {
       setIsFading(true);
@@ -19,8 +26,13 @@ const Loader = () => {
       setTimeout(() => setIsLoading(false), 400);
     } else {
       window.addEventListener('load', handleLoad);
-      return () => window.removeEventListener('load', handleLoad);
+      return () => {
+        clearTimeout(forceHideTimer);
+        window.removeEventListener('load', handleLoad);
+      };
     }
+
+    return () => clearTimeout(forceHideTimer);
   }, []);
 
   if (!isLoading) return null;

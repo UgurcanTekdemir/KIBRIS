@@ -15,8 +15,10 @@ export function useMatches(filters = {}) {
       const apiMatches = await matchAPI.getMatches(filters);
       return mapApiMatchesToInternal(apiMatches);
     },
-    staleTime: 60000, // Data is fresh for 1 minute
-    cacheTime: 300000, // Cache unused data for 5 minutes
+    staleTime: 30000, // Data is fresh for 30 seconds (reduced for faster updates)
+    cacheTime: 180000, // Cache unused data for 3 minutes (reduced memory usage)
+    refetchOnWindowFocus: false, // Don't refetch on window focus (improve performance)
+    refetchOnMount: false, // Use cache if available (improve performance)
   });
 
   return {
@@ -60,20 +62,34 @@ export function useMatchDetails(matchId) {
     queryKey: ['matchDetails', matchId],
     queryFn: async () => {
       if (!matchId) return null;
-      
+
+      const { mapApiMatchToInternal } = await import('../utils/matchMapper');
+
+      // 1) Prefer the dedicated detail endpoint
       const apiMatch = await matchAPI.getMatchDetails(matchId);
-      if (!apiMatch) {
+      if (apiMatch) {
+        const mappedMatch = mapApiMatchToInternal(apiMatch);
+        if (!mappedMatch) {
+          throw new Error('Maç verileri işlenemedi');
+        }
+        return mappedMatch;
+      }
+
+      // 2) Fallback: some IDs cannot be resolved via /matches/{id} even though they exist in the match list.
+      // In that case, pull the match list and locate the item by ID.
+      const apiMatches = await matchAPI.getMatches({});
+      const fallbackApiMatch = apiMatches.find(m => String(m?.id) === String(matchId));
+
+      if (!fallbackApiMatch) {
         throw new Error('Maç bulunamadı');
       }
-      
-      const { mapApiMatchToInternal } = await import('../utils/matchMapper');
-      const mappedMatch = mapApiMatchToInternal(apiMatch);
-      
-      if (!mappedMatch) {
+
+      const fallbackMapped = mapApiMatchToInternal(fallbackApiMatch);
+      if (!fallbackMapped) {
         throw new Error('Maç verileri işlenemedi');
       }
-      
-      return mappedMatch;
+
+      return fallbackMapped;
     },
     enabled: !!matchId, // Only run query if matchId exists
     staleTime: 60000, // Data is fresh for 1 minute

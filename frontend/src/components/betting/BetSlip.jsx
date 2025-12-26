@@ -89,37 +89,37 @@ const BetSlip = () => {
           {selections.map((selection, index) => {
             const isLocked = selection.isLocked === true;
             return (
-              <div
-                key={`${selection.matchId}-${selection.marketName}-${index}`}
+            <div
+              key={`${selection.matchId}-${selection.marketName}-${index}`}
                 className={`bg-[#1a2332] rounded-lg p-3 relative group ${
                   isLocked ? 'border border-red-500/50 opacity-75' : ''
                 }`}
+            >
+              <button
+                onClick={() => removeSelection(selection.matchId, selection.marketName)}
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-500"
               >
-                <button
-                  onClick={() => removeSelection(selection.matchId, selection.marketName)}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-red-500"
-                >
-                  <X size={16} />
-                </button>
+                <X size={16} />
+              </button>
                 {isLocked && (
                   <div className="absolute top-2 left-2 flex items-center gap-1 text-red-500 text-xs">
                     <Lock size={12} />
                     <span>Kilitli</span>
                   </div>
                 )}
-                <p className="text-xs text-gray-500 mb-1">{selection.league}</p>
-                <p className="text-white text-sm font-medium mb-1 pr-6">
-                  {selection.matchName}
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">
-                    {selection.marketName}: <span className="text-amber-500">{selection.option}</span>
-                  </span>
+              <p className="text-xs text-gray-500 mb-1">{selection.league}</p>
+              <p className="text-white text-sm font-medium mb-1 pr-6">
+                {selection.matchName}
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  {selection.marketName}: <span className="text-amber-500">{selection.option}</span>
+                </span>
                   <span className={`font-bold text-sm ${isLocked ? 'text-gray-600' : 'text-amber-500'}`}>
                     {isLocked ? '🔒' : selection.odds.toFixed(2)}
-                  </span>
-                </div>
+                </span>
               </div>
+            </div>
             );
           })}
         </div>
