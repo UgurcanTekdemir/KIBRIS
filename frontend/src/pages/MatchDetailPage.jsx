@@ -43,63 +43,150 @@ function transformSportmonksStatistics(statsArray, homeTeamId, awayTeamId) {
   const result = {
     possession: null,
     shots: null,
+    shotsOnTarget: null,
     corners: null,
     attacks: null,
+    yellowCards: null,
+    redCards: null,
+    offsides: null,
+    fouls: null,
+    saves: null,
+    passes: null,
+    passAccuracy: null,
   };
   
   // Group statistics by participant_id
   const homeStats = {};
   const awayStats = {};
   
+  // Common Sportmonks type_id to stat name mapping
+  const typeIdToName = {
+    45: 'ball possession', // Possession
+    47: 'shots on target', // Shots on Target
+    46: 'total shots', // Total Shots
+    49: 'corner kicks', // Corners
+    50: 'offsides', // Offsides
+    52: 'fouls', // Fouls
+    53: 'yellow cards', // Yellow Cards
+    54: 'red cards', // Red Cards
+    55: 'saves', // Saves
+    56: 'passes', // Passes
+    57: 'pass accuracy', // Pass Accuracy
+    100: 'attacks', // Attacks
+    43: 'shots on goal', // Shots on Goal
+    44: 'shots off goal', // Shots off Goal
+  };
+  
   for (const stat of statsArray) {
     const participantId = stat.participant_id;
-    const statType = stat.type?.name || stat.type_name || '';
-    const value = parseFloat(stat.value) || 0;
+    // Handle different statistic formats
+    let statType = '';
+    let value = 0;
     
-    if (participantId === homeTeamId) {
-      homeStats[statType.toLowerCase()] = value;
-    } else if (participantId === awayTeamId) {
-      awayStats[statType.toLowerCase()] = value;
+    // Format 1: stat.type.name or stat.type_name
+    if (stat.type?.name) {
+      statType = stat.type.name;
+    } else if (stat.type_name) {
+      statType = stat.type_name;
+    } else if (stat.type_id) {
+      // Format 2: type_id with data.value (Sportmonks V3 format)
+      statType = typeIdToName[stat.type_id] || `type_${stat.type_id}`;
+    }
+    
+    // Extract value - can be direct or in data.value
+    if (stat.value !== undefined && stat.value !== null) {
+      value = parseFloat(stat.value) || 0;
+    } else if (stat.data?.value !== undefined && stat.data.value !== null) {
+      value = parseFloat(stat.data.value) || 0;
+    }
+    
+    if (value <= 0 && statType !== 'ball possession') {
+      continue; // Skip zero values except for possession
+    }
+    
+    // Map location-based stats (home/away) to stat types
+    if (stat.location && (stat.location === 'home' || stat.location === 'away')) {
+      // Location-based format (Sportmonks V3)
+      if (stat.location === 'home') {
+        homeStats[statType.toLowerCase()] = value;
+      } else if (stat.location === 'away') {
+        awayStats[statType.toLowerCase()] = value;
+      }
+    } else if (participantId) {
+      // Participant-based format
+      if (participantId === homeTeamId) {
+        homeStats[statType.toLowerCase()] = value;
+      } else if (participantId === awayTeamId) {
+        awayStats[statType.toLowerCase()] = value;
+      }
     }
   }
   
-  // Map common statistic names
+  // Map common statistic names to result keys
   const statMappings = {
+    // Possession
     'possession': 'possession',
     'ball possession': 'possession',
     'ball_possession': 'possession',
+    // Shots
     'shots on goal': 'shots',
-    'shots on target': 'shots',
+    'shots on target': 'shotsOnTarget',
     'shots_on_goal': 'shots',
-    'shots_on_target': 'shots',
+    'shots_on_target': 'shotsOnTarget',
     'total shots': 'shots',
     'total_shots': 'shots',
+    'shots': 'shots',
+    // Corners
     'corner kicks': 'corners',
     'corner_kicks': 'corners',
     'corners': 'corners',
+    // Attacks
     'attacks': 'attacks',
     'dangerous attacks': 'attacks',
     'dangerous_attacks': 'attacks',
+    // Cards
+    'yellow cards': 'yellowCards',
+    'yellow_cards': 'yellowCards',
+    'yellowcard': 'yellowCards',
+    'yellow card': 'yellowCards',
+    'red cards': 'redCards',
+    'red_cards': 'redCards',
+    'redcard': 'redCards',
+    'red card': 'redCards',
+    // Offsides
+    'offsides': 'offsides',
+    'offside': 'offsides',
+    // Fouls
+    'fouls': 'fouls',
+    'foul': 'fouls',
+    // Saves
+    'saves': 'saves',
+    'save': 'saves',
+    'goalkeeper saves': 'saves',
+    // Passes
+    'passes': 'passes',
+    'total passes': 'passes',
+    'total_passes': 'passes',
+    'pass accuracy': 'passAccuracy',
+    'pass_accuracy': 'passAccuracy',
+    'passes accuracy': 'passAccuracy',
+    'passes_accuracy': 'passAccuracy',
   };
   
   // Extract statistics
   for (const [key, value] of Object.entries(homeStats)) {
     const mappedKey = statMappings[key] || key;
-    if (mappedKey === 'possession') {
-      result.possession = [value, awayStats[key] || 0];
-    } else if (mappedKey === 'shots') {
-      result.shots = [value, awayStats[key] || 0];
-    } else if (mappedKey === 'corners') {
-      result.corners = [value, awayStats[key] || 0];
-    } else if (mappedKey === 'attacks') {
-      result.attacks = [value, awayStats[key] || 0];
+    if (mappedKey in result) {
+      if (!result[mappedKey]) {
+        result[mappedKey] = [value, awayStats[key] || 0];
+      }
     }
   }
   
   // If we didn't find stats, try to extract from away stats
   for (const [key, value] of Object.entries(awayStats)) {
     const mappedKey = statMappings[key] || key;
-    if (!result[mappedKey] && mappedKey in result) {
+    if (mappedKey in result && !result[mappedKey]) {
       result[mappedKey] = [homeStats[key] || 0, value];
     }
   }
@@ -125,6 +212,13 @@ const MatchDetailPage = () => {
   
   // Transform Sportmonks V3 statistics array to component format
   const statistics = useMemo(() => {
+    // First check if statistics are already in match object from backend
+    if (match?.statistics && Array.isArray(match.statistics) && match.statistics.length > 0) {
+      const homeTeamId = match?.homeTeamId || match?.home_team_id;
+      const awayTeamId = match?.awayTeamId || match?.away_team_id;
+      return transformSportmonksStatistics(match.statistics, homeTeamId, awayTeamId);
+    }
+    
     if (!rawStatistics) return null;
     
     // If it's already in the expected format (object with possession, shots, etc.)
@@ -134,11 +228,13 @@ const MatchDetailPage = () => {
     
     // If it's an array (Sportmonks V3 format), transform it
     if (Array.isArray(rawStatistics)) {
-      return transformSportmonksStatistics(rawStatistics, match?.home_team_id, match?.away_team_id);
+      const homeTeamId = match?.homeTeamId || match?.home_team_id;
+      const awayTeamId = match?.awayTeamId || match?.away_team_id;
+      return transformSportmonksStatistics(rawStatistics, homeTeamId, awayTeamId);
     }
     
     return null;
-  }, [rawStatistics, match?.home_team_id, match?.away_team_id]);
+  }, [rawStatistics, match?.statistics, match?.homeTeamId, match?.home_team_id, match?.awayTeamId, match?.away_team_id]);
   
   // Track odds changes
   const { getOddsChange } = useOddsTracking(id, match, match?.isLive ? 5000 : 30000);
@@ -551,11 +647,26 @@ const MatchDetailPage = () => {
                     <div>
                       <div className="flex items-center justify-between text-sm mb-2">
                         <span className="text-white font-medium">{statistics.shots[0] || statistics.shots.home || 0}</span>
-                        <span className="text-gray-500">Şut</span>
+                        <span className="text-gray-500">Toplam Şut</span>
                         <span className="text-white font-medium">{statistics.shots[1] || statistics.shots.away || 0}</span>
                       </div>
                       <div className="flex gap-2">
                         <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.shots[0] || statistics.shots.home || 0) / ((statistics.shots[0] || statistics.shots.home || 0) + (statistics.shots[1] || statistics.shots.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shots on Target */}
+                  {statistics.shotsOnTarget && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.shotsOnTarget[0] || statistics.shotsOnTarget.home || 0}</span>
+                        <span className="text-gray-500">Kaleye Atılan Şut</span>
+                        <span className="text-white font-medium">{statistics.shotsOnTarget[1] || statistics.shotsOnTarget.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.shotsOnTarget[0] || statistics.shotsOnTarget.home || 0) / ((statistics.shotsOnTarget[0] || statistics.shotsOnTarget.home || 0) + (statistics.shotsOnTarget[1] || statistics.shotsOnTarget.away || 0) || 1)) * 100}%` }}></div>
                         <div className="h-2 bg-blue-500 rounded flex-1"></div>
                       </div>
                     </div>
@@ -576,13 +687,119 @@ const MatchDetailPage = () => {
                     </div>
                   )}
 
-                  {/* Additional stats */}
+                  {/* Yellow Cards */}
+                  {statistics.yellowCards && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.yellowCards[0] || statistics.yellowCards.home || 0}</span>
+                        <span className="text-gray-500">🟨 Sarı Kart</span>
+                        <span className="text-white font-medium">{statistics.yellowCards[1] || statistics.yellowCards.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-yellow-500 rounded" style={{ width: `${((statistics.yellowCards[0] || statistics.yellowCards.home || 0) / ((statistics.yellowCards[0] || statistics.yellowCards.home || 0) + (statistics.yellowCards[1] || statistics.yellowCards.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Red Cards */}
+                  {statistics.redCards && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.redCards[0] || statistics.redCards.home || 0}</span>
+                        <span className="text-gray-500">🟥 Kırmızı Kart</span>
+                        <span className="text-white font-medium">{statistics.redCards[1] || statistics.redCards.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-red-500 rounded" style={{ width: `${((statistics.redCards[0] || statistics.redCards.home || 0) / ((statistics.redCards[0] || statistics.redCards.home || 0) + (statistics.redCards[1] || statistics.redCards.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Offsides */}
+                  {statistics.offsides && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.offsides[0] || statistics.offsides.home || 0}</span>
+                        <span className="text-gray-500">Ofsayt</span>
+                        <span className="text-white font-medium">{statistics.offsides[1] || statistics.offsides.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.offsides[0] || statistics.offsides.home || 0) / ((statistics.offsides[0] || statistics.offsides.home || 0) + (statistics.offsides[1] || statistics.offsides.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fouls */}
+                  {statistics.fouls && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.fouls[0] || statistics.fouls.home || 0}</span>
+                        <span className="text-gray-500">Faul</span>
+                        <span className="text-white font-medium">{statistics.fouls[1] || statistics.fouls.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.fouls[0] || statistics.fouls.home || 0) / ((statistics.fouls[0] || statistics.fouls.home || 0) + (statistics.fouls[1] || statistics.fouls.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Saves */}
+                  {statistics.saves && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.saves[0] || statistics.saves.home || 0}</span>
+                        <span className="text-gray-500">Kurtarış</span>
+                        <span className="text-white font-medium">{statistics.saves[1] || statistics.saves.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.saves[0] || statistics.saves.home || 0) / ((statistics.saves[0] || statistics.saves.home || 0) + (statistics.saves[1] || statistics.saves.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Passes */}
+                  {statistics.passes && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.passes[0] || statistics.passes.home || 0}</span>
+                        <span className="text-gray-500">Pas</span>
+                        <span className="text-white font-medium">{statistics.passes[1] || statistics.passes.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.passes[0] || statistics.passes.home || 0) / ((statistics.passes[0] || statistics.passes.home || 0) + (statistics.passes[1] || statistics.passes.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pass Accuracy */}
+                  {statistics.passAccuracy && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="text-white font-medium">{statistics.passAccuracy[0] || statistics.passAccuracy.home || 0}%</span>
+                        <span className="text-gray-500">Pas İsabeti</span>
+                        <span className="text-white font-medium">{statistics.passAccuracy[1] || statistics.passAccuracy.away || 0}%</span>
+                      </div>
+                      <Progress value={statistics.passAccuracy[0] || statistics.passAccuracy.home || 0} className="h-2 bg-[#1a2332]" />
+                    </div>
+                  )}
+
+                  {/* Attacks */}
                   {statistics.attacks && (
                     <div>
                       <div className="flex items-center justify-between text-sm mb-2">
                         <span className="text-white font-medium">{statistics.attacks[0] || statistics.attacks.home || 0}</span>
                         <span className="text-gray-500">Atak</span>
                         <span className="text-white font-medium">{statistics.attacks[1] || statistics.attacks.away || 0}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-2 bg-amber-500 rounded" style={{ width: `${((statistics.attacks[0] || statistics.attacks.home || 0) / ((statistics.attacks[0] || statistics.attacks.home || 0) + (statistics.attacks[1] || statistics.attacks.away || 0) || 1)) * 100}%` }}></div>
+                        <div className="h-2 bg-blue-500 rounded flex-1"></div>
                       </div>
                     </div>
                   )}

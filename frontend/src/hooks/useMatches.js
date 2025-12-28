@@ -28,8 +28,8 @@ export function useMatches(filters = {}, options = {}) {
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      // Use Sportmonks V3 API to get upcoming fixtures
-      const apiMatches = await footballService.getUpcomingFixtures();
+      // Use Backend API to get matches with filters
+      const apiMatches = await footballService.getUpcomingFixtures(queryFilters);
       // Ensure it's an array
       const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
       return mapApiMatchesToInternal(matchesArray);

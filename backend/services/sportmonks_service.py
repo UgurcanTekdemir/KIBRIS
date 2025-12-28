@@ -470,7 +470,9 @@ class SportmonksService:
     def _extract_and_normalize_odds(self, odds_data: Any) -> List[Dict[str, Any]]:
         """
         Extract and normalize odds from Sportmonks V3 format.
-        Handles nested structure: odds -> data -> array of odds with bookmaker, market, values.
+        Handles both formats:
+        1. Direct list format (already normalized): list of odds with label, value, market_description
+        2. Nested format: odds -> data -> array with bookmaker, market, values structure
         
         Args:
             odds_data: Raw odds data from Sportmonks V3 (can be dict, list, or None)
@@ -498,6 +500,39 @@ class SportmonksService:
             if not isinstance(odd_item, dict):
                 continue
             
+            # Check if this is already a normalized format (has label, value directly)
+            if "label" in odd_item and "value" in odd_item:
+                # Already normalized format - just extract and format
+                value_odd = odd_item.get("value")
+                if value_odd is None:
+                    continue
+                
+                try:
+                    value_odd_float = float(value_odd)
+                    if value_odd_float <= 0:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+                
+                # Build normalized odd object from already-normalized data
+                normalized_odd = {
+                    "bookmaker_id": odd_item.get("bookmaker_id"),
+                    "bookmaker_name": odd_item.get("bookmaker_name"),
+                    "market_id": odd_item.get("market_id"),
+                    "market_name": odd_item.get("market_description") or odd_item.get("market_name"),
+                    "market_description": odd_item.get("market_description"),
+                    "label": odd_item.get("label") or odd_item.get("name") or "",
+                    "name": odd_item.get("name") or odd_item.get("label") or "",
+                    "value": value_odd_float,
+                    "odd": value_odd_float,
+                    "price": value_odd_float,
+                    "stopped": odd_item.get("stopped", False),
+                }
+                
+                normalized_odds.append(normalized_odd)
+                continue
+            
+            # Nested format: extract bookmaker, market, values
             # Extract bookmaker info
             bookmaker = odd_item.get("bookmaker", {})
             if isinstance(bookmaker, dict) and "data" in bookmaker:
@@ -583,8 +618,10 @@ class SportmonksService:
         is_postponed = False
         
         if status:
-            is_live = status in ["LIVE", "HT", "BREAK", "ET", "PEN", "1ST_HALF", "2ND_HALF", "INPLAY", "IN_PLAY"]
-            is_finished = status in ["FT", "AET", "FT_PEN", "CANCL", "POSTP", "INT", "ABAN", "SUSP", "AWARDED", "FINISHED"]
+            # HT (Half Time) and BREAK are not live - match is paused
+            # Only actively playing statuses are considered live
+            is_live = status in ["LIVE", "ET", "PEN", "1ST_HALF", "2ND_HALF", "INPLAY", "IN_PLAY"]
+            is_finished = status in ["FT", "AET", "FT_PEN", "CANCL", "POSTP", "INT", "ABAN", "SUSP", "AWARDED", "FINISHED", "HT"]
             is_postponed = status in ["POSTP", "CANCL", "CANCELED", "CANCELLED"]
         
         return {
@@ -716,16 +753,19 @@ class SportmonksService:
         
         return transformed
 
-    def _transform_fixture_to_match(self, fixture: Dict[str, Any]) -> Dict[str, Any]:
+    def _transform_fixture_to_match(self, fixture: Dict[str, Any], timezone_offset: int = 0) -> Dict[str, Any]:
         """
         Transform Sportmonks V3 fixture to frontend match format.
         
         Args:
             fixture: Fixture object from Sportmonks V3
+            timezone_offset: Timezone offset in hours (e.g., 3 for Turkey UTC+3)
             
         Returns:
             Transformed match dictionary for frontend
         """
+        from datetime import datetime, timezone, timedelta
+        
         participants = fixture.get("participants", [])
         if isinstance(participants, dict) and "data" in participants:
             participants = participants["data"]
@@ -741,23 +781,160 @@ class SportmonksService:
             scores_data = scores_data["data"]
         scores = self._extract_scores(scores_data, participants)
         
-        # Extract time status
+        # Extract time status - check both time object and state_id
         time_data = fixture.get("time", {})
+        state_id = fixture.get("state_id")
+        
+        # Determine status from state_id if time_data is empty
+        # Sportmonks state_id: 1=Not Started, 2=Live, 3=Period Break, 4=Finished, 5=Finished, 6=Postponed, 7=Cancelled, 8=Interrupted, 9=Abandoned, 10=Suspended, 11=Awaiting
+        if not time_data.get("status") and state_id:
+            if state_id == 1:
+                time_data["status"] = "NS"  # Not Started
+            elif state_id == 2:
+                time_data["status"] = "LIVE"
+            elif state_id in [3, 8, 10]:
+                time_data["status"] = "HT"  # Half Time / Break
+            elif state_id in [4, 5]:
+                time_data["status"] = "FT"  # Full Time
+            elif state_id == 6:
+                time_data["status"] = "POSTP"  # Postponed
+            elif state_id == 7:
+                time_data["status"] = "CANCL"  # Cancelled
+        
         time_status = self._format_time_status(time_data)
         
-        # Extract league/season info
-        season_data = fixture.get("season", {})
-        if isinstance(season_data, dict) and "data" in season_data:
-            season_data = season_data["data"]
+        # Override is_live for Period Break (state_id == 3) - match is not live during break
+        if state_id == 3:
+            time_status["is_live"] = False
+            time_status["status"] = "HT"  # Ensure status is HT for half-time
         
-        league_data = season_data.get("league", {}) if season_data else {}
-        if isinstance(league_data, dict) and "data" in league_data:
-            league_data = league_data["data"]
+        # Smart minute-based status detection
+        minute = time_status.get("minute")
+        if minute is not None:
+            try:
+                minute_int = int(minute)
+                # If minute is 45 and no extra time indicated, it's half-time break
+                if minute_int == 45 and not time_data.get("extra_minute") and not time_data.get("injury_time"):
+                    time_status["is_live"] = False
+                    time_status["status"] = "HT"
+                    time_status["is_finished"] = False
+                # If minute is 90+ and no extra time, match is finished
+                elif minute_int >= 90 and not time_data.get("extra_minute") and not time_data.get("injury_time"):
+                    if not time_status.get("is_live"):
+                        time_status["is_finished"] = True
+                        time_status["status"] = "FT"
+            except (ValueError, TypeError):
+                pass  # Keep existing status if minute parsing fails
+        
+        # Get starting_at and convert to Turkey timezone if needed
+        starting_at = fixture.get("starting_at")
+        commence_time_turkey = None
+        
+        if starting_at:
+            try:
+                # Parse starting_at (usually in UTC)
+                if isinstance(starting_at, str):
+                    # Try to parse ISO format
+                    if 'Z' in starting_at or '+00:00' in starting_at:
+                        start_dt = datetime.fromisoformat(starting_at.replace('Z', '+00:00'))
+                    else:
+                        # Assume UTC if no timezone
+                        start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
+                        if start_dt.tzinfo is None:
+                            start_dt = start_dt.replace(tzinfo=timezone.utc)
+                else:
+                    start_dt = starting_at
+                
+                # Convert to Turkey timezone (UTC+3)
+                if timezone_offset != 0:
+                    turkey_tz = timezone(timedelta(hours=timezone_offset))
+                    start_dt_turkey = start_dt.astimezone(turkey_tz)
+                    commence_time_turkey = start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    commence_time_turkey = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                logger.warning(f"Error parsing starting_at: {e}")
+                commence_time_turkey = starting_at if isinstance(starting_at, str) else None
+        
+        # Determine if match is finished based on starting_at + duration
+        if not time_status.get("is_finished") and starting_at:
+            try:
+                if isinstance(starting_at, str):
+                    start_dt = datetime.fromisoformat(starting_at.replace('Z', '+00:00'))
+                else:
+                    start_dt = starting_at
+                
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                
+                # Match duration is typically 90 minutes + extra time
+                match_duration = timedelta(minutes=105)  # 90 + 15 extra time buffer
+                match_end_time = start_dt + match_duration
+                
+                # Current time in UTC
+                now_utc = datetime.now(timezone.utc)
+                
+                # If match ended more than 5 minutes ago and has scores, it's finished
+                if now_utc > match_end_time and (scores.get("home_score") is not None or scores.get("away_score") is not None):
+                    if not time_status.get("is_live"):
+                        time_status["is_finished"] = True
+                        time_status["status"] = "FT"
+            except Exception as e:
+                logger.debug(f"Could not determine match finish status: {e}")
+        
+        # Extract league info - try multiple sources
+        league_data = None
+        
+        # First try: direct league field
+        league_from_fixture = fixture.get("league", {})
+        if isinstance(league_from_fixture, dict):
+            if "data" in league_from_fixture:
+                league_data = league_from_fixture["data"]
+            else:
+                league_data = league_from_fixture
+        
+        # Fallback: try season.league
+        if not league_data:
+            season_data = fixture.get("season", {})
+            if isinstance(season_data, dict) and "data" in season_data:
+                season_data = season_data["data"]
+            
+            if season_data:
+                league_from_season = season_data.get("league", {})
+                if isinstance(league_from_season, dict):
+                    if "data" in league_from_season:
+                        league_data = league_from_season["data"]
+                    else:
+                        league_data = league_from_season
+        
+        if not league_data:
+            league_data = {}
         
         # Extract statistics
         statistics_data = fixture.get("statistics", [])
         if isinstance(statistics_data, dict) and "data" in statistics_data:
             statistics_data = statistics_data["data"]
+        
+        # Normalize statistics: convert type_id format to type name format
+        if isinstance(statistics_data, list):
+            normalized_stats = []
+            for stat in statistics_data:
+                # If stat has type_id but no type name, try to get type name from type object
+                if stat.get("type_id") and not stat.get("type_name"):
+                    stat_type = stat.get("type", {})
+                    if isinstance(stat_type, dict):
+                        if "data" in stat_type:
+                            stat_type = stat_type["data"]
+                        type_name = stat_type.get("name") if isinstance(stat_type, dict) else None
+                        if type_name:
+                            stat["type_name"] = type_name
+                
+                # Extract value from data.value if needed
+                if "data" in stat and isinstance(stat["data"], dict) and "value" in stat["data"]:
+                    stat["value"] = stat["data"]["value"]
+                
+                normalized_stats.append(stat)
+            statistics_data = normalized_stats
         
         # Extract lineups
         lineups_data = fixture.get("lineups", [])
@@ -799,7 +976,8 @@ class SportmonksService:
             "is_live": time_status.get("is_live", False),
             "is_finished": time_status.get("is_finished", False),
             "is_postponed": time_status.get("is_postponed", False),
-            "commence_time": fixture.get("starting_at"),
+            "commence_time": commence_time_turkey or fixture.get("starting_at"),  # Use Turkey timezone if available
+            "commence_time_utc": fixture.get("starting_at"),  # Keep original UTC time
             "events": events_data if isinstance(events_data, list) else [],
             "statistics": statistics_data if isinstance(statistics_data, list) else [],
             "lineups": lineups_data if isinstance(lineups_data, list) else [],
@@ -808,6 +986,7 @@ class SportmonksService:
             "participants": participants,  # Keep for reference
             "scores": scores_data,  # Keep for reference
             "time": time_data,  # Keep for reference
+            "state_id": state_id,  # Keep state_id for reference
         }
         
         return transformed

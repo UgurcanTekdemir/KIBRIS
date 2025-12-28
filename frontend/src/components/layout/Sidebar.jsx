@@ -50,24 +50,31 @@ const Sidebar = ({ isOpen, onClose }) => {
   }, [allMatches]);
 
   // Update leagues state when extracted leagues change
+  // Use ref to prevent infinite loops
+  const hasFetchedLeagues = useRef(false);
+  
   useEffect(() => {
     if (extractedLeagues.length > 0) {
       setLeagues(extractedLeagues);
       setLoadingLeagues(false);
-    } else if (allMatches.length === 0) {
-      // If no matches loaded yet, try to fetch leagues from Sportmonks API as fallback
+      hasFetchedLeagues.current = false; // Reset flag when we have leagues from matches
+    } else if (allMatches.length === 0 && !hasFetchedLeagues.current) {
+      // If no matches loaded yet, try to fetch leagues from backend API as fallback (only once)
+      hasFetchedLeagues.current = true;
       async function fetchLeagues() {
         try {
           setLoadingLeagues(true);
-          const leaguesData = await footballService.getLeagues('country');
-          // Ensure it's an array
-          const leaguesArray = Array.isArray(leaguesData) ? leaguesData : [leaguesData].filter(Boolean);
-          // Map Sportmonks league format to internal format
+          const leaguesData = await footballService.getLeagues();
+          // Backend returns { success: true, data: [...] } or just array
+          const leaguesArray = Array.isArray(leaguesData) 
+            ? leaguesData 
+            : (leaguesData?.data || [leaguesData].filter(Boolean));
+          // Map backend league format to internal format
           const mappedLeagues = leaguesArray.map(league => ({
-            id: String(league.id),
-            name: league.name,
-            country: league.country?.name || '',
-            logo: league.image_path || null,
+            id: String(league.id || league.league_id),
+            name: league.name || league.league_name || '',
+            country: league.country?.name || league.country || '',
+            logo: league.image_path || league.logo || null,
             sport_key: 'soccer'
           }));
           setLeagues(mappedLeagues);
@@ -80,7 +87,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       }
       fetchLeagues();
     }
-  }, [extractedLeagues, allMatches]);
+  }, [extractedLeagues.length, allMatches.length]); // Use length instead of full arrays to prevent infinite loops
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },

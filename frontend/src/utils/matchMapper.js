@@ -281,12 +281,139 @@ function mapSportmonksFixtureToInternal(fixture) {
 }
 
 /**
+ * Map Backend transformed match to internal match structure
+ * @param {Object} backendMatch - Match object from backend (already transformed)
+ * @returns {Object} Internal match structure
+ */
+function mapBackendMatchToInternal(backendMatch) {
+  if (!backendMatch) return null;
+  
+  // Parse commence_time (format: "2025-12-28 22:45:00" - already in Turkey timezone)
+  // Backend sends time in Turkey timezone (UTC+3), so we should NOT do timezone conversion
+  let startingAt = null;
+  let date = '';
+  let time = '';
+  
+  if (backendMatch.commence_time) {
+    const timeStr = backendMatch.commence_time;
+    // Backend sends time as "YYYY-MM-DD HH:mm:ss" in Turkey timezone
+    // Extract date and time directly without timezone conversion
+    if (timeStr.includes(' ')) {
+      const [datePart, timePart] = timeStr.split(' ');
+      const [year, month, day] = datePart.split('-');
+      const [hour, minute] = timePart.split(':');
+      
+      // Format date as DD.MM.YYYY
+      date = `${day}.${month}.${year}`;
+      // Format time as HH:mm (already in Turkey timezone)
+      time = `${hour}:${minute}`;
+      
+      // Also create Date object for other uses (treat as local time, no conversion)
+      startingAt = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute), 0);
+    } else {
+      // ISO format - parse normally
+      startingAt = new Date(timeStr);
+      if (!isNaN(startingAt.getTime())) {
+        date = formatDateFromISO(startingAt);
+        time = formatTimeFromISO(startingAt);
+      }
+    }
+  }
+  
+  // Extract odds and convert to markets format
+  const markets = [];
+  if (backendMatch.odds && Array.isArray(backendMatch.odds) && backendMatch.odds.length > 0) {
+    // Group odds by market_id first (to handle multiple bookmakers for same market)
+    // If no market_id, group by market_name
+    const oddsByMarket = {};
+    backendMatch.odds.forEach(odd => {
+      const marketId = odd.market_id || null;
+      const marketName = odd.market_name || odd.market_description || 'Unknown';
+      // Use market_id as primary key, fallback to market_name
+      const marketKey = marketId ? `id_${marketId}` : `name_${marketName}`;
+      
+      if (!oddsByMarket[marketKey]) {
+        oddsByMarket[marketKey] = {
+          marketId: marketId,
+          name: marketName,
+          options: {}
+        };
+      }
+      
+      // Group options by label and keep the best (highest) odds value
+      const label = odd.label || odd.name || '';
+      if (!label) return;
+      
+      const value = odd.value || odd.odd || odd.price || 0;
+      if (value <= 0) return;
+      
+      const existingValue = oddsByMarket[marketKey].options[label];
+      if (!existingValue || value > existingValue) {
+        oddsByMarket[marketKey].options[label] = value;
+      }
+    });
+    
+    // Convert to markets array
+    Object.values(oddsByMarket).forEach(market => {
+      const options = Object.entries(market.options).map(([label, value]) => ({
+        label,
+        value
+      }));
+      
+      if (options.length > 0) {
+        markets.push({
+          marketId: market.marketId,
+          name: market.name,
+          options: options
+        });
+      }
+    });
+  }
+  
+  return {
+    id: backendMatch.id || backendMatch.sportmonks_id?.toString() || '',
+    sportmonksId: backendMatch.sportmonks_id || backendMatch.id,
+    homeTeam: backendMatch.home_team || 'Home Team',
+    awayTeam: backendMatch.away_team || 'Away Team',
+    homeTeamId: backendMatch.home_team_id,
+    awayTeamId: backendMatch.away_team_id,
+    homeTeamLogo: backendMatch.home_team_logo,
+    awayTeamLogo: backendMatch.away_team_logo,
+    homeScore: backendMatch.home_score,
+    awayScore: backendMatch.away_score,
+    league: backendMatch.league || '',
+    leagueId: backendMatch.league_id,
+    leagueLogo: backendMatch.league_logo,
+    country: backendMatch.country || '',
+    status: backendMatch.status || '',
+    minute: backendMatch.minute,
+    isLive: backendMatch.is_live || false,
+    isFinished: backendMatch.is_finished || false,
+    isPostponed: backendMatch.is_postponed || false,
+    date,
+    time,
+    commenceTime: backendMatch.commence_time,
+    events: backendMatch.events || [],
+    statistics: backendMatch.statistics || [],
+    lineups: backendMatch.lineups || [],
+    markets,
+    odds: backendMatch.odds || [],
+    venue: backendMatch.venue,
+  };
+}
+
+/**
  * Map API response to internal match structure
  * @param {Object} apiMatch - Match object from API
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
   if (!apiMatch) return null;
+  
+  // Check if this is already transformed by backend (has home_team, away_team, league fields)
+  if (apiMatch.home_team && apiMatch.away_team && !apiMatch.sport_id) {
+    return mapBackendMatchToInternal(apiMatch);
+  }
   
   // Check if this is a Sportmonks V3 fixture (has sport_id, state_id, starting_at fields)
   if (apiMatch.sport_id !== undefined && apiMatch.state_id !== undefined && apiMatch.starting_at) {

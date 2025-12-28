@@ -1,129 +1,31 @@
 /**
  * Football Service
- * Handles all Sportmonks V3 Football API calls
- * Uses fetch API directly (no Axios)
+ * Handles all Football API calls via Backend Proxy
+ * Uses backend API endpoints instead of direct Sportmonks API
  */
 
-const BASE_URL = 'https://api.sportmonks.com';
-const VERSION = 'v3';
-const SPORT = 'football';
+import { fetchAPI } from './api';
 
 /**
- * Get API token from environment variables
- */
-const getApiToken = () => {
-  const token = process.env.REACT_APP_SPORTMONKS_API_TOKEN;
-  if (!token) {
-    console.warn('REACT_APP_SPORTMONKS_API_TOKEN is not set in environment variables');
-  }
-  return token;
-};
-
-/**
- * Make a fetch request to Sportmonks API
- * @param {string} endpoint - API endpoint (e.g., '/v3/football/livescores')
+ * Make a fetch request to Backend API
+ * @param {string} endpoint - Backend API endpoint (e.g., '/matches')
  * @param {Object} options - Fetch options
  * @returns {Promise<Object>} Response data
  */
-async function fetchSportmonksAPI(endpoint, options = {}) {
-  const token = getApiToken();
-  if (!token) {
-    throw new Error('Sportmonks API token is not configured');
-  }
-
-  const url = `${BASE_URL}${endpoint}`;
-  
-  // Log API calls only in development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🌐 Sportmonks API Call:', url);
-  }
-
-  const config = {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': token,
-      ...options.headers,
-    },
-  };
-
-  // Add timeout for fetch requests (60 seconds)
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
-
+async function fetchBackendAPI(endpoint, options = {}) {
   try {
-    const response = await fetch(url, {
-      ...config,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    // Check rate limit headers
-    const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
-    const rateLimitLimit = response.headers.get('x-ratelimit-limit');
-    
-    if (process.env.NODE_ENV === 'development' && rateLimitRemaining) {
-      console.log(`📊 Rate Limit: ${rateLimitRemaining}/${rateLimitLimit}`);
-    }
-
-    // Check if response is ok before trying to parse JSON
-    const contentType = response.headers.get('content-type');
-    let data;
-
-    if (contentType && contentType.includes('application/json')) {
-      try {
-        data = await response.json();
-      } catch (jsonError) {
-        const text = await response.text();
-        console.error('JSON parse error. Response text:', text);
-        throw new Error(`Invalid JSON response: ${text.substring(0, 100)}`);
-      }
-    } else {
-      const text = await response.text();
-      data = { message: text };
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data.message || data.detail || `API request failed (${response.status})`
-      );
-    }
-
-    // Sportmonks V3 response structure: { data: [...], pagination: {...}, ... }
-    // Return the data array/object directly
+    const data = await fetchAPI(endpoint, options);
+    // Backend returns { success: true, data: [...] }
     return data.data || data;
   } catch (error) {
-    clearTimeout(timeoutId);
-
-    if (error.name === 'AbortError' || error.message.includes('aborted')) {
-      throw new Error('İstek zaman aşımına uğradı. Lütfen daha sonra tekrar deneyin.');
+    // Re-throw with user-friendly message
+    if (error.message.includes('Backend')) {
+      throw new Error(`Backend'e bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin.`);
     }
-
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      console.error('Network error:', error);
-      throw new Error(`Sportmonks API'ye bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin.`);
-    }
-
     throw error;
   }
 }
 
-/**
- * Build query string from parameters
- * @param {Object} params - Query parameters
- * @returns {string} Query string
- */
-function buildQueryString(params) {
-  const queryParams = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== '') {
-      queryParams.append(key, value);
-    }
-  });
-  const queryString = queryParams.toString();
-  return queryString ? `?${queryString}` : '';
-}
 
 /**
  * @typedef {Object} SportmonksFixture
@@ -183,64 +85,61 @@ function buildQueryString(params) {
 
 /**
  * Get all livescores
- * @param {string} [include='participants;leagues;odds;markets'] - Include parameters
- * @returns {Promise<Array<SportmonksFixture>>}
+ * @returns {Promise<Array>}
  */
-export async function getLivescores(include = 'participants;leagues;odds;markets') {
-  const endpoint = `/${VERSION}/${SPORT}/livescores${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getLivescores() {
+  return fetchBackendAPI('/matches/live');
 }
 
 /**
- * Get inplay livescores
- * @param {string} [include='participants;leagues;odds;markets'] - Include parameters
- * @returns {Promise<Array<SportmonksFixture>>}
+ * Get inplay livescores (alias for getLivescores)
+ * @returns {Promise<Array>}
  */
-export async function getLivescoresInplay(include = 'participants;leagues;odds;markets') {
-  const endpoint = `/${VERSION}/${SPORT}/livescores/inplay${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getLivescoresInplay() {
+  return fetchBackendAPI('/matches/live');
 }
 
 /**
- * Get upcoming fixtures
- * @param {string} [include='participants;leagues;odds;markets'] - Include parameters
- * @returns {Promise<Array<SportmonksFixture>>}
+ * Get matches (upcoming, live, finished)
+ * @param {Object} filters - Filter options (date_from, date_to, league_id, category)
+ * @returns {Promise<Array>}
  */
-export async function getUpcomingFixtures(include = 'participants;leagues;odds;markets') {
-  const endpoint = `/${VERSION}/${SPORT}/fixtures/upcoming${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getUpcomingFixtures(filters = {}) {
+  const queryParams = new URLSearchParams();
+  if (filters.date_from) queryParams.append('date_from', filters.date_from);
+  if (filters.date_to) queryParams.append('date_to', filters.date_to);
+  if (filters.league_id) queryParams.append('league_id', filters.league_id);
+  if (filters.category) queryParams.append('category', filters.category);
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/matches${queryString ? `?${queryString}` : ''}`;
+  return fetchBackendAPI(endpoint);
 }
 
 /**
- * Get upcoming fixtures by market ID
- * @param {number} marketId - Market ID (1 = Match Winner)
- * @param {string} [include='participants;leagues;odds;markets'] - Include parameters
- * @returns {Promise<Array<SportmonksFixture>>}
+ * Get upcoming fixtures by market ID (not supported by backend, returns all upcoming)
+ * @param {number} marketId - Market ID (ignored, kept for compatibility)
+ * @returns {Promise<Array>}
  */
-export async function getUpcomingFixturesByMarketId(marketId, include = 'participants;leagues;odds;markets') {
-  const endpoint = `/${VERSION}/${SPORT}/fixtures/upcoming/markets/${marketId}${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getUpcomingFixturesByMarketId(marketId) {
+  return fetchBackendAPI('/matches?category=upcoming');
 }
 
 /**
  * Get fixture by ID
  * @param {number} fixtureId - Fixture ID
- * @param {string} [include='participants;leagues;odds;markets'] - Include parameters
- * @returns {Promise<SportmonksFixture>}
+ * @returns {Promise<Object>}
  */
-export async function getFixtureById(fixtureId, include = 'participants;leagues;odds;markets') {
-  const endpoint = `/${VERSION}/${SPORT}/fixtures/${fixtureId}${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getFixtureById(fixtureId) {
+  return fetchBackendAPI(`/matches/${fixtureId}`);
 }
 
 /**
  * Get all leagues
- * @param {string} [include='country'] - Include parameters
- * @returns {Promise<Array<SportmonksLeague>>}
+ * @returns {Promise<Array>}
  */
-export async function getLeagues(include = 'country') {
-  const endpoint = `/${VERSION}/${SPORT}/leagues${buildQueryString({ include })}`;
-  return fetchSportmonksAPI(endpoint);
+export async function getLeagues() {
+  return fetchBackendAPI('/leagues');
 }
 
 // Export default object for convenience

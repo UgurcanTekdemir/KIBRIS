@@ -194,15 +194,27 @@ export const matchAPI = {
   },
 
   async getMatchStatistics(matchId) {
-    // TODO: Implement match statistics endpoint
-    console.warn('matchAPI.getMatchStatistics() is not implemented yet');
-    throw new Error('getMatchStatistics is not implemented');
+    // Fetch match details from backend which includes statistics
+    try {
+      const response = await fetchAPI(`/matches/${matchId}`);
+      const match = response.data || response;
+      return match.statistics || null;
+    } catch (error) {
+      console.error('Error fetching match statistics:', error);
+      return null;
+    }
   },
 
   async getMatchEvents(matchId) {
-    // TODO: Implement match events endpoint
-    console.warn('matchAPI.getMatchEvents() is not implemented yet');
-    throw new Error('getMatchEvents is not implemented');
+    // Fetch match details from backend which includes events
+    try {
+      const response = await fetchAPI(`/matches/${matchId}`);
+      const match = response.data || response;
+      return match.events || [];
+    } catch (error) {
+      console.error('Error fetching match events:', error);
+      return [];
+    }
   },
 };
 
@@ -252,5 +264,5 @@ export const bannerAPI = {
   },
 };
 
-export { ApiError };
+export { ApiError, fetchAPI };
 
