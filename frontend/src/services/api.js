@@ -59,8 +59,16 @@ async function fetchAPI(endpoint, options = {}) {
     },
   };
 
+  // Add timeout for fetch requests (60 seconds for large date ranges)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+  
   try {
-    const response = await fetch(url, config);
+    const response = await fetch(url, {
+      ...config,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     
     // Check if response is ok before trying to parse JSON
     const contentType = response.headers.get('content-type');
@@ -95,8 +103,19 @@ async function fetchAPI(endpoint, options = {}) {
 
     return data;
   } catch (error) {
+    clearTimeout(timeoutId);
+    
     if (error instanceof ApiError) {
       throw error;
+    }
+    
+    // Handle timeout/abort errors
+    if (error.name === 'AbortError' || error.message.includes('aborted')) {
+      throw new ApiError(
+        'İstek zaman aşımına uğradı. Lütfen daha sonra tekrar deneyin.',
+        408,
+        { originalError: error.message, url }
+      );
     }
     
     // Network errors (CORS, connection refused, etc.)
@@ -120,21 +139,24 @@ async function fetchAPI(endpoint, options = {}) {
 
 /**
  * Match API Service
+ * Uses Sportmonks V3 API via backend proxy
  */
 export const matchAPI = {
   /**
-   * Get matches with optional filters
-   * @param {Object} filters - { matchType, league, date, country }
-   * @returns {Promise<Array>} List of matches
+   * Get all matches (upcoming, live, finished) with optional filters
+   * Uses Sportmonks V3 fixtures endpoint via backend
+   * @param {Object} filters - { matchType, league_id, date_from, date_to }
+   * @returns {Promise<Array>} List of matches with odds
    */
   async getMatches(filters = {}) {
-    // Use StatPal API daily matches endpoint
     const params = new URLSearchParams();
     
-    if (filters.matchType) params.append('match_type', filters.matchType);
-    if (filters.league) params.append('league', filters.league);
-    if (filters.date) params.append('date', filters.date);
-    if (filters.country) params.append('country', filters.country);
+    // Date range filters
+    if (filters.date_from) params.append('date_from', filters.date_from);
+    if (filters.date_to) params.append('date_to', filters.date_to);
+    
+    // League filter
+    if (filters.league_id) params.append('league_id', filters.league_id);
 
     const queryString = params.toString();
     const endpoint = `/matches${queryString ? `?${queryString}` : ''}`;
@@ -144,7 +166,7 @@ export const matchAPI = {
   },
 
   /**
-   * Get live matches
+   * Get live matches from Sportmonks V3
    * @param {number} matchType - Match type (1=Futbol, 2=Basketbol, etc.)
    * @returns {Promise<Array>} List of live matches
    */
@@ -171,46 +193,88 @@ export const matchAPI = {
     }
   },
 
-  /**
-   * Get popular matches
-   * @param {number} matchType - Match type
-   * @returns {Promise<Array>} List of popular matches
-   */
-  async getPopularMatches(matchType = 1) {
-    const response = await fetchAPI(`/matches/popular?match_type=${matchType}`);
-    return response.data || [];
-  },
+  // NOTE: StatPal endpoints removed - backend no longer supports StatPal API
+  // These methods are commented out as they depend on StatPal backend endpoints
+  // TODO: Implement these features using Sportmonks V3 API in the future
+  
+  // /**
+  //  * Get popular matches
+  //  * @param {number} matchType - Match type
+  //  * @returns {Promise<Array>} List of popular matches
+  //  */
+  // async getPopularMatches(matchType = 1) {
+  //   const response = await fetchAPI(`/matches/popular?match_type=${matchType}`);
+  //   return response.data || [];
+  // },
 
   /**
    * Get available leagues
+   * Extracts unique leagues from matches data (Sportmonks V3)
    * @param {Object} filters - { matchType, country }
    * @returns {Promise<Array>} List of leagues
    */
   async getLeagues(filters = {}) {
-    const params = new URLSearchParams();
-    if (filters.matchType) params.append('match_type', filters.matchType);
-    if (filters.country) params.append('country', filters.country);
-
-    const queryString = params.toString();
-    const endpoint = `/leagues${queryString ? `?${queryString}` : ''}`;
-    
-    const response = await fetchAPI(endpoint);
-    return response.data || [];
+    try {
+      // Fetch matches to extract leagues from
+      const today = new Date().toISOString().split('T')[0];
+      const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      const matches = await this.getMatches({
+        date_from: today,
+        date_to: sevenDaysLater,
+        ...filters
+      });
+      
+      // Extract unique leagues from matches
+      const leagueMap = new Map();
+      
+      matches.forEach(match => {
+        if (match.league && match.league_id) {
+          const leagueId = String(match.league_id);
+          if (!leagueMap.has(leagueId)) {
+            leagueMap.set(leagueId, {
+              id: leagueId,
+              name: match.league,
+              country: match.country || '',
+              logo: match.league_logo || null,
+              sport_key: match.sportKey || 'soccer'
+            });
+          }
+        }
+      });
+      
+      // Convert map to array and filter by country if specified
+      let leagues = Array.from(leagueMap.values());
+      
+      if (filters.country) {
+        leagues = leagues.filter(league => 
+          league.country && league.country.toLowerCase().includes(filters.country.toLowerCase())
+        );
+      }
+      
+      // Sort by name
+      leagues.sort((a, b) => a.name.localeCompare(b.name));
+      
+      return leagues;
+    } catch (error) {
+      console.error('Error fetching leagues:', error);
+      return [];
+    }
   },
 
-  /**
-   * Get available countries
-   * @param {number} matchType - Match type
-   * @returns {Promise<Array>} List of countries
-   */
-  async getCountries(matchType = 1) {
-    const response = await fetchAPI(`/countries?match_type=${matchType}`);
-    return response.data || [];
-  },
+  // /**
+  //  * Get available countries
+  //  * @param {number} matchType - Match type
+  //  * @returns {Promise<Array>} List of countries
+  //  */
+  // async getCountries(matchType = 1) {
+  //   const response = await fetchAPI(`/countries?match_type=${matchType}`);
+  //   return response.data || [];
+  // },
 
   /**
-   * Get match events (goals, cards, substitutions)
-   * @param {string} matchId - Match ID
+   * Get match events (goals, cards, substitutions) from Sportmonks V3
+   * @param {string} matchId - Match ID (Sportmonks fixture ID)
    * @returns {Promise<Array>} List of match events
    */
   async getMatchEvents(matchId) {
@@ -219,9 +283,9 @@ export const matchAPI = {
   },
 
   /**
-   * Get match statistics (possession, shots, etc.)
-   * @param {string} matchId - Match ID
-   * @returns {Promise<Object>} Match statistics
+   * Get match statistics (possession, shots, etc.) from Sportmonks V3
+   * @param {string} matchId - Match ID (Sportmonks fixture ID)
+   * @returns {Promise<Array>} Match statistics array
    */
   async getMatchStatistics(matchId) {
     try {
@@ -237,9 +301,9 @@ export const matchAPI = {
   },
 
   /**
-   * Get match lineups (starting XI and substitutes)
-   * @param {string} matchId - Match ID
-   * @returns {Promise<Object>} Match lineups
+   * Get match lineups (starting XI and substitutes) from Sportmonks V3
+   * @param {string} matchId - Match ID (Sportmonks fixture ID)
+   * @returns {Promise<Array>} Match lineups array
    */
   async getMatchLineups(matchId) {
     const response = await fetchAPI(`/matches/${matchId}/lineups`);
@@ -247,510 +311,117 @@ export const matchAPI = {
   },
 
   /**
-   * Get league standings from StatPal Soccer(V2) via backend passthrough
-   * @param {string} leagueId - StatPal league id
-   * @param {string|null} season - Optional season (backend may ignore if not supported)
-   * @returns {Promise<Object|null>} Standings payload
+   * Get match odds from Sportmonks V3
+   * @param {string} matchId - Match ID (Sportmonks fixture ID)
+   * @returns {Promise<Array>} Match odds array (filtered to popular markets)
    */
-  async getLeagueStandings(leagueId, season = null) {
-    if (!leagueId) return null;
-    const qs = season ? `?season=${encodeURIComponent(season)}` : '';
-    const response = await fetchAPI(`/standings/statpal/${leagueId}${qs}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get available seasons from StatPal Soccer(V2)
-   * Note: current backend endpoint returns a global seasons list (leagueId is kept for compatibility).
-   * @param {string|null} leagueId
-   * @returns {Promise<Array>}
-   */
-  async getLeagueSeasons(leagueId = null) {
-    const response = await fetchAPI('/seasons/statpal');
-    return response.data || [];
-  },
-
-  /**
-   * Get head-to-head data from StatPal Soccer(V2)
-   */
-  async getHeadToHead(team1Id, team2Id) {
-    if (!team1Id || !team2Id) return null;
-    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get injuries & suspensions from StatPal Soccer(V2)
-   * @param {string|null} teamId
-   * @param {string|null} leagueId - kept for compatibility (may be ignored if backend doesn't support)
-   */
-  async getInjuriesSuspensions(teamId = null, leagueId = null) {
-    const qs = new URLSearchParams();
-    if (teamId) qs.set('team_id', teamId);
-    if (leagueId) qs.set('league_id', leagueId);
-    const query = qs.toString();
-    const response = await fetchAPI(`/injuries-suspensions/statpal${query ? `?${query}` : ''}`);
-    return response.data || [];
-  },
-};
-
-/**
- * StatPal API Service
- */
-export const statpalAPI = {
-  /**
-   * Get matches from StatPal API
-   * @param {Object} filters - { date, leagueId, teamId }
-   * @returns {Promise<Array>} List of matches
-   */
-  async getMatches(filters = {}) {
-    const params = new URLSearchParams();
-    
-    if (filters.date) params.append('date', filters.date);
-    if (filters.leagueId) params.append('league_id', filters.leagueId);
-    if (filters.teamId) params.append('team_id', filters.teamId);
-
-    const queryString = params.toString();
-    const endpoint = `/matches/statpal${queryString ? `?${queryString}` : ''}`;
-    
-    const response = await fetchAPI(endpoint);
-    return response.data || [];
-  },
-
-  /**
-   * Get live matches from StatPal API
-   * @returns {Promise<Array>} List of live matches
-   */
-  async getLiveMatches() {
-    const response = await fetchAPI('/matches/statpal/live');
-    return response.data || [];
-  },
-
-  /**
-   * Get match details by ID from StatPal API
-   * @param {string} matchId - Match ID
-   * @returns {Promise<Object>} Match details
-   */
-  async getMatchDetails(matchId) {
+  async getMatchOdds(matchId) {
     try {
-      const response = await fetchAPI(`/matches/statpal/${matchId}`);
-      // Handle both {success: true, data: {...}} and direct data formats
-      if (response && response.data) {
-        return response.data;
-      } else if (response && !response.success && response.data === undefined) {
-        // If response exists but no data field, return the response itself
-        return response;
-      }
-      return null;
+      const response = await fetchAPI(`/matches/${matchId}/odds`);
+      return response.data || [];
     } catch (error) {
-      // If 404, try the generic /matches/{match_id} endpoint as fallback
-      if (error.status === 404) {
-        try {
-          const fallbackResponse = await fetchAPI(`/matches/${matchId}`);
-          return fallbackResponse?.data || fallbackResponse || null;
-        } catch (fallbackError) {
-          console.error('Fallback endpoint also failed:', fallbackError);
-          throw error; // Throw original error
-        }
+      if (error instanceof ApiError && error.status === 404) {
+        return [];
       }
       throw error;
     }
   },
 
-  /**
-   * Get live in-depth match stats from StatPal API
-   * @param {string} matchId - Match ID
-   * @returns {Promise<Object>} Match statistics
-   */
-  async getMatchStats(matchId) {
-    const response = await fetchAPI(`/matches/statpal/${matchId}/stats`);
-    return response.data || null;
-  },
+  // NOTE: StatPal endpoints removed - backend no longer supports StatPal API
+  // These methods are commented out as they depend on StatPal backend endpoints
+  // TODO: Implement these features using Sportmonks V3 API in the future
+  
+  // /**
+  //  * Get league standings from StatPal Soccer(V2) via backend passthrough
+  //  * @param {string} leagueId - StatPal league id
+  //  * @param {string|null} season - Optional season (backend may ignore if not supported)
+  //  * @returns {Promise<Object|null>} Standings payload
+  //  */
+  // async getLeagueStandings(leagueId, season = null) {
+  //   if (!leagueId) return null;
+  //   const qs = season ? `?season=${encodeURIComponent(season)}` : '';
+  //   const response = await fetchAPI(`/standings/statpal/${leagueId}${qs}`);
+  //   return response.data || null;
+  // },
 
+  // /**
+  //  * Get available seasons from StatPal Soccer(V2)
+  //  * Note: current backend endpoint returns a global seasons list (leagueId is kept for compatibility).
+  //  * @param {string|null} leagueId
+  //  * @returns {Promise<Array>}
+  //  */
+  // async getLeagueSeasons(leagueId = null) {
+  //   const response = await fetchAPI('/seasons/statpal');
+  //   return response.data || [];
+  // },
 
-  /**
-   * Get match results from StatPal API
-   * @param {string} date - Date filter (YYYY-MM-DD, optional)
-   * @returns {Promise<Array>} List of finished matches
-   */
-  async getResults(date = null) {
-    const params = date ? `?date=${date}` : '';
-    const response = await fetchAPI(`/matches/statpal/results${params}`);
-    return response.data || [];
-  },
+  // /**
+  //  * Get head-to-head data from StatPal Soccer(V2)
+  //  */
+  // async getHeadToHead(team1Id, team2Id) {
+  //   if (!team1Id || !team2Id) return null;
+  //   const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
+  //   return response.data || null;
+  // },
 
-  /**
-   * Get upcoming schedules from StatPal API
-   * @param {number} leagueId - League ID filter (optional)
-   * @param {string} date - Date filter (YYYY-MM-DD, optional)
-   * @returns {Promise<Array>} List of upcoming matches
-   */
-  async getUpcomingSchedules(leagueId = null, date = null) {
-    const params = new URLSearchParams();
-    if (leagueId) params.append('league_id', leagueId);
-    if (date) params.append('date', date);
-    const queryString = params.toString();
-    const endpoint = `/matches/statpal/upcoming${queryString ? `?${queryString}` : ''}`;
-    const response = await fetchAPI(endpoint);
-    return response.data || [];
-  },
-
-  /**
-   * Get available leagues from StatPal API
-   * @returns {Promise<Array>} List of leagues
-   */
-  async getLeagues() {
-    try {
-      const response = await fetchAPI('/leagues/statpal');
-      
-      // Handle different response formats
-      if (response && response.data) {
-        return Array.isArray(response.data) ? response.data : [];
-      } else if (Array.isArray(response)) {
-        return response;
-      }
-      return [];
-    } catch (error) {
-      console.error('Error in getLeagues:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Get teams from StatPal API
-   * @param {Object} filters - { leagueId }
-   * @returns {Promise<Array>} List of teams
-   */
-  async getTeams(filters = {}) {
-    const params = new URLSearchParams();
-    if (filters.leagueId) params.append('league_id', filters.leagueId);
-
-    const queryString = params.toString();
-    const endpoint = `/teams/statpal${queryString ? `?${queryString}` : ''}`;
-    
-    const response = await fetchAPI(endpoint);
-    return response.data || [];
-  },
-
-  /**
-   * Get league standings from StatPal API
-   * @param {number} leagueId - League ID
-   * @returns {Promise<Array>} League standings
-   */
-  async getStandings(leagueId) {
-    const response = await fetchAPI(`/standings/statpal/${leagueId}`);
-    return response.data || [];
-  },
-
-  /**
-   * Get league top scorers from StatPal API
-   * @param {number} leagueId - League ID
-   * @returns {Promise<Array>} List of top scorers
-   */
-  async getTopScorers(leagueId) {
-    const response = await fetchAPI(`/leagues/statpal/${leagueId}/top-scorers`);
-    return response.data || [];
-  },
-
-  /**
-   * Get injuries and suspensions from StatPal API
-   * @param {number} teamId - Team ID filter (optional)
-   * @returns {Promise<Array>} List of injuries/suspensions
-   */
-  async getInjuries(teamId = null) {
-    // Deprecated alias: StatPal Soccer(V2) provides injuries & suspensions via a combined endpoint.
-    return await this.getInjuriesSuspensions(teamId);
-  },
-
-  /**
-   * Get head-to-head statistics from StatPal API
-   * @param {number} team1Id - First team ID
-   * @param {number} team2Id - Second team ID
-   * @returns {Promise<Object>} Head-to-head statistics
-   */
-  async getHeadToHead(team1Id, team2Id) {
-    // Deprecated alias: use /head-to-head/statpal
-    const response = await fetchAPI(`/head-to-head/statpal?team1_id=${team1Id}&team2_id=${team2Id}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get team statistics from StatPal API
-   * @param {number} teamId - Team ID
-   * @returns {Promise<Object>} Team statistics
-   */
-  async getTeamStats(teamId) {
-    const response = await fetchAPI(`/teams/statpal/${teamId}/stats`);
-    return response.data || null;
-  },
-
-  /**
-   * Get player statistics from StatPal API
-   * @param {number} playerId - Player ID
-   * @returns {Promise<Object>} Player statistics
-   */
-  async getPlayerStats(playerId) {
-    const response = await fetchAPI(`/players/statpal/${playerId}/stats`);
-    return response.data || null;
-  },
-
-  /**
-   * Get team transfers from StatPal API
-   * @param {number} teamId - Team ID
-   * @returns {Promise<Array>} List of transfers
-   */
-  async getTeamTransfers(teamId) {
-    const response = await fetchAPI(`/teams/statpal/${teamId}/transfers`);
-    return response.data || [];
-  },
-
-  /**
-   * Get match odds (pre-match or inplay) from StatPal API
-   * @param {string} matchId - Match ID
-   * @param {boolean} inplay - Get inplay odds if true
-   * @returns {Promise<Object>} Odds data
-   */
-  async getMatchOdds(matchId, inplay = false) {
-    const response = await fetchAPI(`/matches/statpal/${matchId}/odds?inplay=${inplay}`);
-    const oddsData = response.data || response; // Fallback: if data doesn't exist, use response itself
-    return oddsData;
-  },
-
-  /**
-   * Get available seasons from StatPal API
-   * @returns {Promise<Array>} List of seasons
-   */
-  async getSeasons() {
-    const response = await fetchAPI(`/seasons/statpal`);
-    return response.data || [];
-  },
-
-  /**
-   * Get daily matches (recent/upcoming) from StatPal API
-   * @param {string} date - Date filter (YYYY-MM-DD, optional)
-   * @returns {Promise<Array>} List of matches
-   */
-  async getDailyMatches(date = null) {
-    const url = date 
-      ? `/matches/statpal/daily?date=${date}`
-      : `/matches/statpal/daily`;
-    const response = await fetchAPI(url);
-    return response.data || [];
-  },
-
-  /**
-   * Get matches by league and season from StatPal API
-   * @param {number} leagueId - League ID
-   * @param {string} season - Season filter (optional)
-   * @returns {Promise<Array>} List of matches
-   */
-  async getLeagueMatches(leagueId, season = null) {
-    const url = season
-      ? `/leagues/statpal/${leagueId}/matches?season=${season}`
-      : `/leagues/statpal/${leagueId}/matches`;
-    const response = await fetchAPI(url);
-    return response.data || [];
-  },
-
-  /**
-   * Get match details/stats by league from StatPal API
-   * @param {number} leagueId - League ID
-   * @returns {Promise<Object>} League match statistics
-   */
-  async getLeagueMatchStats(leagueId) {
-    const response = await fetchAPI(`/leagues/statpal/${leagueId}/matches/stats`);
-    return response.data || null;
-  },
-
-  /**
-   * Get league statistics from StatPal API
-   * @param {number} leagueId - League ID
-   * @returns {Promise<Object>} League statistics
-   */
-  async getLeagueStats(leagueId) {
-    const response = await fetchAPI(`/leagues/statpal/${leagueId}/stats`);
-    return response.data || null;
-  },
-
-  /**
-   * Get coach information from StatPal API
-   * @param {number} coachId - Coach ID
-   * @returns {Promise<Object>} Coach information
-   */
-  async getCoach(coachId) {
-    const response = await fetchAPI(`/coaches/statpal/${coachId}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get image data from StatPal API
-   * @param {string} imageType - Image type filter (optional)
-   * @param {string} imageId - Image ID filter (optional)
-   * @returns {Promise<Object>} Image data
-   */
-  async getImage(imageType = null, imageId = null) {
-    const params = [];
-    if (imageType) params.push(`image_type=${imageType}`);
-    if (imageId) params.push(`image_id=${imageId}`);
-    const url = params.length > 0
-      ? `/images/statpal?${params.join('&')}`
-      : `/images/statpal`;
-    const response = await fetchAPI(url);
-    return response.data || null;
-  },
-
-  /**
-   * Get pre-match odds by league from StatPal API
-   * @param {number} leagueId - League ID
-   * @returns {Promise<Array>} List of pre-match odds
-   */
-  async getLeaguePreMatchOdds(leagueId) {
-    const response = await fetchAPI(`/leagues/statpal/${leagueId}/odds/prematch`);
-    return response.data || [];
-  },
-
-  /**
-   * Get all live matches with live odds available from StatPal API
-   * @returns {Promise<Array>} List of live matches with odds
-   */
-  async getLiveOdds() {
-    const response = await fetchAPI('/odds/statpal/live');
-    return response.data || [];
-  },
-
-  /**
-   * Get live odds match states from StatPal API
-   * @returns {Promise<Array>} List of match states with odds
-   */
-  async getLiveOddsMatchStates() {
-    const response = await fetchAPI(`/odds/statpal/live/match-states`);
-    return response.data || [];
-  },
-
-  /**
-   * Get team information from StatPal API
-   * @param {number} teamId - Team ID
-   * @returns {Promise<Object>} Team information
-   */
-  async getTeam(teamId) {
-    const response = await fetchAPI(`/teams/statpal/${teamId}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get player information from StatPal API
-   * @param {number} playerId - Player ID
-   * @returns {Promise<Object>} Player information
-   */
-  async getPlayer(playerId) {
-    const response = await fetchAPI(`/players/statpal/${playerId}`);
-    return response.data || null;
-  },
-
-  /**
-   * Get injuries and suspensions from StatPal API
-   * @param {number} teamId - Team ID filter (optional)
-   * @returns {Promise<Array>} List of injuries and suspensions
-   */
-  async getInjuriesSuspensions(teamId = null) {
-    const url = teamId
-      ? `/injuries-suspensions/statpal?team_id=${teamId}`
-      : `/injuries-suspensions/statpal`;
-    const response = await fetchAPI(url);
-    return response.data || [];
-  },
-
-  // Note: getHeadToHead is defined above (kept here previously as a duplicate).
+  // /**
+  //  * Get injuries & suspensions from StatPal Soccer(V2)
+  //  * @param {string|null} teamId
+  //  * @param {string|null} leagueId - kept for compatibility (may be ignored if backend doesn't support)
+  //  */
+  // async getInjuriesSuspensions(teamId = null, leagueId = null) {
+  //   const qs = new URLSearchParams();
+  //   if (teamId) qs.set('team_id', teamId);
+  //   if (leagueId) qs.set('league_id', leagueId);
+  //   const query = qs.toString();
+  //   const response = await fetchAPI(`/injuries-suspensions/statpal${query ? `?${query}` : ''}`);
+  //   return response.data || [];
+  // },
 };
 
 /**
  * Banner API Service
+ * NOTE: Banner management has been moved to Firestore.
+ * Use bannerService.js instead of bannerAPI for banner operations.
+ * This export is kept for backward compatibility but will be removed in the future.
+ * 
+ * @deprecated Use bannerService.js instead
  */
 export const bannerAPI = {
   /**
-   * Get all banners
-   * @param {boolean} activeOnly - Return only active banners
-   * @returns {Promise<Array>} List of banners
+   * @deprecated Use bannerService.getBanners() instead
    */
   async getBanners(activeOnly = false) {
-    const response = await fetch(`${API_BASE_URL}/banners${activeOnly ? '?active_only=true' : ''}`);
-    if (!response.ok) {
-      throw new ApiError(
-        `Failed to fetch banners: ${response.statusText}`,
-        response.status,
-        null
-      );
-    }
-    return await response.json();
+    console.warn('bannerAPI.getBanners() is deprecated. Use bannerService.getBanners() instead.');
+    const { getBanners } = await import('./bannerService');
+    return getBanners(activeOnly);
   },
 
   /**
-   * Create a new banner
-   * @param {Object} bannerData - Banner data
-   * @returns {Promise<Object>} Created banner
+   * @deprecated Use bannerService.createBanner() instead
    */
   async createBanner(bannerData) {
-    const response = await fetch(`${API_BASE_URL}/banners`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(bannerData),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new ApiError(
-        data.detail || data.message || 'Failed to create banner',
-        response.status,
-        data
-      );
-    }
-    return await response.json();
+    console.warn('bannerAPI.createBanner() is deprecated. Use bannerService.createBanner() instead.');
+    const { createBanner } = await import('./bannerService');
+    return createBanner(bannerData);
   },
 
   /**
-   * Update a banner
-   * @param {string} bannerId - Banner ID
-   * @param {Object} bannerData - Updated banner data
-   * @returns {Promise<Object>} Updated banner
+   * @deprecated Use bannerService.updateBanner() instead
    */
   async updateBanner(bannerId, bannerData) {
-    const response = await fetch(`${API_BASE_URL}/banners/${bannerId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(bannerData),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new ApiError(
-        data.detail || data.message || 'Failed to update banner',
-        response.status,
-        data
-      );
-    }
-    return await response.json();
+    console.warn('bannerAPI.updateBanner() is deprecated. Use bannerService.updateBanner() instead.');
+    const { updateBanner } = await import('./bannerService');
+    return updateBanner(bannerId, bannerData);
   },
 
   /**
-   * Delete a banner
-   * @param {string} bannerId - Banner ID
-   * @returns {Promise<Object>} Success message
+   * @deprecated Use bannerService.deleteBanner() instead
    */
   async deleteBanner(bannerId) {
-    const response = await fetch(`${API_BASE_URL}/banners/${bannerId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new ApiError(
-        data.detail || data.message || 'Failed to delete banner',
-        response.status,
-        data
-      );
-    }
-    return await response.json();
+    console.warn('bannerAPI.deleteBanner() is deprecated. Use bannerService.deleteBanner() instead.');
+    const { deleteBanner } = await import('./bannerService');
+    return deleteBanner(bannerId);
   },
 };
 

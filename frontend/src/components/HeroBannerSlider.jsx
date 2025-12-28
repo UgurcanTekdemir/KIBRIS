@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Carousel, CarouselContent, CarouselItem } from './ui/carousel';
 import { Button } from './ui/button';
-import { bannerAPI } from '../services/api';
+import { getBanners } from '../services/bannerService';
 
 // Mock banner data
 const mockBanners = [
@@ -48,7 +48,7 @@ const HeroBannerSlider = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const data = await bannerAPI.getBanners(true);
+        const data = await getBanners(true);
         if (data && data.length > 0) {
           setBanners(data);
           setUseMockData(false);

@@ -7,7 +7,10 @@ services:
     envVars:
       - key: THE_ODDS_API_KEY
         sync: false
+      - key: STATPAL_ACCESS_KEY
+        sync: false
       - key: CORS_ORIGINS
+        value: http://localhost:3000,http://localhost:3001,https://your-frontend.vercel.app
         sync: false
       - key: MONGO_URL
         sync: false

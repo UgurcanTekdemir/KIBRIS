@@ -15,7 +15,7 @@ import {
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { bannerAPI } from '../services/api';
+import { getBanners, createBanner, updateBanner, deleteBanner } from '../services/bannerService';
 
 const AdminPanel = () => {
   const { user } = useAuth();
@@ -40,7 +40,7 @@ const AdminPanel = () => {
     
     const fetchBanners = async () => {
       try {
-        const data = await bannerAPI.getBanners();
+        const data = await getBanners();
         setBanners(data || []);
       } catch (error) {
         console.error('Error fetching banners:', error);
@@ -85,10 +85,10 @@ const AdminPanel = () => {
     e.preventDefault();
     try {
       if (editingBanner) {
-        await bannerAPI.updateBanner(editingBanner.id, bannerForm);
+        await updateBanner(editingBanner.id, bannerForm);
         toast.success('Banner güncellendi');
       } else {
-        await bannerAPI.createBanner(bannerForm);
+        await createBanner(bannerForm);
         toast.success('Banner oluşturuldu');
       }
       
@@ -104,7 +104,7 @@ const AdminPanel = () => {
       setEditingBanner(null);
       
       // Refresh banners
-      const data = await bannerAPI.getBanners();
+      const data = await getBanners();
       setBanners(data || []);
     } catch (error) {
       console.error('Error saving banner:', error);
@@ -118,7 +118,7 @@ const AdminPanel = () => {
     }
 
     try {
-      await bannerAPI.deleteBanner(id);
+      await deleteBanner(id);
       toast.success('Banner silindi');
       setBanners(banners.filter(b => b.id !== id));
     } catch (error) {

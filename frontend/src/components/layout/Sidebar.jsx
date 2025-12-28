@@ -19,22 +19,56 @@ const Sidebar = ({ isOpen, onClose }) => {
   // Fetch matches for search suggestions
   const { matches: allMatches } = useMatches({ matchType: 1 });
 
-  // Fetch leagues from API
-  useEffect(() => {
-    async function fetchLeagues() {
-      try {
-        setLoadingLeagues(true);
-        const leaguesData = await matchAPI.getLeagues({ matchType: 1 });
-        setLeagues(leaguesData || []);
-      } catch (error) {
-        console.error('Error fetching leagues:', error);
-        setLeagues([]);
-      } finally {
-        setLoadingLeagues(false);
+  // Extract unique leagues from matches data
+  const extractedLeagues = useMemo(() => {
+    if (!allMatches || allMatches.length === 0) return [];
+    
+    const leagueMap = new Map();
+    
+    allMatches.forEach(match => {
+      if (match.league && match.league_id) {
+        const leagueId = String(match.league_id);
+        if (!leagueMap.has(leagueId)) {
+          leagueMap.set(leagueId, {
+            id: leagueId,
+            name: match.league,
+            country: match.country || '',
+            logo: match.leagueFlag || null,
+            sport_key: match.sportKey || 'soccer'
+          });
+        }
       }
+    });
+    
+    // Convert map to array and sort by name
+    const leaguesArray = Array.from(leagueMap.values());
+    leaguesArray.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return leaguesArray;
+  }, [allMatches]);
+
+  // Update leagues state when extracted leagues change
+  useEffect(() => {
+    if (extractedLeagues.length > 0) {
+      setLeagues(extractedLeagues);
+      setLoadingLeagues(false);
+    } else if (allMatches.length === 0) {
+      // If no matches loaded yet, try to fetch leagues from API as fallback
+      async function fetchLeagues() {
+        try {
+          setLoadingLeagues(true);
+          const leaguesData = await matchAPI.getLeagues({ matchType: 1 });
+          setLeagues(leaguesData || []);
+        } catch (error) {
+          console.error('Error fetching leagues:', error);
+          setLeagues([]);
+        } finally {
+          setLoadingLeagues(false);
+        }
+      }
+      fetchLeagues();
     }
-    fetchLeagues();
-  }, []);
+  }, [extractedLeagues, allMatches]);
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },

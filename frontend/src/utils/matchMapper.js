@@ -1,16 +1,21 @@
 /**
  * Match Data Mapper
- * Transforms API response format (The Odds API or StatPal API) to our internal match structure
+ * Transforms API response format (Sportmonks V3, The Odds API, or StatPal API) to our internal match structure
  */
 
 /**
  * Map API response to internal match structure
- * Supports both The Odds API and StatPal API formats (StatPal is transformed to The Odds API format in backend)
- * @param {Object} apiMatch - Match object from API (The Odds API format or StatPal transformed format)
+ * Supports Sportmonks V3, The Odds API, and StatPal API formats
+ * @param {Object} apiMatch - Match object from API
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
   if (!apiMatch) return null;
+  
+  // Detect Sportmonks V3 format (backend transforms it, but we check for sportmonks_id or transformed structure)
+  if (apiMatch.sportmonks_id !== undefined || (apiMatch.home_team && apiMatch.away_team && apiMatch.status && !apiMatch.bookmakers)) {
+    return mapSportmonksMatchToInternal(apiMatch);
+  }
   
   // The Odds API / StatPal (transformed) response structure:
   // {
@@ -794,5 +799,401 @@ function formatDate(date) {
     return date.split(' ')[0];
   }
   return date;
+}
+
+/**
+ * Map Sportmonks V3 match (already transformed by backend) to internal match structure
+ * @param {Object} sportmonksMatch - Match object from Sportmonks V3 (transformed by backend)
+ * @returns {Object} Internal match structure
+ */
+function mapSportmonksMatchToInternal(sportmonksMatch) {
+  if (!sportmonksMatch) return null;
+  
+  // Parse commence_time/starting_at (ISO 8601 format)
+  // Backend sends starting_at, but we also check commence_time for compatibility
+  const commenceTime = sportmonksMatch.starting_at 
+    ? new Date(sportmonksMatch.starting_at) 
+    : (sportmonksMatch.commence_time ? new Date(sportmonksMatch.commence_time) : null);
+  const date = commenceTime && !isNaN(commenceTime.getTime()) ? formatDateFromISO(commenceTime) : '';
+  const time = commenceTime && !isNaN(commenceTime.getTime()) ? formatTimeFromISO(commenceTime) : '';
+  
+  // Extract scores (already extracted by backend)
+  const homeScore = sportmonksMatch.home_score !== undefined && sportmonksMatch.home_score !== null 
+    ? sportmonksMatch.home_score 
+    : null;
+  const awayScore = sportmonksMatch.away_score !== undefined && sportmonksMatch.away_score !== null 
+    ? sportmonksMatch.away_score 
+    : null;
+  
+  // Extract time status (already formatted by backend)
+  let status = sportmonksMatch.status || '';
+  let minute = sportmonksMatch.minute !== undefined && sportmonksMatch.minute !== null 
+    ? parseInt(sportmonksMatch.minute, 10) 
+    : null;
+  let isLive = sportmonksMatch.is_live === true;
+  let isFinished = sportmonksMatch.is_finished === true;
+  let isPostponed = sportmonksMatch.is_postponed === true;
+  
+  // If status is empty but we have events, try to infer from events
+  if (!status && sportmonksMatch.events && Array.isArray(sportmonksMatch.events) && sportmonksMatch.events.length > 0) {
+    // Get the latest event minute
+    const latestEvent = sportmonksMatch.events.reduce((latest, event) => {
+      const eventMinute = event.minute || 0;
+      const latestMinute = latest.minute || 0;
+      return eventMinute > latestMinute ? event : latest;
+    }, sportmonksMatch.events[0]);
+    
+    if (latestEvent && latestEvent.minute !== undefined && latestEvent.minute !== null) {
+      minute = parseInt(latestEvent.minute, 10);
+      // If minute > 0 and < 120, match is likely live
+      if (minute > 0 && minute < 120) {
+        status = 'LIVE';
+        isLive = true;
+      }
+    }
+  }
+  
+  // If still no status, check if match has started based on starting_at
+  if (!status && commenceTime && !isNaN(commenceTime.getTime())) {
+    const now = new Date();
+    if (commenceTime <= now) {
+      // Match has started - if we have scores or events, it's likely live
+      if ((homeScore !== null && homeScore !== undefined) || 
+          (awayScore !== null && awayScore !== undefined) ||
+          (sportmonksMatch.events && sportmonksMatch.events.length > 0)) {
+        status = 'LIVE';
+        isLive = true;
+      } else {
+        status = 'NS'; // Not Started
+      }
+    } else {
+      status = 'NS'; // Not Started
+    }
+  }
+  
+  // Extract league info
+  const league = sportmonksMatch.league || '';
+  const leagueFlag = sportmonksMatch.league_logo 
+    ? null // Will use image if available
+    : getLeagueFlagFromCountry(sportmonksMatch.country || league);
+  
+  // Extract team logos
+  const homeTeamLogo = sportmonksMatch.home_team_logo || null;
+  const awayTeamLogo = sportmonksMatch.away_team_logo || null;
+  
+  // Build markets from odds data (if available)
+  const markets = [];
+  
+  // Extract odds from odds array (Sportmonks V3 format)
+  // Handle both array format and nested data format
+  let oddsArray = null;
+  if (sportmonksMatch.odds) {
+    if (Array.isArray(sportmonksMatch.odds)) {
+      oddsArray = sportmonksMatch.odds;
+    } else if (sportmonksMatch.odds.data && Array.isArray(sportmonksMatch.odds.data)) {
+      oddsArray = sportmonksMatch.odds.data;
+    } else if (typeof sportmonksMatch.odds === 'object') {
+      // Try to extract from object format
+      oddsArray = Object.values(sportmonksMatch.odds).filter(item => Array.isArray(item)).flat();
+    }
+  }
+  
+  if (oddsArray && oddsArray.length > 0) {
+    try {
+      const extractedMarkets = extractMarketsFromSportmonksOdds(oddsArray, sportmonksMatch.home_team, sportmonksMatch.away_team);
+      if (extractedMarkets && extractedMarkets.length > 0) {
+        markets.push(...extractedMarkets);
+      }
+    } catch (error) {
+      console.warn('Error extracting markets from odds:', error);
+    }
+  }
+  
+  // If no markets from odds, try to create basic 1X2 market if we have any odds data
+  if (markets.length === 0 && sportmonksMatch.odds) {
+    try {
+      // Try to extract basic odds if available in a different format
+      const basicOdds = extractBasicOdds(sportmonksMatch.odds);
+      if (basicOdds && (basicOdds.home || basicOdds.draw || basicOdds.away)) {
+        markets.push({
+          name: 'Maç Sonucu',
+          options: [
+            ...(basicOdds.home ? [{ label: '1', value: parseFloat(basicOdds.home) }] : []),
+            ...(basicOdds.draw ? [{ label: 'X', value: parseFloat(basicOdds.draw) }] : []),
+            ...(basicOdds.away ? [{ label: '2', value: parseFloat(basicOdds.away) }] : []),
+          ],
+        });
+      }
+    } catch (error) {
+      console.warn('Error extracting basic odds:', error);
+    }
+  }
+  
+  return {
+    id: String(sportmonksMatch.id || sportmonksMatch.sportmonks_id || ''),
+    league: league,
+    leagueFlag: leagueFlag,
+    sportKey: '', // Sportmonks doesn't use sport_key
+    homeTeam: sportmonksMatch.home_team || 'Home Team',
+    awayTeam: sportmonksMatch.away_team || 'Away Team',
+    homeTeamLogo: homeTeamLogo,
+    awayTeamLogo: awayTeamLogo,
+    homeScore: homeScore,
+    awayScore: awayScore,
+    minute: minute,
+    isLive: isLive,
+    isFinished: isFinished,
+    status: status,
+    time: time,
+    date: date,
+    odds: {
+      home: null, // Will be extracted from markets if available
+      draw: null,
+      away: null,
+    },
+    markets: markets,
+    stats: sportmonksMatch.statistics || null, // Keep statistics for detail page
+    events: sportmonksMatch.events || [], // Keep events for detail page
+    lineups: sportmonksMatch.lineups || [], // Keep lineups for detail page
+  };
+}
+
+/**
+ * Extract markets from Sportmonks V3 odds array
+ * @param {Array} oddsArray - Odds array from Sportmonks V3
+ * @param {string} homeTeam - Home team name
+ * @param {string} awayTeam - Away team name
+ * @returns {Array} Markets array
+ */
+function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
+  if (!Array.isArray(oddsArray) || oddsArray.length === 0) return [];
+  
+  const markets = [];
+  const marketMap = new Map(); // Group by market_id and market_description
+  
+  // Sportmonks V3 format: each odd has market_description, label, value directly
+  for (const odd of oddsArray) {
+    try {
+      // Skip stopped odds
+      if (odd && odd.stopped === true) continue;
+      
+      // Handle nested odd format (if odd is wrapped in data object)
+      const oddData = odd.data || odd;
+      
+      // Get market description (e.g., "Full Time Result", "Goal Line")
+      const marketDescription = oddData.market_description || oddData.market?.name || '';
+      if (!marketDescription) continue;
+      
+      // Get market_id to group by
+      const marketId = oddData.market_id || oddData.market?.id || marketDescription;
+      
+      // Get label and value - handle different formats
+      let label = oddData.label || oddData.name || oddData.outcome || '';
+      let value = oddData.value || oddData.price || oddData.odd;
+      
+      // If value is an object, try to extract numeric value
+      if (typeof value === 'object' && value !== null) {
+        value = value.value || value.price || value.odd || null;
+      }
+      
+      // Convert value to number
+      const numericValue = typeof value === 'string' ? parseFloat(value) : (typeof value === 'number' ? value : null);
+      
+      if (!label || !numericValue || numericValue <= 0 || !isFinite(numericValue)) continue;
+      
+      // Translate market names to Turkish
+      const translatedName = translateMarketName(marketDescription);
+      
+      // Translate outcome label
+      const translatedLabel = translateOutcomeName(label, homeTeam, awayTeam);
+      
+      // Group by market
+      if (!marketMap.has(marketId)) {
+        marketMap.set(marketId, {
+          name: translatedName,
+          options: [],
+        });
+      }
+      
+      // Add option (avoid duplicates)
+      const market = marketMap.get(marketId);
+      const existingOption = market.options.find(opt => opt.label === translatedLabel);
+      if (!existingOption) {
+        market.options.push({
+          label: translatedLabel,
+          value: numericValue,
+        });
+      } else {
+        // Update if new value is better (higher odds)
+        if (numericValue > existingOption.value) {
+          existingOption.value = numericValue;
+        }
+      }
+    } catch (error) {
+      // Skip invalid odds entries
+      console.warn('Error processing odd entry:', error, odd);
+      continue;
+    }
+  }
+  
+  // Convert map to markets array and filter popular markets
+  const popularMarketIds = [1, 2, 7, 44]; // Full Time Result, Double Chance, Goal Line, Goals Odd/Even
+  const popularMarketDescriptions = ['Full Time Result', 'Fulltime Result', 'Double Chance', 'Goal Line', 'Goals Odd/Even'];
+  
+  for (const [marketId, market] of marketMap.entries()) {
+    // Only include popular markets or markets with at least 2 options
+    const isPopular = popularMarketIds.includes(marketId) || 
+                     popularMarketDescriptions.some(desc => market.name.includes(translateMarketName(desc)));
+    
+    if (isPopular || market.options.length >= 2) {
+      // Sort options by value (ascending)
+      market.options.sort((a, b) => a.value - b.value);
+      markets.push(market);
+    }
+  }
+  
+  // Sort markets: Full Time Result first, then others
+  markets.sort((a, b) => {
+    if (a.name === 'Maç Sonucu') return -1;
+    if (b.name === 'Maç Sonucu') return 1;
+    return a.name.localeCompare(b.name);
+  });
+  
+  return markets;
+}
+
+/**
+ * Translate Sportmonks market names to Turkish
+ * @param {string} marketName - English market name
+ * @returns {string} Turkish market name
+ */
+function translateMarketName(marketName) {
+  if (!marketName) return marketName;
+  
+  const translations = {
+    '1x2': 'Maç Sonucu',
+    'match winner': 'Maç Sonucu',
+    'match_winner': 'Maç Sonucu',
+    'full time result': 'Maç Sonucu',
+    'fulltime result': 'Maç Sonucu',
+    'both teams to score': 'Karşılıklı Gol',
+    'both_teams_to_score': 'Karşılıklı Gol',
+    'btts': 'Karşılıklı Gol',
+    'over/under': 'Toplam Gol',
+    'over_under': 'Toplam Gol',
+    'total goals': 'Toplam Gol',
+    'total_goals': 'Toplam Gol',
+    'goal line': 'Toplam Gol',
+    'double chance': 'Çifte Şans',
+    'double_chance': 'Çifte Şans',
+    'draw no bet': 'Beraberlik Yok',
+    'draw_no_bet': 'Beraberlik Yok',
+    'goals odd/even': 'Gol Tek/Çift',
+    'asian handicap': 'Asya Handikapı',
+    'correct score': 'Kesin Skor',
+  };
+  
+  const lowerName = marketName.toLowerCase().trim();
+  
+  // Check exact match first
+  if (translations[lowerName]) {
+    return translations[lowerName];
+  }
+  
+  // Check partial match
+  for (const [key, value] of Object.entries(translations)) {
+    if (lowerName.includes(key)) {
+      return value;
+    }
+  }
+  
+  return marketName;
+}
+
+/**
+ * Translate outcome names to Turkish
+ * @param {string} outcomeName - Outcome name
+ * @param {string} homeTeam - Home team name
+ * @param {string} awayTeam - Away team name
+ * @returns {string} Translated outcome name
+ */
+function translateOutcomeName(outcomeName, homeTeam, awayTeam) {
+  const lower = outcomeName.toLowerCase();
+  
+  if (lower === 'home' || lower === '1') return '1';
+  if (lower === 'away' || lower === '2') return '2';
+  if (lower === 'draw' || lower === 'x') return 'X';
+  if (lower === 'yes') return 'Var';
+  if (lower === 'no') return 'Yok';
+  if (lower === 'over') return 'Üst';
+  if (lower === 'under') return 'Alt';
+  
+  // If it matches team names, use 1 or 2
+  if (homeTeam && outcomeName.toLowerCase().includes(homeTeam.toLowerCase())) return '1';
+  if (awayTeam && outcomeName.toLowerCase().includes(awayTeam.toLowerCase())) return '2';
+  
+  return outcomeName;
+}
+
+/**
+ * Extract basic odds from Sportmonks odds structure
+ * @param {Object|Array} odds - Odds data
+ * @returns {Object} Basic odds { home, draw, away }
+ */
+function extractBasicOdds(odds) {
+  const result = { home: null, draw: null, away: null };
+  
+  if (Array.isArray(odds)) {
+    for (const odd of odds) {
+      const market = odd.market || {};
+      const marketName = (market.name || '').toLowerCase();
+      
+      if (marketName.includes('1x2') || marketName.includes('match winner')) {
+        const values = odd.values || [];
+        for (const val of values) {
+          const name = (val.name || val.label || '').toLowerCase();
+          const value = parseFloat(val.value);
+          
+          if (name === 'home' || name === '1') result.home = value;
+          else if (name === 'draw' || name === 'x') result.draw = value;
+          else if (name === 'away' || name === '2') result.away = value;
+        }
+      }
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Get league flag from country name
+ * @param {string} country - Country name
+ * @returns {string} Flag emoji
+ */
+function getLeagueFlagFromCountry(country) {
+  if (!country) return '🏆';
+  
+  const flagMap = {
+    'Türkiye': '🇹🇷',
+    'Turkey': '🇹🇷',
+    'İngiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    'İspanya': '🇪🇸',
+    'Spain': '🇪🇸',
+    'İtalya': '🇮🇹',
+    'Italy': '🇮🇹',
+    'Almanya': '🇩🇪',
+    'Germany': '🇩🇪',
+    'Fransa': '🇫🇷',
+    'France': '🇫🇷',
+  };
+  
+  for (const [key, flag] of Object.entries(flagMap)) {
+    if (country.includes(key)) {
+      return flag;
+    }
+  }
+  
+  return '🏆';
 }
 

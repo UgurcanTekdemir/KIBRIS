@@ -13,11 +13,12 @@ const MatchesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlSearchQuery = searchParams.get('search') || '';
   const [searchTerm, setSearchTerm] = useState(urlSearchQuery);
+  const [activeTab, setActiveTab] = useState('upcoming');
   const today = new Date().toISOString().split('T')[0];
   // Calculate 7 days (1 week) from today for upcoming matches
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  // Calculate 14 days (2 weeks) ago for past matches
-  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Calculate 7 days ago for past matches (lazy loaded only when past tab is active)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Sync URL search param with local state
   useEffect(() => {
@@ -26,8 +27,34 @@ const MatchesPage = () => {
     }
   }, [urlSearchQuery, searchTerm]);
 
-  // Fetch matches for today, tomorrow, and future
-  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
+  // Lazy loading: Only fetch upcoming matches initially (fast load)
+  const { matches: upcomingMatchesData, loading: upcomingLoading, error: upcomingError, refetch: refetchUpcoming } = useMatches({ 
+    matchType: 1,
+    date_from: today,
+    date_to: sevenDaysLater
+  });
+
+  // Lazy loading: Only fetch past matches when past tab is active
+  const shouldFetchPast = activeTab === 'past';
+  const { matches: pastMatchesData, loading: pastLoading, error: pastError, refetch: refetchPast } = useMatches({ 
+    matchType: 1,
+    date_from: sevenDaysAgo,
+    date_to: today
+  }, {
+    enabled: shouldFetchPast // Only fetch when past tab is active
+  });
+
+  // Combine matches based on active tab
+  const allMatches = useMemo(() => {
+    if (activeTab === 'past') {
+      return pastMatchesData || [];
+    }
+    return upcomingMatchesData || [];
+  }, [activeTab, upcomingMatchesData, pastMatchesData]);
+
+  const loading = activeTab === 'past' ? pastLoading : upcomingLoading;
+  const error = activeTab === 'past' ? pastError : upcomingError;
+  const refetch = activeTab === 'past' ? refetchPast : refetchUpcoming;
   
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
@@ -60,35 +87,33 @@ const MatchesPage = () => {
     );
   }, [allMatches, searchTerm]);
 
-  // Separate upcoming vs past matches
+  // Separate matches based on active tab
   const { upcomingMatches, pastMatches, postponedMatches } = useMemo(() => {
     const upcoming = [];
     const past = [];
     const postponed = [];
     
     for (const match of filteredMatches) {
+      // Exclude live matches - they should only appear on Live Matches page
+      if (match.isLive === true) {
+        continue;
+      }
+      
       const status = (match.status || '').toUpperCase();
       const isPostponed = status === 'POSTPONED';
       const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
       const isPastDate = match.date < today;
-      // Only show matches within 7 days (1 week) from today
-      const isWithin7Days = match.date >= today && match.date <= sevenDaysLater;
       
       if (isPostponed) {
         // Postponed matches go to separate list
         postponed.push(match);
       } else if (isFinished || isPastDate) {
-        // Only truly finished matches (not postponed) go to past
-        // Include past matches from last 2 weeks
-        const matchDate = match.date || '';
-        if (matchDate >= twoWeeksAgo) {
-          past.push(match);
-        }
-      } else if (isWithin7Days) {
-        // Only include upcoming matches within 7 days
+        // Past matches
+        past.push(match);
+      } else {
+        // Upcoming matches
         upcoming.push(match);
       }
-      // Matches beyond 7 days (upcoming) or beyond 2 weeks (past) are excluded
     }
     
     // Sort upcoming by date/time (ascending)
@@ -116,7 +141,15 @@ const MatchesPage = () => {
     });
     
     return { upcomingMatches: upcoming, pastMatches: past, postponedMatches: postponed };
-  }, [filteredMatches, today, sevenDaysLater, twoWeeksAgo]);
+  }, [filteredMatches, today]);
+  
+  // Calculate past matches count for display (only when data is available)
+  const pastMatchesCount = useMemo(() => {
+    if (!shouldFetchPast || !pastMatchesData) {
+      return '...';
+    }
+    return pastMatches.length;
+  }, [shouldFetchPast, pastMatchesData, pastMatches.length]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -222,7 +255,7 @@ const MatchesPage = () => {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="upcoming" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-[#0d1117] border border-[#1e2736] p-1 mb-6">
           <TabsTrigger
             value="upcoming"
@@ -234,7 +267,7 @@ const MatchesPage = () => {
             value="past"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Geçmiş Maçlar ({pastMatches.length})
+            Geçmiş Maçlar ({pastMatchesCount})
           </TabsTrigger>
         </TabsList>
 

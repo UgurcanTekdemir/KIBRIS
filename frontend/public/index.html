@@ -23,8 +23,8 @@
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
         <div id="root"></div>
-        <!-- Load environment variables from env.js -->
-        <script src="%PUBLIC_URL%/env.js"></script>
+        <!-- Environment variables are loaded via Webpack DefinePlugin, no need for env.js -->
+        <!-- <script src="%PUBLIC_URL%/env.js"></script> -->
         <script>
             // Remove Emergent badge immediately - runs before any other scripts
             (function() {

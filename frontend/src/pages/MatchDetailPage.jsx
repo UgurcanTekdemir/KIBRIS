@@ -12,6 +12,7 @@ import { useLiveMatchStatistics } from '../hooks/useLiveMatchStatistics';
 import { useOddsTracking } from '../hooks/useOddsTracking';
 import { matchAPI } from '../services/api';
 import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategories';
+import { getTeamImagePath, getFallbackIcon } from '../utils/imageUtils';
 
 // Format date for display - always show actual date, not "Bugün" or "Yarın"
 function formatMatchDateTime(date, time) {
@@ -25,6 +26,85 @@ function formatMatchDateTime(date, time) {
     return `${formattedDate} ${time}`;
   }
   return formattedDate;
+}
+
+/**
+ * Transform Sportmonks V3 statistics array to component format
+ * @param {Array} statsArray - Statistics array from Sportmonks V3
+ * @param {number} homeTeamId - Home team participant ID
+ * @param {number} awayTeamId - Away team participant ID
+ * @returns {Object} Transformed statistics object
+ */
+function transformSportmonksStatistics(statsArray, homeTeamId, awayTeamId) {
+  if (!Array.isArray(statsArray) || statsArray.length === 0) {
+    return null;
+  }
+  
+  const result = {
+    possession: null,
+    shots: null,
+    corners: null,
+    attacks: null,
+  };
+  
+  // Group statistics by participant_id
+  const homeStats = {};
+  const awayStats = {};
+  
+  for (const stat of statsArray) {
+    const participantId = stat.participant_id;
+    const statType = stat.type?.name || stat.type_name || '';
+    const value = parseFloat(stat.value) || 0;
+    
+    if (participantId === homeTeamId) {
+      homeStats[statType.toLowerCase()] = value;
+    } else if (participantId === awayTeamId) {
+      awayStats[statType.toLowerCase()] = value;
+    }
+  }
+  
+  // Map common statistic names
+  const statMappings = {
+    'possession': 'possession',
+    'ball possession': 'possession',
+    'ball_possession': 'possession',
+    'shots on goal': 'shots',
+    'shots on target': 'shots',
+    'shots_on_goal': 'shots',
+    'shots_on_target': 'shots',
+    'total shots': 'shots',
+    'total_shots': 'shots',
+    'corner kicks': 'corners',
+    'corner_kicks': 'corners',
+    'corners': 'corners',
+    'attacks': 'attacks',
+    'dangerous attacks': 'attacks',
+    'dangerous_attacks': 'attacks',
+  };
+  
+  // Extract statistics
+  for (const [key, value] of Object.entries(homeStats)) {
+    const mappedKey = statMappings[key] || key;
+    if (mappedKey === 'possession') {
+      result.possession = [value, awayStats[key] || 0];
+    } else if (mappedKey === 'shots') {
+      result.shots = [value, awayStats[key] || 0];
+    } else if (mappedKey === 'corners') {
+      result.corners = [value, awayStats[key] || 0];
+    } else if (mappedKey === 'attacks') {
+      result.attacks = [value, awayStats[key] || 0];
+    }
+  }
+  
+  // If we didn't find stats, try to extract from away stats
+  for (const [key, value] of Object.entries(awayStats)) {
+    const mappedKey = statMappings[key] || key;
+    if (!result[mappedKey] && mappedKey in result) {
+      result[mappedKey] = [homeStats[key] || 0, value];
+    }
+  }
+  
+  return result;
 }
 
 const MatchDetailPage = () => {
@@ -41,7 +121,24 @@ const MatchDetailPage = () => {
   // Fetch events and statistics only for live or finished matches
   const shouldFetchEvents = match?.isLive || match?.isFinished;
   const { events } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
-  const { statistics } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
+  const { statistics: rawStatistics } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
+  
+  // Transform Sportmonks V3 statistics array to component format
+  const statistics = useMemo(() => {
+    if (!rawStatistics) return null;
+    
+    // If it's already in the expected format (object with possession, shots, etc.)
+    if (rawStatistics.possession || rawStatistics.shots) {
+      return rawStatistics;
+    }
+    
+    // If it's an array (Sportmonks V3 format), transform it
+    if (Array.isArray(rawStatistics)) {
+      return transformSportmonksStatistics(rawStatistics, match?.home_team_id, match?.away_team_id);
+    }
+    
+    return null;
+  }, [rawStatistics, match?.home_team_id, match?.away_team_id]);
   
   // Track odds changes
   const { getOddsChange } = useOddsTracking(id, match, match?.isLive ? 5000 : 30000);
@@ -170,7 +267,7 @@ const MatchDetailPage = () => {
                     onError={() => setLogoErrors(prev => ({ ...prev, home: true }))}
                   />
                 ) : (
-                  <span className="text-2xl font-bold text-white">{match.homeTeam.charAt(0)}</span>
+                  <span className="text-2xl font-bold text-white">{getFallbackIcon(match.homeTeam)}</span>
                 )}
               </div>
               <h3 className="text-white font-bold text-lg">{match.homeTeam}</h3>
@@ -214,7 +311,7 @@ const MatchDetailPage = () => {
                     onError={() => setLogoErrors(prev => ({ ...prev, away: true }))}
                   />
                 ) : (
-                  <span className="text-2xl font-bold text-white">{match.awayTeam.charAt(0)}</span>
+                  <span className="text-2xl font-bold text-white">{getFallbackIcon(match.awayTeam)}</span>
                 )}
               </div>
               <h3 className="text-white font-bold text-lg">{match.awayTeam}</h3>

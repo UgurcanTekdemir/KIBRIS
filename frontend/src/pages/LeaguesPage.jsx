@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { statpalAPI } from '../services/api';
+import { matchAPI } from '../services/api';
 
 const LeaguesPage = () => {
   const navigate = useNavigate();
@@ -15,15 +15,35 @@ const LeaguesPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('all');
 
-  // Fetch leagues from StatPal API
+  // Fetch leagues from matches (extract unique leagues from live matches)
   useEffect(() => {
     const fetchLeagues = async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await statpalAPI.getLeagues();
-        // Ensure data is an array
-        const leaguesArray = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
+        
+        // Get live matches and extract unique leagues
+        const matches = await matchAPI.getLiveMatches();
+        
+        // Extract unique leagues from matches
+        const leagueMap = new Map();
+        matches.forEach(match => {
+          if (match.league && match.league_id) {
+            const leagueId = match.league_id;
+            if (!leagueMap.has(leagueId)) {
+              leagueMap.set(leagueId, {
+                id: leagueId,
+                name: match.league,
+                country: match.country || '',
+                league_id: leagueId,
+                league_name: match.league,
+                image_path: match.league_logo || null,
+              });
+            }
+          }
+        });
+        
+        const leaguesArray = Array.from(leagueMap.values());
         setLeagues(leaguesArray);
       } catch (err) {
         console.error('Error fetching leagues:', err);
@@ -317,7 +337,7 @@ const LeaguesPage = () => {
               <p className="text-gray-500">
                 {searchQuery || selectedCountry !== 'all'
                   ? 'Arama kriterlerinize uygun lig bulunamadı.'
-                  : 'StatPal API\'den lig verisi alınamadı.'}
+                  : 'Lig verisi alınamadı.'}
               </p>
               {(searchQuery || selectedCountry !== 'all') && (
                 <Button

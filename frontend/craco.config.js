@@ -131,11 +131,32 @@ const webpackConfig = {
       console.log('🔧 Webpack Config - Removed', removedCount, 'existing DefinePlugin(s)');
 
       // Create our own DefinePlugin with all necessary vars
+      // Build process.env object
+      const processEnvObj = {
+        NODE_ENV: process.env.NODE_ENV || 'development',
+        PUBLIC_URL: process.env.PUBLIC_URL || '',
+      };
+      
+      // Add all REACT_APP_* vars to process.env object
+      Object.keys(envVarsFromFile).forEach(key => {
+        processEnvObj[key] = envVarsFromFile[key];
+      });
+      
+      reactAppKeys.forEach(key => {
+        if (!processEnvObj[key]) {
+          processEnvObj[key] = process.env[key];
+        }
+      });
+      
+      // Build all environment variables for DefinePlugin
+      // DefinePlugin expects string values that will be inlined
       const allEnvVars = {
-        // Preserve NODE_ENV and other standard vars that Create React App expects
+        // Define process.env as an object (Webpack will inline this)
+        'process.env': JSON.stringify(processEnvObj),
+        // Also define individual process.env.* for backward compatibility
         'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
         'process.env.PUBLIC_URL': JSON.stringify(process.env.PUBLIC_URL || ''),
-        // Add all REACT_APP_* vars
+        // Add all REACT_APP_* vars as individual properties
         ...reactAppEnvVars
       };
 

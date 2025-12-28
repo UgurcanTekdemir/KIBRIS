@@ -16,32 +16,40 @@ function PopularLeagues({ allMatches }) {
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   const leagues = useMemo(() => [
-    { id: 1, name: 'Süper Lig', flag: '🇹🇷', sport_key: 'soccer_turkey_super_league' },
-    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', sport_key: 'soccer_epl' },
-    { id: 3, name: 'La Liga', flag: '🇪🇸', sport_key: 'soccer_spain_la_liga' },
-    { id: 4, name: 'Serie A', flag: '🇮🇹', sport_key: 'soccer_italy_serie_a' },
-    { id: 5, name: 'Bundesliga', flag: '🇩🇪', sport_key: 'soccer_germany_bundesliga' },
-    { id: 6, name: 'Ligue 1', flag: '🇫🇷', sport_key: 'soccer_france_ligue_one' },
+    { id: 1, name: 'Süper Lig', flag: '🇹🇷', sport_key: 'soccer_turkey_super_league', leagueNames: ['Süper Lig', 'Super Lig', 'Turkish Super League', 'Turkey Super League'] },
+    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', sport_key: 'soccer_epl', leagueNames: ['Premier League', 'Premier Lig', 'English Premier League', 'EPL'] },
+    { id: 3, name: 'La Liga', flag: '🇪🇸', sport_key: 'soccer_spain_la_liga', leagueNames: ['La Liga', 'Spanish La Liga', 'Primera División'] },
+    { id: 4, name: 'Serie A', flag: '🇮🇹', sport_key: 'soccer_italy_serie_a', leagueNames: ['Serie A', 'Italian Serie A'] },
+    { id: 5, name: 'Bundesliga', flag: '🇩🇪', sport_key: 'soccer_germany_bundesliga', leagueNames: ['Bundesliga', 'German Bundesliga'] },
+    { id: 6, name: 'Ligue 1', flag: '🇫🇷', sport_key: 'soccer_france_ligue_one', leagueNames: ['Ligue 1', 'French Ligue 1', 'Ligue 1 Uber Eats'] },
   ], []);
 
   const leagueCounts = useMemo(() => {
     const counts = {};
     leagues.forEach(league => {
-        // Filter matches by sport_key and date (within 7 days)
+        // Filter matches by league name (Sportmonks V3 uses league name, not sport_key)
         counts[league.id] = allMatches.filter(match => {
-          // Match by sport_key
-          if (match.sportKey !== league.sport_key) return false;
+          // Match by league name (case-insensitive)
+          const matchLeague = (match.league || '').toLowerCase();
+          const matchesLeague = league.leagueNames.some(leagueName => 
+            matchLeague.includes(leagueName.toLowerCase())
+          );
           
-          // Only count matches within 7 days
+          if (!matchesLeague) return false;
+          
+          // Only count matches within 7 days (including today)
           const matchDate = match.date || '';
           const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
           
-          // Exclude finished matches (but not postponed - they should be shown)
+          if (!isWithin7Days) return false;
+          
+          // Include live matches, upcoming matches, but exclude finished and postponed
           const status = (match.status || '').toUpperCase();
           const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
           const isPostponed = status === 'POSTPONED';
           
-          return isWithin7Days && !isFinished && !isPostponed;
+          // Count live matches and upcoming matches (not finished, not postponed)
+          return !isFinished && !isPostponed;
         }).length;
     });
     return counts;
@@ -57,7 +65,7 @@ function PopularLeagues({ allMatches }) {
         >
           <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{league.flag}</span>
           <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{league.name}</p>
-          <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-500">{leagueCounts[league.id] || 0} maç</p>
+          <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 font-semibold">{leagueCounts[league.id] || 0} maç</p>
         </Link>
       ))}
     </div>

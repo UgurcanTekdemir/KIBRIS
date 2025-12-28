@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { useOddsTracking } from '../../hooks/useOddsTracking';
 import { Clock, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { getTeamImagePath, getFallbackIcon } from '../../utils/imageUtils';
 
 // Format date for display - always show actual date, not "Bugün" or "Yarın"
 function formatMatchDateTime(date, time) {
