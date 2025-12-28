@@ -1,20 +1,296 @@
 /**
  * Match Data Mapper
- * Transforms API response format (Sportmonks V3, The Odds API, or StatPal API) to our internal match structure
+ * Transforms API response format to our internal match structure
  */
 
 /**
+ * Map Sportmonks V3 fixture to internal match structure
+ * @param {Object} fixture - Sportmonks V3 fixture object
+ * @returns {Object} Internal match structure
+ */
+function mapSportmonksFixtureToInternal(fixture) {
+  if (!fixture) return null;
+
+  // Extract participants (home/away teams)
+  let homeTeam = 'Home Team';
+  let awayTeam = 'Away Team';
+  let homeTeamLogo = null;
+  let awayTeamLogo = null;
+
+  if (fixture.participants && Array.isArray(fixture.participants)) {
+    // Participants array: find home and away by meta.position or meta.type
+    const homeParticipant = fixture.participants.find(p => 
+      p.meta?.position === 'home' || 
+      p.meta?.type === 'home' || 
+      p.meta?.position === 1 ||
+      p.meta?.type === 1
+    );
+    const awayParticipant = fixture.participants.find(p => 
+      p.meta?.position === 'away' || 
+      p.meta?.type === 'away' || 
+      p.meta?.position === 2 ||
+      p.meta?.type === 2
+    );
+
+    // Fallback: if no meta, use first two participants
+    if (!homeParticipant && fixture.participants.length >= 1) {
+      homeTeam = fixture.participants[0].name || homeTeam;
+      homeTeamLogo = fixture.participants[0].image_path || null;
+    } else if (homeParticipant) {
+      homeTeam = homeParticipant.name || homeTeam;
+      homeTeamLogo = homeParticipant.image_path || null;
+    }
+
+    if (!awayParticipant && fixture.participants.length >= 2) {
+      awayTeam = fixture.participants[1].name || awayTeam;
+      awayTeamLogo = fixture.participants[1].image_path || null;
+    } else if (awayParticipant) {
+      awayTeam = awayParticipant.name || awayTeam;
+      awayTeamLogo = awayParticipant.image_path || null;
+    }
+  } else if (fixture.name) {
+    // Fallback: parse from name field "Team A vs Team B"
+    const nameParts = fixture.name.split(' vs ');
+    if (nameParts.length === 2) {
+      homeTeam = nameParts[0].trim();
+      awayTeam = nameParts[1].trim();
+    }
+  }
+
+  // Parse starting_at timestamp
+  // Format: "2025-11-10 10:30:00" (YYYY-MM-DD HH:mm:ss)
+  let startingAt = null;
+  if (fixture.starting_at) {
+    // Convert to ISO format for Date parsing
+    startingAt = new Date(fixture.starting_at.replace(' ', 'T') + 'Z');
+    if (isNaN(startingAt.getTime()) && fixture.starting_at_timestamp) {
+      // Fallback to timestamp
+      startingAt = new Date(fixture.starting_at_timestamp * 1000);
+    }
+  } else if (fixture.starting_at_timestamp) {
+    startingAt = new Date(fixture.starting_at_timestamp * 1000);
+  }
+
+  const date = startingAt ? formatDateFromISO(startingAt) : '';
+  const time = startingAt ? formatTimeFromISO(startingAt) : '';
+
+  // Determine match status from state_id
+  // state_id: 1,2 = Not Started (NS), 3 = Live (LIVE), 5 = Finished (FT)
+  const stateId = fixture.state_id;
+  let status = 'NS';
+  let isLive = false;
+  let isFinished = false;
+  let homeScore = null;
+  let awayScore = null;
+  let minute = null;
+
+  if (stateId === 3) {
+    status = 'LIVE';
+    isLive = true;
+  } else if (stateId === 5) {
+    status = 'FT';
+    isFinished = true;
+  } else if (stateId === 1 || stateId === 2) {
+    status = 'NS';
+  }
+
+  // Extract scores from result_info or scores data if available
+  if (fixture.result_info) {
+    // Try to parse scores from result_info (e.g., "Team A won 2-1")
+    const scoreMatch = fixture.result_info.match(/(\d+)[\s-]+(\d+)/);
+    if (scoreMatch) {
+      homeScore = parseInt(scoreMatch[1], 10);
+      awayScore = parseInt(scoreMatch[2], 10);
+    }
+  }
+
+  // Extract league information
+  let league = 'Unknown League';
+  let leagueFlag = '🏆';
+  let leagueLogo = null;
+
+  if (fixture.leagues) {
+    const leagueData = Array.isArray(fixture.leagues) ? fixture.leagues[0] : fixture.leagues;
+    if (leagueData) {
+      league = leagueData.name || league;
+      leagueLogo = leagueData.image_path || null;
+      if (leagueData.country) {
+        const countryData = Array.isArray(leagueData.country) ? leagueData.country[0] : leagueData.country;
+        if (countryData && countryData.name) {
+          leagueFlag = getLeagueFlag(countryData.name);
+        }
+      }
+    }
+  }
+
+  // Extract odds and markets (Market ID 1 = Match Winner / Fulltime Result)
+  const markets = [];
+  let homeOdds = null;
+  let drawOdds = null;
+  let awayOdds = null;
+
+  // Extract odds and markets (Market ID 1 = Match Winner / Fulltime Result)
+  // Sportmonks V3 odds structure can vary, handle multiple formats
+  if (fixture.odds) {
+    let oddsArray = [];
+    
+    // Handle different odds formats
+    if (Array.isArray(fixture.odds)) {
+      oddsArray = fixture.odds;
+    } else if (fixture.odds.data && Array.isArray(fixture.odds.data)) {
+      oddsArray = fixture.odds.data;
+    }
+    
+    if (oddsArray.length > 0) {
+      // Find Market ID 1 (Match Winner / Fulltime Result)
+      const matchWinnerOdds = oddsArray.filter(odd => {
+        const marketId = odd.market_id || odd.market?.id || odd.market_id;
+        return marketId === 1;
+      });
+      
+      if (matchWinnerOdds.length > 0) {
+        const matchWinnerOptions = [];
+        
+        for (const odd of matchWinnerOdds) {
+          // Handle different odds formats
+          let label = odd.label || odd.name || '';
+          let value = odd.value || odd.odd || odd.price || null;
+          let selectionId = odd.id || odd.selection_id || null;
+
+          // If values array exists (Sportmonks V3 format)
+          if (odd.values && Array.isArray(odd.values) && odd.values.length > 0) {
+            for (const val of odd.values) {
+              const valLabel = val.label || val.name || val.outcome || '';
+              const valValue = val.value || val.odd || val.price || null;
+              const valSelectionId = val.id || val.selection_id || selectionId;
+
+              // Map labels: "1", "X", "2" or "Home", "Draw", "Away"
+              let mappedLabel = valLabel;
+              if (valLabel.toLowerCase() === 'home' || valLabel === '1' || valLabel.toLowerCase().includes('home')) {
+                mappedLabel = '1';
+                if (homeOdds === null && valValue) homeOdds = parseFloat(valValue);
+              } else if (valLabel.toLowerCase() === 'draw' || valLabel === 'X' || valLabel === 'x' || valLabel.toLowerCase().includes('draw')) {
+                mappedLabel = 'X';
+                if (drawOdds === null && valValue) drawOdds = parseFloat(valValue);
+              } else if (valLabel.toLowerCase() === 'away' || valLabel === '2' || valLabel.toLowerCase().includes('away')) {
+                mappedLabel = '2';
+                if (awayOdds === null && valValue) awayOdds = parseFloat(valValue);
+              }
+
+              if (valValue && parseFloat(valValue) > 0) {
+                matchWinnerOptions.push({
+                  label: mappedLabel,
+                  value: parseFloat(valValue),
+                  selectionId: valSelectionId,
+                });
+              }
+            }
+          } else if (value && parseFloat(value) > 0) {
+            // Single odd entry (direct format)
+            if (label.toLowerCase() === 'home' || label === '1' || label.toLowerCase().includes('home')) {
+              label = '1';
+              if (homeOdds === null) homeOdds = parseFloat(value);
+            } else if (label.toLowerCase() === 'draw' || label === 'X' || label === 'x' || label.toLowerCase().includes('draw')) {
+              label = 'X';
+              if (drawOdds === null) drawOdds = parseFloat(value);
+            } else if (label.toLowerCase() === 'away' || label === '2' || label.toLowerCase().includes('away')) {
+              label = '2';
+              if (awayOdds === null) awayOdds = parseFloat(value);
+            }
+
+            matchWinnerOptions.push({
+              label,
+              value: parseFloat(value),
+              selectionId,
+            });
+          }
+        }
+
+        // Remove duplicates and sort: 1, X, 2
+        const uniqueOptions = [];
+        const seenLabels = new Set();
+        for (const opt of matchWinnerOptions) {
+          if (!seenLabels.has(opt.label)) {
+            seenLabels.add(opt.label);
+            uniqueOptions.push(opt);
+          }
+        }
+        
+        // Sort: 1, X, 2
+        uniqueOptions.sort((a, b) => {
+          const order = { '1': 0, 'X': 1, '2': 2 };
+          return (order[a.label] ?? 99) - (order[b.label] ?? 99);
+        });
+
+        if (uniqueOptions.length > 0) {
+          markets.push({
+            name: 'Maç Sonucu',
+            options: uniqueOptions,
+            marketId: 1,
+          });
+        }
+      }
+    }
+  }
+
+  // If no markets found but we have basic odds, create market
+  if (markets.length === 0 && (homeOdds || drawOdds || awayOdds)) {
+    markets.push({
+      name: 'Maç Sonucu',
+      options: [
+        ...(homeOdds ? [{ label: '1', value: homeOdds }] : []),
+        ...(drawOdds ? [{ label: 'X', value: drawOdds }] : []),
+        ...(awayOdds ? [{ label: '2', value: awayOdds }] : []),
+      ],
+      marketId: 1,
+    });
+  }
+
+  return {
+    id: String(fixture.id || ''),
+    league,
+    leagueFlag: leagueLogo || leagueFlag,
+    sportKey: 'soccer',
+    homeTeam,
+    awayTeam,
+    homeTeamLogo,
+    awayTeamLogo,
+    homeScore,
+    awayScore,
+    minute,
+    isLive,
+    isFinished,
+    status,
+    time,
+    date,
+    odds: {
+      home: homeOdds,
+      draw: drawOdds,
+      away: awayOdds,
+    },
+    markets,
+    // Store Sportmonks-specific data for bet slip
+    fixtureId: fixture.id,
+    league_id: fixture.league_id, // Add league_id for Sidebar extraction
+    sportmonksData: {
+      fixtureId: fixture.id,
+      stateId: fixture.state_id,
+      leagueId: fixture.league_id,
+    },
+  };
+}
+
+/**
  * Map API response to internal match structure
- * Supports Sportmonks V3, The Odds API, and StatPal API formats
  * @param {Object} apiMatch - Match object from API
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
   if (!apiMatch) return null;
   
-  // Detect Sportmonks V3 format (backend transforms it, but we check for sportmonks_id or transformed structure)
-  if (apiMatch.sportmonks_id !== undefined || (apiMatch.home_team && apiMatch.away_team && apiMatch.status && !apiMatch.bookmakers)) {
-    return mapSportmonksMatchToInternal(apiMatch);
+  // Check if this is a Sportmonks V3 fixture (has sport_id, state_id, starting_at fields)
+  if (apiMatch.sport_id !== undefined && apiMatch.state_id !== undefined && apiMatch.starting_at) {
+    return mapSportmonksFixtureToInternal(apiMatch);
   }
   
   // The Odds API / StatPal (transformed) response structure:
@@ -799,163 +1075,6 @@ function formatDate(date) {
     return date.split(' ')[0];
   }
   return date;
-}
-
-/**
- * Map Sportmonks V3 match (already transformed by backend) to internal match structure
- * @param {Object} sportmonksMatch - Match object from Sportmonks V3 (transformed by backend)
- * @returns {Object} Internal match structure
- */
-function mapSportmonksMatchToInternal(sportmonksMatch) {
-  if (!sportmonksMatch) return null;
-  
-  // Parse commence_time/starting_at (ISO 8601 format)
-  // Backend sends starting_at, but we also check commence_time for compatibility
-  const commenceTime = sportmonksMatch.starting_at 
-    ? new Date(sportmonksMatch.starting_at) 
-    : (sportmonksMatch.commence_time ? new Date(sportmonksMatch.commence_time) : null);
-  const date = commenceTime && !isNaN(commenceTime.getTime()) ? formatDateFromISO(commenceTime) : '';
-  const time = commenceTime && !isNaN(commenceTime.getTime()) ? formatTimeFromISO(commenceTime) : '';
-  
-  // Extract scores (already extracted by backend)
-  const homeScore = sportmonksMatch.home_score !== undefined && sportmonksMatch.home_score !== null 
-    ? sportmonksMatch.home_score 
-    : null;
-  const awayScore = sportmonksMatch.away_score !== undefined && sportmonksMatch.away_score !== null 
-    ? sportmonksMatch.away_score 
-    : null;
-  
-  // Extract time status (already formatted by backend)
-  let status = sportmonksMatch.status || '';
-  let minute = sportmonksMatch.minute !== undefined && sportmonksMatch.minute !== null 
-    ? parseInt(sportmonksMatch.minute, 10) 
-    : null;
-  let isLive = sportmonksMatch.is_live === true;
-  let isFinished = sportmonksMatch.is_finished === true;
-  let isPostponed = sportmonksMatch.is_postponed === true;
-  
-  // If status is empty but we have events, try to infer from events
-  if (!status && sportmonksMatch.events && Array.isArray(sportmonksMatch.events) && sportmonksMatch.events.length > 0) {
-    // Get the latest event minute
-    const latestEvent = sportmonksMatch.events.reduce((latest, event) => {
-      const eventMinute = event.minute || 0;
-      const latestMinute = latest.minute || 0;
-      return eventMinute > latestMinute ? event : latest;
-    }, sportmonksMatch.events[0]);
-    
-    if (latestEvent && latestEvent.minute !== undefined && latestEvent.minute !== null) {
-      minute = parseInt(latestEvent.minute, 10);
-      // If minute > 0 and < 120, match is likely live
-      if (minute > 0 && minute < 120) {
-        status = 'LIVE';
-        isLive = true;
-      }
-    }
-  }
-  
-  // If still no status, check if match has started based on starting_at
-  if (!status && commenceTime && !isNaN(commenceTime.getTime())) {
-    const now = new Date();
-    if (commenceTime <= now) {
-      // Match has started - if we have scores or events, it's likely live
-      if ((homeScore !== null && homeScore !== undefined) || 
-          (awayScore !== null && awayScore !== undefined) ||
-          (sportmonksMatch.events && sportmonksMatch.events.length > 0)) {
-        status = 'LIVE';
-        isLive = true;
-      } else {
-        status = 'NS'; // Not Started
-      }
-    } else {
-      status = 'NS'; // Not Started
-    }
-  }
-  
-  // Extract league info
-  const league = sportmonksMatch.league || '';
-  const leagueFlag = sportmonksMatch.league_logo 
-    ? null // Will use image if available
-    : getLeagueFlagFromCountry(sportmonksMatch.country || league);
-  
-  // Extract team logos
-  const homeTeamLogo = sportmonksMatch.home_team_logo || null;
-  const awayTeamLogo = sportmonksMatch.away_team_logo || null;
-  
-  // Build markets from odds data (if available)
-  const markets = [];
-  
-  // Extract odds from odds array (Sportmonks V3 format)
-  // Handle both array format and nested data format
-  let oddsArray = null;
-  if (sportmonksMatch.odds) {
-    if (Array.isArray(sportmonksMatch.odds)) {
-      oddsArray = sportmonksMatch.odds;
-    } else if (sportmonksMatch.odds.data && Array.isArray(sportmonksMatch.odds.data)) {
-      oddsArray = sportmonksMatch.odds.data;
-    } else if (typeof sportmonksMatch.odds === 'object') {
-      // Try to extract from object format
-      oddsArray = Object.values(sportmonksMatch.odds).filter(item => Array.isArray(item)).flat();
-    }
-  }
-  
-  if (oddsArray && oddsArray.length > 0) {
-    try {
-      const extractedMarkets = extractMarketsFromSportmonksOdds(oddsArray, sportmonksMatch.home_team, sportmonksMatch.away_team);
-      if (extractedMarkets && extractedMarkets.length > 0) {
-        markets.push(...extractedMarkets);
-      }
-    } catch (error) {
-      console.warn('Error extracting markets from odds:', error);
-    }
-  }
-  
-  // If no markets from odds, try to create basic 1X2 market if we have any odds data
-  if (markets.length === 0 && sportmonksMatch.odds) {
-    try {
-      // Try to extract basic odds if available in a different format
-      const basicOdds = extractBasicOdds(sportmonksMatch.odds);
-      if (basicOdds && (basicOdds.home || basicOdds.draw || basicOdds.away)) {
-        markets.push({
-          name: 'Maç Sonucu',
-          options: [
-            ...(basicOdds.home ? [{ label: '1', value: parseFloat(basicOdds.home) }] : []),
-            ...(basicOdds.draw ? [{ label: 'X', value: parseFloat(basicOdds.draw) }] : []),
-            ...(basicOdds.away ? [{ label: '2', value: parseFloat(basicOdds.away) }] : []),
-          ],
-        });
-      }
-    } catch (error) {
-      console.warn('Error extracting basic odds:', error);
-    }
-  }
-  
-  return {
-    id: String(sportmonksMatch.id || sportmonksMatch.sportmonks_id || ''),
-    league: league,
-    leagueFlag: leagueFlag,
-    sportKey: '', // Sportmonks doesn't use sport_key
-    homeTeam: sportmonksMatch.home_team || 'Home Team',
-    awayTeam: sportmonksMatch.away_team || 'Away Team',
-    homeTeamLogo: homeTeamLogo,
-    awayTeamLogo: awayTeamLogo,
-    homeScore: homeScore,
-    awayScore: awayScore,
-    minute: minute,
-    isLive: isLive,
-    isFinished: isFinished,
-    status: status,
-    time: time,
-    date: date,
-    odds: {
-      home: null, // Will be extracted from markets if available
-      draw: null,
-      away: null,
-    },
-    markets: markets,
-    stats: sportmonksMatch.statistics || null, // Keep statistics for detail page
-    events: sportmonksMatch.events || [], // Keep events for detail page
-    lineups: sportmonksMatch.lineups || [], // Keep lineups for detail page
-  };
 }
 
 /**

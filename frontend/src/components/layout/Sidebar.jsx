@@ -4,7 +4,7 @@ import { Home, Zap, Calendar, Trophy, ChevronRight, Search } from 'lucide-react'
 import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
 import { useMatches } from '../../hooks/useMatches';
-import { matchAPI } from '../../services/api';
+import * as footballService from '../../services/football';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
@@ -26,11 +26,13 @@ const Sidebar = ({ isOpen, onClose }) => {
     const leagueMap = new Map();
     
     allMatches.forEach(match => {
-      if (match.league && match.league_id) {
-        const leagueId = String(match.league_id);
-        if (!leagueMap.has(leagueId)) {
-          leagueMap.set(leagueId, {
-            id: leagueId,
+      // Use sportmonksData.leagueId or fallback to match.league_id
+      const leagueId = match.sportmonksData?.leagueId || match.league_id;
+      if (match.league && leagueId) {
+        const leagueIdStr = String(leagueId);
+        if (!leagueMap.has(leagueIdStr)) {
+          leagueMap.set(leagueIdStr, {
+            id: leagueIdStr,
             name: match.league,
             country: match.country || '',
             logo: match.leagueFlag || null,
@@ -53,12 +55,22 @@ const Sidebar = ({ isOpen, onClose }) => {
       setLeagues(extractedLeagues);
       setLoadingLeagues(false);
     } else if (allMatches.length === 0) {
-      // If no matches loaded yet, try to fetch leagues from API as fallback
+      // If no matches loaded yet, try to fetch leagues from Sportmonks API as fallback
       async function fetchLeagues() {
         try {
           setLoadingLeagues(true);
-          const leaguesData = await matchAPI.getLeagues({ matchType: 1 });
-          setLeagues(leaguesData || []);
+          const leaguesData = await footballService.getLeagues('country');
+          // Ensure it's an array
+          const leaguesArray = Array.isArray(leaguesData) ? leaguesData : [leaguesData].filter(Boolean);
+          // Map Sportmonks league format to internal format
+          const mappedLeagues = leaguesArray.map(league => ({
+            id: String(league.id),
+            name: league.name,
+            country: league.country?.name || '',
+            logo: league.image_path || null,
+            sport_key: 'soccer'
+          }));
+          setLeagues(mappedLeagues);
         } catch (error) {
           console.error('Error fetching leagues:', error);
           setLeagues([]);

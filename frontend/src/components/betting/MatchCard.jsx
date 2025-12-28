@@ -29,13 +29,17 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
     return formatMatchDateTime(match.date, match.time);
   }, [match.date, match.time]);
 
-  const handleOddsClick = (e, market, option, odds) => {
+  const handleOddsClick = (e, market, option, odds, selectionId = null) => {
     e.preventDefault();
     e.stopPropagation();
-    addSelection(match, market.name, option, odds);
+    // Extract fixtureId and selectionId from match data
+    const fixtureId = match.fixtureId || match.sportmonksData?.fixtureId || match.id;
+    const finalSelectionId = selectionId || (market.options?.find(opt => opt.label === option)?.selectionId);
+    addSelection(match, market.name, option, odds, false, fixtureId, finalSelectionId);
   };
 
-  const mainMarket = match.markets?.[0];
+  // Filter for Market ID 1 (Match Winner / Fulltime Result)
+  const mainMarket = match.markets?.find(m => m.marketId === 1) || match.markets?.[0];
 
   if (compact) {
     return (
@@ -142,7 +146,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                 return (
                   <button
                     key={`${mainMarket.name}-${opt.label}-${optIdx}`}
-                    onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
+                    onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
                     className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all ${
                       selected
                         ? 'bg-amber-500 text-black'
@@ -277,7 +281,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               return (
                 <button
                   key={`${mainMarket.name}-${opt.label}-${optIdx}`}
-                  onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue)}
+                  onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
                   className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                     selected
                       ? 'bg-amber-500 text-black'
