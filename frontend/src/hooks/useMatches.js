@@ -32,11 +32,11 @@ export function useMatches(filters = {}, options = {}) {
       return mapApiMatchesToInternal(apiMatches);
     },
     enabled: options.enabled !== undefined ? options.enabled : true, // Allow conditional fetching
-    staleTime: options.staleTime || 30000, // Data is fresh for 30 seconds
-    cacheTime: options.cacheTime || 180000, // Cache unused data for 3 minutes
+    staleTime: options.staleTime || 60000, // Data is fresh for 60 seconds (optimized from 30s)
+    cacheTime: options.cacheTime || 300000, // Cache unused data for 5 minutes (optimized from 3min)
     refetchOnWindowFocus: false, // Don't refetch on window focus
     refetchOnMount: false, // Use cache if available
-    refetchInterval: options.refetchInterval !== undefined ? options.refetchInterval : 45000, // Auto-refetch every 45 seconds for general matches
+    refetchInterval: options.refetchInterval !== undefined ? options.refetchInterval : 60000, // Auto-refetch every 60 seconds for general matches (optimized from 45s)
   });
 
   return {
@@ -77,9 +77,9 @@ export function useLiveMatches(matchType = 1) {
         return false;
       });
     },
-    staleTime: 30000, // Live matches are fresh for 30 seconds
+    staleTime: 15000, // Live matches are fresh for 15 seconds (optimized for live data)
     cacheTime: 60000, // Cache live matches for 1 minute
-    refetchInterval: 30000, // Auto-refetch every 30 seconds for live matches (Sportmonks V3)
+    refetchInterval: 20000, // Auto-refetch every 20 seconds for live matches (optimized from 30s for better real-time updates)
   });
 
   return {
@@ -116,13 +116,13 @@ export function useMatchDetails(matchId) {
       throw new Error('Maç bulunamadı');
     },
     enabled: !!matchId, // Only run query if matchId exists
-    staleTime: 30000, // Data is fresh for 30 seconds
+    staleTime: 20000, // Data is fresh for 20 seconds (optimized from 30s)
     cacheTime: 300000, // Cache unused data for 5 minutes
     // Dynamic refetch interval based on match status
     refetchInterval: (query) => {
       const match = query.state.data;
       if (match?.isLive) {
-        return 30000; // 30 seconds for live matches
+        return 20000; // 20 seconds for live matches (optimized from 30s for better real-time updates)
       } else if (match?.isFinished) {
         return 60000; // 60 seconds for finished matches
       }

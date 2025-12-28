@@ -969,32 +969,24 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
   if (!Array.isArray(oddsArray) || oddsArray.length === 0) return [];
   
   const markets = [];
-  const marketMap = new Map(); // Group by market_id and market_description
+  const marketMap = new Map(); // Group by market_id and market_name
   
-  // Sportmonks V3 format: each odd has market_description, label, value directly
+  // Backend now sends normalized odds format with: market_name, market_description, label, value, odd, price
   for (const odd of oddsArray) {
     try {
       // Skip stopped odds
       if (odd && odd.stopped === true) continue;
       
-      // Handle nested odd format (if odd is wrapped in data object)
-      const oddData = odd.data || odd;
+      // Get market name/description (backend normalizes this)
+      const marketName = odd.market_name || odd.market_description || '';
+      if (!marketName) continue;
       
-      // Get market description (e.g., "Full Time Result", "Goal Line")
-      const marketDescription = oddData.market_description || oddData.market?.name || '';
-      if (!marketDescription) continue;
+      // Get market_id to group by (use market_id if available, otherwise use market name)
+      const marketId = odd.market_id || marketName;
       
-      // Get market_id to group by
-      const marketId = oddData.market_id || oddData.market?.id || marketDescription;
-      
-      // Get label and value - handle different formats
-      let label = oddData.label || oddData.name || oddData.outcome || '';
-      let value = oddData.value || oddData.price || oddData.odd;
-      
-      // If value is an object, try to extract numeric value
-      if (typeof value === 'object' && value !== null) {
-        value = value.value || value.price || value.odd || null;
-      }
+      // Get label and value - backend normalizes these
+      let label = odd.label || odd.name || '';
+      let value = odd.value || odd.odd || odd.price;
       
       // Convert value to number
       const numericValue = typeof value === 'string' ? parseFloat(value) : (typeof value === 'number' ? value : null);
@@ -1002,7 +994,7 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
       if (!label || !numericValue || numericValue <= 0 || !isFinite(numericValue)) continue;
       
       // Translate market names to Turkish
-      const translatedName = translateMarketName(marketDescription);
+      const translatedName = translateMarketName(marketName);
       
       // Translate outcome label
       const translatedLabel = translateOutcomeName(label, homeTeam, awayTeam);
@@ -1036,16 +1028,10 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
     }
   }
   
-  // Convert map to markets array and filter popular markets
-  const popularMarketIds = [1, 2, 7, 44]; // Full Time Result, Double Chance, Goal Line, Goals Odd/Even
-  const popularMarketDescriptions = ['Full Time Result', 'Fulltime Result', 'Double Chance', 'Goal Line', 'Goals Odd/Even'];
-  
+  // Include all markets with at least 2 options (removed popular market filter to show all markets)
   for (const [marketId, market] of marketMap.entries()) {
-    // Only include popular markets or markets with at least 2 options
-    const isPopular = popularMarketIds.includes(marketId) || 
-                     popularMarketDescriptions.some(desc => market.name.includes(translateMarketName(desc)));
-    
-    if (isPopular || market.options.length >= 2) {
+    // Include markets with at least 2 options, or single option markets if they're important (1X2)
+    if (market.options.length >= 2 || (market.options.length === 1 && market.name === 'Maç Sonucu')) {
       // Sort options by value (ascending)
       market.options.sort((a, b) => a.value - b.value);
       markets.push(market);
@@ -1091,6 +1077,35 @@ function translateMarketName(marketName) {
     'goals odd/even': 'Gol Tek/Çift',
     'asian handicap': 'Asya Handikapı',
     'correct score': 'Kesin Skor',
+    'handicap': 'Handikap',
+    'european handicap': 'Avrupa Handikapı',
+    'first half result': 'İlk Yarı Sonucu',
+    'half time result': 'İlk Yarı Sonucu',
+    'first half goals': 'İlk Yarı Golleri',
+    'half time goals': 'İlk Yarı Golleri',
+    'first team to score': 'İlk Golü Atan',
+    'first goal scorer': 'İlk Golü Atan',
+    'anytime goal scorer': 'Gol Atan',
+    'win margin': 'Kazanma Farkı',
+    'winning margin': 'Kazanma Farkı',
+    'exact goals': 'Kesin Gol Sayısı',
+    'team total': 'Takım Toplamı',
+    'player goals': 'Oyuncu Golleri',
+    'player assists': 'Oyuncu Asistleri',
+    'clean sheet': 'Kaleci Sıfırı',
+    'to win to nil': 'Sıfırla Kazanma',
+    'to win both halves': 'Her İki Yarıyı Kazanma',
+    'to score in both halves': 'Her İki Yarıda Gol',
+    'highest scoring half': 'En Çok Gol Atılan Yarı',
+    'corners': 'Kornerler',
+    'total corners': 'Toplam Korner',
+    'cards': 'Kartlar',
+    'total cards': 'Toplam Kart',
+    'yellow cards': 'Sarı Kartlar',
+    'red cards': 'Kırmızı Kartlar',
+    'penalties': 'Penaltılar',
+    'offsides': 'Ofsaytlar',
+    'fouls': 'Fauller',
   };
   
   const lowerName = marketName.toLowerCase().trim();

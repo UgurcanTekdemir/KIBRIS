@@ -467,6 +467,94 @@ class SportmonksService:
             "away_score": away_score
         }
 
+    def _extract_and_normalize_odds(self, odds_data: Any) -> List[Dict[str, Any]]:
+        """
+        Extract and normalize odds from Sportmonks V3 format.
+        Handles nested structure: odds -> data -> array of odds with bookmaker, market, values.
+        
+        Args:
+            odds_data: Raw odds data from Sportmonks V3 (can be dict, list, or None)
+            
+        Returns:
+            Normalized list of odds objects with flattened structure
+        """
+        if not odds_data:
+            return []
+        
+        # Handle nested format: odds.data
+        if isinstance(odds_data, dict):
+            if "data" in odds_data:
+                odds_data = odds_data["data"]
+            else:
+                # If it's a dict but no "data" key, try to extract odds from it
+                return []
+        
+        if not isinstance(odds_data, list):
+            return []
+        
+        normalized_odds = []
+        
+        for odd_item in odds_data:
+            if not isinstance(odd_item, dict):
+                continue
+            
+            # Extract bookmaker info
+            bookmaker = odd_item.get("bookmaker", {})
+            if isinstance(bookmaker, dict) and "data" in bookmaker:
+                bookmaker = bookmaker["data"]
+            
+            # Extract market info
+            market = odd_item.get("market", {})
+            if isinstance(market, dict) and "data" in market:
+                market = market["data"]
+            
+            # Extract values (array of odds values)
+            values = odd_item.get("values", [])
+            if isinstance(values, dict) and "data" in values:
+                values = values["data"]
+            if not isinstance(values, list):
+                values = []
+            
+            # Process each value in the values array
+            for value_item in values:
+                if not isinstance(value_item, dict):
+                    continue
+                
+                # Extract value details
+                value_name = value_item.get("name") or value_item.get("label") or value_item.get("outcome", "")
+                value_odd = value_item.get("value") or value_item.get("odd") or value_item.get("price")
+                
+                # Skip if no valid value
+                if not value_name or value_odd is None:
+                    continue
+                
+                # Try to convert to float
+                try:
+                    value_odd_float = float(value_odd)
+                    if value_odd_float <= 0:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+                
+                # Build normalized odd object
+                normalized_odd = {
+                    "bookmaker_id": bookmaker.get("id") if isinstance(bookmaker, dict) else None,
+                    "bookmaker_name": bookmaker.get("name") if isinstance(bookmaker, dict) else None,
+                    "market_id": market.get("id") if isinstance(market, dict) else odd_item.get("market_id"),
+                    "market_name": market.get("name") if isinstance(market, dict) else odd_item.get("market_description"),
+                    "market_description": market.get("description") if isinstance(market, dict) else odd_item.get("market_description"),
+                    "label": value_name,
+                    "name": value_name,
+                    "value": value_odd_float,
+                    "odd": value_odd_float,
+                    "price": value_odd_float,
+                    "stopped": odd_item.get("stopped", False),
+                }
+                
+                normalized_odds.append(normalized_odd)
+        
+        return normalized_odds
+
     def _format_time_status(self, time_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Format time status and minute from Sportmonks V3 time object.
@@ -593,12 +681,9 @@ class SportmonksService:
         if isinstance(league_data, dict) and "data" in league_data:
             league_data = league_data["data"]
         
-        # Extract odds - handle nested format
-        odds_data = livescore.get("odds", {})
-        if isinstance(odds_data, dict) and "data" in odds_data:
-            odds_data = odds_data["data"]
-        if not isinstance(odds_data, list):
-            odds_data = []
+        # Extract and normalize odds - handle nested format
+        raw_odds_data = livescore.get("odds", {})
+        odds_data = self._extract_and_normalize_odds(raw_odds_data)
         
         # Build transformed match
         transformed = {
@@ -623,7 +708,7 @@ class SportmonksService:
             "is_postponed": time_status.get("is_postponed", False),
             "commence_time": livescore.get("starting_at"),
             "events": events_data if isinstance(events_data, list) else [],
-            "odds": odds_data if isinstance(odds_data, list) else [],
+            "odds": odds_data,
             "participants": participants,  # Keep for reference
             "scores": scores_data,  # Keep for reference
             "time": time_data,  # Keep for reference
@@ -684,10 +769,9 @@ class SportmonksService:
         if isinstance(events_data, dict) and "data" in events_data:
             events_data = events_data["data"]
         
-        # Extract odds
-        odds_data = fixture.get("odds", {})
-        if isinstance(odds_data, dict) and "data" in odds_data:
-            odds_data = odds_data["data"]
+        # Extract and normalize odds
+        raw_odds_data = fixture.get("odds", {})
+        odds_data = self._extract_and_normalize_odds(raw_odds_data)
         
         # Extract venue
         venue_data = fixture.get("venue", {})

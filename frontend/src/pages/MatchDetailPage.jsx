@@ -120,8 +120,8 @@ const MatchDetailPage = () => {
   
   // Fetch events and statistics only for live or finished matches
   const shouldFetchEvents = match?.isLive || match?.isFinished;
-  const { events } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
-  const { statistics: rawStatistics } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
+  const { events, loading: eventsLoading, error: eventsError } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
+  const { statistics: rawStatistics, loading: statsLoading, error: statsError } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
   
   // Transform Sportmonks V3 statistics array to component format
   const statistics = useMemo(() => {
@@ -443,7 +443,17 @@ const MatchDetailPage = () => {
           {/* Events Tab */}
           {activeTab === 'events' && (
             <div className="space-y-3">
-              {events && events.length > 0 ? (
+              {eventsLoading ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                  <p className="text-gray-500 mt-2">Olaylar yükleniyor...</p>
+                </div>
+              ) : eventsError ? (
+                <div className="text-center py-8">
+                  <AlertCircle size={32} className="mx-auto text-red-500 mb-2" />
+                  <p className="text-red-500 text-sm">{eventsError}</p>
+                </div>
+              ) : events && events.length > 0 ? (
                 events
                   .sort((a, b) => {
                     const aMin = parseInt(a.minute || a.time || a.elapsed || 0);
@@ -503,7 +513,7 @@ const MatchDetailPage = () => {
                   })
               ) : (
                 <div className="text-center py-8 text-gray-500">
-                  {match.isLive ? 'Henüz olay yok' : 'Bu maç için olay bulunamadı'}
+                  {match?.isLive ? 'Henüz olay yok' : shouldFetchEvents ? 'Bu maç için olay bulunamadı' : 'Maç başlamadığı için olaylar henüz mevcut değil'}
                 </div>
               )}
             </div>
@@ -512,7 +522,17 @@ const MatchDetailPage = () => {
           {/* Statistics Tab */}
           {activeTab === 'stats' && (
             <div>
-              {statistics ? (
+              {statsLoading ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                  <p className="text-gray-500 mt-2">İstatistikler yükleniyor...</p>
+                </div>
+              ) : statsError ? (
+                <div className="text-center py-8">
+                  <AlertCircle size={32} className="mx-auto text-red-500 mb-2" />
+                  <p className="text-red-500 text-sm">{statsError}</p>
+                </div>
+              ) : statistics ? (
                 <div className="space-y-4">
                   {/* Possession */}
                   {statistics.possession && (
@@ -569,7 +589,7 @@ const MatchDetailPage = () => {
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
-                  İstatistik bilgisi henüz mevcut değil
+                  {shouldFetchEvents ? 'İstatistik bilgisi henüz mevcut değil' : 'Maç başlamadığı için istatistikler henüz mevcut değil'}
                 </div>
               )}
             </div>
