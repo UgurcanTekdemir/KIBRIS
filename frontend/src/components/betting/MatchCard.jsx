@@ -6,14 +6,29 @@ import { Clock, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { getTeamImagePath, getFallbackIcon } from '../../utils/imageUtils';
 
 // Format date for display - always show actual date, not "Bugün" or "Yarın"
+// date can be in format DD.MM.YYYY (from matchMapper) or YYYY-MM-DD (legacy)
 function formatMatchDateTime(date, time) {
-  if (!date) return time || '';
+  if (!date || typeof date !== 'string') {
+    return time || '';
+  }
   
-  // Format as DD.MM.YYYY
-  const [year, month, day] = date.split('-');
-  const formattedDate = `${day}.${month}.${year}`;
+  let formattedDate = date;
   
-  if (time) {
+  // Check if date is in YYYY-MM-DD format (legacy)
+  if (date.includes('-') && date.match(/^\d{4}-\d{2}-\d{2}/)) {
+    // Convert YYYY-MM-DD to DD.MM.YYYY
+    const parts = date.split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      if (year && month && day) {
+        formattedDate = `${day}.${month}.${year}`;
+      }
+    }
+  }
+  // If date is already in DD.MM.YYYY format (from matchMapper), use it directly
+  // No conversion needed
+  
+  if (time && typeof time === 'string') {
     return `${formattedDate} ${time}`;
   }
   return formattedDate;
@@ -32,10 +47,70 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
   const handleOddsClick = (e, market, option, odds, selectionId = null) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Don't allow betting on finished matches
+    if (match.isFinished) {
+      return;
+    }
+    
     // Extract fixtureId and selectionId from match data
     const fixtureId = match.fixtureId || match.sportmonksData?.fixtureId || match.id;
     const finalSelectionId = selectionId || (market.options?.find(opt => opt.label === option)?.selectionId);
     addSelection(match, market.name, option, odds, false, fixtureId, finalSelectionId);
+  };
+  
+  // Check if match is finished (past match)
+  const isFinished = match.isFinished === true || 
+                     (match.status || '').toUpperCase() === 'FT' ||
+                     (match.status || '').toUpperCase() === 'FINISHED' ||
+                     (match.status || '').toUpperCase() === 'AET' ||
+                     (match.status || '').toUpperCase() === 'FT_PEN';
+  
+  // Translate odds labels to Turkish
+  const translateOddsLabel = (label) => {
+    if (!label) return label;
+    const labelLower = label.toLowerCase().trim();
+    
+    // Translate common English labels to Turkish
+    if (labelLower === 'home' || label === '1') return '1';
+    if (labelLower === 'away' || label === '2') return '2';
+    if (labelLower === 'draw' || label === 'x' || label === 'X') return 'X';
+    
+    // If already in Turkish format, return as is
+    if (label === 'Beraberlik' || label === 'X' || label === '1' || label === '2') {
+      // Convert Beraberlik to X for display
+      return label === 'Beraberlik' ? 'X' : label;
+    }
+    
+    // Fallback: try to translate
+    return label
+      .replace(/home/gi, '1')
+      .replace(/away/gi, '2')
+      .replace(/draw/gi, 'X')
+      .replace(/beraberlik/gi, 'X');
+  };
+  
+  // Sort options to always show in order: 1, X, 2
+  const sortOptions = (options) => {
+    if (!options || !Array.isArray(options)) return options;
+    
+    const getSortOrder = (label) => {
+      if (!label) return 999;
+      const labelLower = label.toLowerCase().trim();
+      // Home/1 should be first
+      if (labelLower === 'home' || label === '1') return 1;
+      // Draw/X/Beraberlik should be second
+      if (labelLower === 'draw' || label === 'x' || label === 'X' || label === 'Beraberlik' || labelLower === 'beraberlik') return 2;
+      // Away/2 should be third
+      if (labelLower === 'away' || label === '2') return 3;
+      return 999;
+    };
+    
+    return [...options].sort((a, b) => {
+      const orderA = getSortOrder(a.label);
+      const orderB = getSortOrder(b.label);
+      return orderA - orderB;
+    });
   };
 
   // Filter for Market ID 1 (Match Winner / Fulltime Result)
@@ -51,7 +126,12 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             <span className="text-[10px] sm:text-xs text-gray-400 truncate">{match.league}</span>
           </div>
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-            {match.isLive ? (
+            {match.status === 'HT' || match.status === 'HALF_TIME' ? (
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-yellow-500 rounded-full"></span>
+                <span className="text-yellow-500 text-[10px] sm:text-xs font-bold">DEVRE ARASI</span>
+              </div>
+            ) : match.isLive ? (
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-red-500 rounded-full animate-pulse"></span>
                 <span className="text-red-500 text-[10px] sm:text-xs font-bold">{match.minute}'</span>
@@ -134,7 +214,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
         {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
           <div className="px-2 sm:px-3 pb-2 sm:pb-3">
             <div className="flex gap-1 sm:gap-1.5">
-              {mainMarket.options.map((opt, optIdx) => {
+              {sortOptions(mainMarket.options).map((opt, optIdx) => {
                 const selected = isSelected(match.id, mainMarket.name, opt.label);
                 const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
                 // Only show if odds value is valid (> 0)
@@ -147,13 +227,17 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                   <button
                     key={`${mainMarket.name}-${opt.label}-${optIdx}`}
                     onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
+                    disabled={isFinished}
                     className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all ${
-                      selected
+                      isFinished
+                        ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-60'
+                        : selected
                         ? 'bg-amber-500 text-black'
                         : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                     }`}
+                    title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
                   >
-                    <span className="text-[9px] sm:text-[10px] text-gray-400 block leading-tight">{opt.label}</span>
+                    <span className="text-[9px] sm:text-[10px] text-gray-400 block leading-tight">{translateOddsLabel(opt.label)}</span>
                     <span className="font-bold text-xs sm:text-sm flex items-center justify-center gap-0.5">
                       {oddsChange && oddsChange.direction === 'up' && (
                         <ArrowUp size={10} className="text-green-500" />
@@ -186,7 +270,12 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           <span className="text-xs text-gray-400 font-medium truncate">{match.league}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {match.isLive ? (
+          {match.status === 'HT' || match.status === 'HALF_TIME' ? (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+              <span className="text-yellow-500 text-xs font-bold">DEVRE ARASI</span>
+            </div>
+          ) : match.isLive ? (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
               <span className="text-red-500 text-xs font-bold">{match.minute}'</span>
@@ -269,7 +358,7 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
       {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
         <div className="px-3 sm:px-4 pb-3 sm:pb-4">
           <div className="flex gap-2">
-            {mainMarket.options.map((opt, optIdx) => {
+            {sortOptions(mainMarket.options).map((opt, optIdx) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               // Only show if odds value is valid (> 0)
@@ -282,13 +371,17 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                 <button
                   key={`${mainMarket.name}-${opt.label}-${optIdx}`}
                   onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
+                  disabled={isFinished}
                   className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
-                    selected
+                    isFinished
+                      ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-60'
+                      : selected
                       ? 'bg-amber-500 text-black'
                       : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                   }`}
+                  title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
                 >
-                  <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
+                  <span className="text-xs text-gray-400 block mb-0.5">{translateOddsLabel(opt.label)}</span>
                   <span className="font-bold flex items-center justify-center gap-1">
                     {oddsChange && oddsChange.direction === 'up' && (
                       <ArrowUp size={14} className="text-green-500" />
@@ -332,13 +425,16 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                       <button
                         key={`${market.name}-${opt.label}-${optIdx}`}
                         onClick={(e) => handleOddsClick(e, market, opt.label, oddsValue)}
+                        disabled={isFinished}
+                        className={isFinished ? 'opacity-60 cursor-not-allowed' : ''}
+                        title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
                         className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
                           selected
                             ? 'bg-amber-500 text-black'
                             : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                         }`}
                       >
-                        <span className="text-xs text-gray-400 block mb-0.5">{opt.label}</span>
+                        <span className="text-xs text-gray-400 block mb-0.5">{translateOddsLabel(opt.label)}</span>
                         <span className="font-bold text-sm flex items-center justify-center gap-1">
                           {oddsChange && oddsChange.direction === 'up' && (
                             <ArrowUp size={12} className="text-green-500" />

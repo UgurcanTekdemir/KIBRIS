@@ -72,7 +72,7 @@ function mapSportmonksFixtureToInternal(fixture) {
   }
 
   const date = startingAt ? formatDateFromISO(startingAt) : '';
-  const time = startingAt ? formatTimeFromISO(startingAt) : '';
+  const time = startingAt ? formatTimeFromISO(startingAt, false) : ''; // Backend already in Turkey timezone
 
   // Determine match status from state_id
   // state_id: 1,2 = Not Started (NS), 3 = Live (LIVE), 5 = Finished (FT)
@@ -296,8 +296,7 @@ function mapBackendMatchToInternal(backendMatch) {
   
   if (backendMatch.commence_time) {
     const timeStr = backendMatch.commence_time;
-    // Backend sends time as "YYYY-MM-DD HH:mm:ss" in Turkey timezone
-    // Extract date and time directly without timezone conversion
+    // Backend already sends time in Turkey timezone (UTC+3), so use it directly
     if (timeStr.includes(' ')) {
       const [datePart, timePart] = timeStr.split(' ');
       const [year, month, day] = datePart.split('-');
@@ -305,17 +304,24 @@ function mapBackendMatchToInternal(backendMatch) {
       
       // Format date as DD.MM.YYYY
       date = `${day}.${month}.${year}`;
-      // Format time as HH:mm (already in Turkey timezone)
+      // Format time as HH:mm (already in Turkey timezone from backend)
       time = `${hour}:${minute}`;
       
-      // Also create Date object for other uses (treat as local time, no conversion)
+      // Also create Date object for other uses (treat as local time, no conversion needed)
       startingAt = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute), 0);
     } else {
-      // ISO format - parse normally
+      // ISO format - backend already sends in Turkey timezone, parse directly
       startingAt = new Date(timeStr);
       if (!isNaN(startingAt.getTime())) {
-        date = formatDateFromISO(startingAt);
-        time = formatTimeFromISO(startingAt);
+        // Extract date and time directly (backend already converted to Turkey timezone)
+        const year = startingAt.getFullYear();
+        const month = String(startingAt.getMonth() + 1).padStart(2, '0');
+        const day = String(startingAt.getDate()).padStart(2, '0');
+        const hours = String(startingAt.getHours()).padStart(2, '0');
+        const minutes = String(startingAt.getMinutes()).padStart(2, '0');
+        
+        date = `${day}.${month}.${year}`;
+        time = `${hours}:${minutes}`;
       }
     }
   }
@@ -340,16 +346,39 @@ function mapBackendMatchToInternal(backendMatch) {
         };
       }
       
-      // Group options by label and keep the best (highest) odds value
+      // Group options by label
       const label = odd.label || odd.name || '';
       if (!label) return;
       
       const value = odd.value || odd.odd || odd.price || 0;
       if (value <= 0) return;
       
+      // Check if this is a correct score market
+      const marketNameLower = marketName.toLowerCase();
+      const isCorrectScoreMarket = marketNameLower.includes('correct score');
+      
       const existingValue = oddsByMarket[marketKey].options[label];
-      if (!existingValue || value > existingValue) {
+      
+      if (!existingValue) {
         oddsByMarket[marketKey].options[label] = value;
+      } else {
+        // For correct score markets, prefer lower (more reasonable) odds
+        // For other markets, prefer higher odds (better for user)
+        if (isCorrectScoreMarket) {
+          // Use the lower (more reasonable) odds for correct score
+          // But exclude very low odds (< 1.5) as they might be errors
+          if (value < existingValue && value >= 1.5) {
+            oddsByMarket[marketKey].options[label] = value;
+          } else if (existingValue < 1.5 && value >= 1.5) {
+            // If existing is too low, use the new one if it's reasonable
+            oddsByMarket[marketKey].options[label] = value;
+          }
+        } else {
+          // Update if new value is better (higher odds for user)
+          if (value > existingValue) {
+            oddsByMarket[marketKey].options[label] = value;
+          }
+        }
       }
     });
     
@@ -1113,27 +1142,37 @@ function getLeagueFlag(countryOrLeague) {
 }
 
 /**
- * Format time from ISO 8601 date string
+ * Format time from Date object
  * @param {Date} dateObj - Date object
- * @returns {string} Formatted time (HH:MM) in Turkey timezone (UTC+3)
+ * @param {boolean} useTimezoneConversion - Whether to convert to Turkey timezone (default: false, backend already sends in Turkey timezone)
+ * @returns {string} Formatted time (HH:MM)
  */
-function formatTimeFromISO(dateObj) {
+function formatTimeFromISO(dateObj, useTimezoneConversion = false) {
   if (!dateObj || !(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
     return '';
   }
   
-  // Convert to Turkey timezone (Europe/Istanbul, UTC+3)
-  // API returns UTC time, we need to show it in Turkey time
-  const formatter = new Intl.DateTimeFormat('tr-TR', {
-    timeZone: 'Europe/Istanbul',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
+  // Convert to Turkey timezone (Europe/Istanbul, UTC+3) by default
+  // Backend sends UTC time, so we need to add 3 hours for Turkey timezone
+  if (useTimezoneConversion) {
+    // Use Intl.DateTimeFormat to properly convert to Turkey timezone
+    const formatter = new Intl.DateTimeFormat('tr-TR', {
+      timeZone: 'Europe/Istanbul',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    
+    const parts = formatter.formatToParts(dateObj);
+    const hours = parts.find(p => p.type === 'hour')?.value || '00';
+    const minutes = parts.find(p => p.type === 'minute')?.value || '00';
+    
+    return `${hours}:${minutes}`;
+  }
   
-  const parts = formatter.formatToParts(dateObj);
-  const hours = parts.find(p => p.type === 'hour')?.value || '00';
-  const minutes = parts.find(p => p.type === 'minute')?.value || '00';
+  // Direct format from Date object (backend already in Turkey timezone, no conversion needed)
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
   
   return `${hours}:${minutes}`;
 }
@@ -1242,8 +1281,31 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
       // Translate market names to Turkish
       const translatedName = translateMarketName(marketName);
       
+      // Check if this is a correct score market
+      const marketNameLower = marketName.toLowerCase();
+      const isCorrectScoreMarket = marketNameLower.includes('correct score');
+      
       // Translate outcome label
-      const translatedLabel = translateOutcomeName(label, homeTeam, awayTeam);
+      let translatedLabel = translateOutcomeName(label, homeTeam, awayTeam);
+      
+      // For "Half Time Correct Score" and similar markets, handle score formats
+      // If label is a score format (e.g., "1-0", "0-1"), keep it as is
+      if (/^\d+-\d+$/.test(label) || /^\d+:\d+$/.test(label)) {
+        translatedLabel = label.replace(':', '-'); // Normalize score format
+      }
+      
+      // For "Half Time Correct Score", ensure "1", "2", "Draw" labels are correct
+      // API might send "1", "2", "Draw" or "Home", "Away", "Draw"
+      if (marketNameLower.includes('correct score') && marketNameLower.includes('half')) {
+        // For half time correct score, labels should be score formats or "1", "2", "Draw"
+        if (label === '1' || label === 'Home' || label.toLowerCase() === 'home') {
+          translatedLabel = '1';
+        } else if (label === '2' || label === 'Away' || label.toLowerCase() === 'away') {
+          translatedLabel = '2';
+        } else if (label === 'Draw' || label === 'X' || label.toLowerCase() === 'draw') {
+          translatedLabel = 'Beraberlik';
+        }
+      }
       
       // Group by market
       if (!marketMap.has(marketId)) {
@@ -1256,15 +1318,33 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
       // Add option (avoid duplicates)
       const market = marketMap.get(marketId);
       const existingOption = market.options.find(opt => opt.label === translatedLabel);
+      
+      // For "Correct Score" markets, use the most reasonable (lowest) odds instead of highest
+      // because high odds (500+) are usually for very unlikely scores
+      // (isCorrectScoreMarket already defined above)
+      
       if (!existingOption) {
         market.options.push({
           label: translatedLabel,
           value: numericValue,
         });
       } else {
-        // Update if new value is better (higher odds)
-        if (numericValue > existingOption.value) {
-          existingOption.value = numericValue;
+        // For correct score markets, prefer lower (more reasonable) odds
+        // For other markets, prefer higher odds (better for user)
+        if (isCorrectScoreMarket) {
+          // Use the lower (more reasonable) odds for correct score
+          // But exclude very low odds (< 1.5) as they might be errors
+          if (numericValue < existingOption.value && numericValue >= 1.5) {
+            existingOption.value = numericValue;
+          } else if (existingOption.value < 1.5 && numericValue >= 1.5) {
+            // If existing is too low, use the new one if it's reasonable
+            existingOption.value = numericValue;
+          }
+        } else {
+          // Update if new value is better (higher odds for user)
+          if (numericValue > existingOption.value) {
+            existingOption.value = numericValue;
+          }
         }
       }
     } catch (error) {
@@ -1323,12 +1403,19 @@ function translateMarketName(marketName) {
     'goals odd/even': 'Gol Tek/Çift',
     'asian handicap': 'Asya Handikapı',
     'correct score': 'Kesin Skor',
+    'half time correct score': 'İlk Yarı Kesin Skor',
+    'first half correct score': 'İlk Yarı Kesin Skor',
+    'ht correct score': 'İlk Yarı Kesin Skor',
+    'full time correct score': 'Maç Kesin Skor',
+    'ft correct score': 'Maç Kesin Skor',
     'handicap': 'Handikap',
     'european handicap': 'Avrupa Handikapı',
     'first half result': 'İlk Yarı Sonucu',
     'half time result': 'İlk Yarı Sonucu',
+    'ht result': 'İlk Yarı Sonucu',
     'first half goals': 'İlk Yarı Golleri',
     'half time goals': 'İlk Yarı Golleri',
+    'ht goals': 'İlk Yarı Golleri',
     'first team to score': 'İlk Golü Atan',
     'first goal scorer': 'İlk Golü Atan',
     'anytime goal scorer': 'Gol Atan',
@@ -1361,14 +1448,34 @@ function translateMarketName(marketName) {
     return translations[lowerName];
   }
   
-  // Check partial match
+  // Check partial match (contains)
   for (const [key, value] of Object.entries(translations)) {
     if (lowerName.includes(key)) {
       return value;
     }
   }
   
-  return marketName;
+  // If no translation found, try to translate common English words
+  let translated = marketName;
+  
+  // Translate common words
+  translated = translated.replace(/\bhalf time\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bfirst half\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bfull time\b/gi, 'Maç');
+  translated = translated.replace(/\bcorrect score\b/gi, 'Kesin Skor');
+  translated = translated.replace(/\bresult\b/gi, 'Sonuç');
+  translated = translated.replace(/\bgoals\b/gi, 'Goller');
+  translated = translated.replace(/\bgoal\b/gi, 'Gol');
+  translated = translated.replace(/\bover\b/gi, 'Üst');
+  translated = translated.replace(/\bunder\b/gi, 'Alt');
+  translated = translated.replace(/\btotal\b/gi, 'Toplam');
+  translated = translated.replace(/\bto score\b/gi, 'Gol Atma');
+  translated = translated.replace(/\bto win\b/gi, 'Kazanma');
+  translated = translated.replace(/\bdraw\b/gi, 'Beraberlik');
+  translated = translated.replace(/\bhome\b/gi, 'Ev Sahibi');
+  translated = translated.replace(/\baway\b/gi, 'Deplasman');
+  
+  return translated;
 }
 
 /**
@@ -1379,21 +1486,41 @@ function translateMarketName(marketName) {
  * @returns {string} Translated outcome name
  */
 function translateOutcomeName(outcomeName, homeTeam, awayTeam) {
-  const lower = outcomeName.toLowerCase();
+  if (!outcomeName) return outcomeName;
   
-  if (lower === 'home' || lower === '1') return '1';
-  if (lower === 'away' || lower === '2') return '2';
-  if (lower === 'draw' || lower === 'x') return 'X';
-  if (lower === 'yes') return 'Var';
-  if (lower === 'no') return 'Yok';
-  if (lower === 'over') return 'Üst';
-  if (lower === 'under') return 'Alt';
+  const lower = outcomeName.toLowerCase().trim();
+  
+  // Basic translations
+  if (lower === 'home' || lower === '1' || lower === 'h') return '1';
+  if (lower === 'away' || lower === '2' || lower === 'a') return '2';
+  if (lower === 'draw' || lower === 'x' || lower === 'd') return 'X';
+  if (lower === 'yes' || lower === 'evet') return 'Var';
+  if (lower === 'no' || lower === 'hayır') return 'Yok';
+  if (lower === 'over' || lower === 'üst') return 'Üst';
+  if (lower === 'under' || lower === 'alt') return 'Alt';
+  if (lower === 'odd' || lower === 'tek') return 'Tek';
+  if (lower === 'even' || lower === 'çift') return 'Çift';
+  
+  // Score formats (e.g., "1-0", "0-1", "2-1")
+  if (/^\d+-\d+$/.test(outcomeName)) {
+    return outcomeName; // Keep score format as is
+  }
   
   // If it matches team names, use 1 or 2
   if (homeTeam && outcomeName.toLowerCase().includes(homeTeam.toLowerCase())) return '1';
   if (awayTeam && outcomeName.toLowerCase().includes(awayTeam.toLowerCase())) return '2';
   
-  return outcomeName;
+  // Try to translate common English words in outcome names
+  let translated = outcomeName;
+  translated = translated.replace(/\bhome\b/gi, '1');
+  translated = translated.replace(/\baway\b/gi, '2');
+  translated = translated.replace(/\bdraw\b/gi, 'X');
+  translated = translated.replace(/\byes\b/gi, 'Var');
+  translated = translated.replace(/\bno\b/gi, 'Yok');
+  translated = translated.replace(/\bover\b/gi, 'Üst');
+  translated = translated.replace(/\bunder\b/gi, 'Alt');
+  
+  return translated;
 }
 
 /**

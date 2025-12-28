@@ -51,6 +51,47 @@ const MatchesPage = () => {
     }
     return upcomingMatchesData || [];
   }, [activeTab, upcomingMatchesData, pastMatchesData]);
+  
+  // Calculate counts from raw data (before filtering)
+  const upcomingCount = useMemo(() => {
+    if (!upcomingMatchesData || upcomingMatchesData.length === 0) return 0;
+    const today = new Date().toISOString().split('T')[0];
+    return upcomingMatchesData.filter(m => {
+      // Exclude live matches
+      if (m.isLive === true) return false;
+      const status = (m.status || '').toUpperCase();
+      const isPostponed = status === 'POSTP' || status === 'POSTPONED';
+      const isFinished = m.isFinished === true || 
+                         status === 'FT' || 
+                         status === 'FINISHED' || 
+                         status === 'AET' ||
+                         status === 'FT_PEN' ||
+                         status === 'AWARDED';
+      const isPastDate = m.date && m.date < today;
+      return !isPostponed && !isFinished && !(isPastDate && !m.isLive);
+    }).length;
+  }, [upcomingMatchesData]);
+  
+  const pastCount = useMemo(() => {
+    if (!shouldFetchPast || !pastMatchesData || pastMatchesData.length === 0) {
+      return '...';
+    }
+    const today = new Date().toISOString().split('T')[0];
+    return pastMatchesData.filter(m => {
+      // Exclude live matches
+      if (m.isLive === true) return false;
+      const status = (m.status || '').toUpperCase();
+      const isPostponed = status === 'POSTP' || status === 'POSTPONED';
+      const isFinished = m.isFinished === true || 
+                         status === 'FT' || 
+                         status === 'FINISHED' || 
+                         status === 'AET' ||
+                         status === 'FT_PEN' ||
+                         status === 'AWARDED';
+      const isPastDate = m.date && m.date < today;
+      return !isPostponed && (isFinished || (isPastDate && !m.isLive));
+    }).length;
+  }, [shouldFetchPast, pastMatchesData]);
 
   const loading = activeTab === 'past' ? pastLoading : upcomingLoading;
   const error = activeTab === 'past' ? pastError : upcomingError;
@@ -100,15 +141,21 @@ const MatchesPage = () => {
       }
       
       const status = (match.status || '').toUpperCase();
-      const isPostponed = status === 'POSTPONED';
-      const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
-      const isPastDate = match.date < today;
+      const isPostponed = status === 'POSTP' || status === 'POSTPONED';
+      // Check isFinished field first, then status, then date
+      const isFinished = match.isFinished === true || 
+                         status === 'FT' || 
+                         status === 'FINISHED' || 
+                         status === 'AET' ||
+                         status === 'FT_PEN' ||
+                         status === 'AWARDED';
+      const isPastDate = match.date && match.date < today;
       
       if (isPostponed) {
         // Postponed matches go to separate list
         postponed.push(match);
-      } else if (isFinished || isPastDate) {
-        // Past matches
+      } else if (isFinished || (isPastDate && !match.isLive)) {
+        // Past matches: finished by status/field OR past date (and not live)
         past.push(match);
       } else {
         // Upcoming matches
@@ -143,13 +190,8 @@ const MatchesPage = () => {
     return { upcomingMatches: upcoming, pastMatches: past, postponedMatches: postponed };
   }, [filteredMatches, today]);
   
-  // Calculate past matches count for display (only when data is available)
-  const pastMatchesCount = useMemo(() => {
-    if (!shouldFetchPast || !pastMatchesData) {
-      return '...';
-    }
-    return pastMatches.length;
-  }, [shouldFetchPast, pastMatchesData, pastMatches.length]);
+  // Use calculated counts
+  const pastMatchesCount = pastCount;
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -261,7 +303,7 @@ const MatchesPage = () => {
             value="upcoming"
             className="data-[state=active]:bg-amber-500 data-[state=active]:text-black"
           >
-            Gelecek Maçlar ({upcomingMatches.length})
+            Gelecek Maçlar ({upcomingCount})
           </TabsTrigger>
           <TabsTrigger
             value="past"

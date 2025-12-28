@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
 import { Zap, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -10,25 +10,8 @@ const LiveMatchesPage = () => {
   // Get only live matches (isLive === true)
   const { matches, loading, error, refetch } = useLiveMatches(1);
 
-  // Check if matches have loaded with odds (markets)
-  const hasMatchesWithOdds = useMemo(() => {
-    if (loading) return false;
-    if (!matches || matches.length === 0) return false;
-    // Check if at least one match has markets with valid odds
-    return matches.some(match => {
-      if (!match.markets || !Array.isArray(match.markets)) return false;
-      return match.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-    });
-  }, [matches, loading]);
-  
-  // Show loading until matches with odds are loaded
-  const isLoading = loading || !hasMatchesWithOdds;
+  // Only show loading during initial fetch, not when there are no matches
+  const isLoading = loading;
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -65,7 +48,7 @@ const LiveMatchesPage = () => {
               {isLoading 
                 ? 'Veriler çekiliyor lütfen bekleyiniz...' 
                 : matches.length === 0 
-                  ? 'Şu an canlı maç bulunmamaktadır'
+                  ? 'Canlı maç yok'
                   : `${matches.length} canlı maç bulundu`}
             </p>
           </div>
@@ -135,7 +118,7 @@ const LiveMatchesPage = () => {
           <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
             <Zap size={40} className="text-gray-600" />
           </div>
-          <h3 className="text-xl font-semibold text-white mb-2">Şu an canlı maç bulunmamaktadır</h3>
+          <h3 className="text-xl font-semibold text-white mb-2">Canlı Maç Yok</h3>
           <p className="text-gray-500 mb-4">
             Şu anda oynanan canlı maç bulunmamaktadır.
           </p>

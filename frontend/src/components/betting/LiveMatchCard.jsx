@@ -4,44 +4,247 @@ import { useBetSlip } from '../../context/BetSlipContext';
 import { useLiveMatchEvents } from '../../hooks/useLiveMatchEvents';
 import { useLiveMatchStatistics } from '../../hooks/useLiveMatchStatistics';
 import { useOddsTracking } from '../../hooks/useOddsTracking';
-import { ChevronDown, ChevronUp, Lock, ArrowUp, ArrowDown } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  Lock, 
+  ArrowUp, 
+  ArrowDown,
+  Target,
+  UserCheck,
+  AlertCircle,
+  Circle,
+  ArrowRight
+} from 'lucide-react';
 import { shouldLockBetting } from '../../utils/liveMatchSafety';
 
-// Format event type to emoji/icon
+// Get event icon component and color
 function getEventIcon(event) {
-  const type = event.type?.toLowerCase() || '';
-  const eventType = event.event_type?.toLowerCase() || type;
+  // Check multiple possible fields for event type
+  // Sportmonks API returns type as nested object: { type: { name: "...", type: "..." } }
+  const typeName = (
+    event.type?.name ||           // Primary: type.name from nested object
+    event.type?.type ||           // Alternative: type.type
+    (typeof event.type === 'string' ? event.type : '') ||  // If type is string directly
+    event.event_type?.name ||
+    event.event_type?.type ||
+    (typeof event.event_type === 'string' ? event.event_type : '') ||
+    event.name ||
+    ''
+  ).toLowerCase();
   
-  if (eventType.includes('goal') || type.includes('goal')) {
-    return '⚽';
-  } else if (eventType.includes('yellow') || type.includes('yellow')) {
-    return '🟨';
-  } else if (eventType.includes('red') || type.includes('red')) {
-    return '🟥';
-  } else if (eventType.includes('substitution') || type.includes('substitution')) {
-    return '🔄';
-  } else if (eventType.includes('card') || type.includes('card')) {
-    return '🟨';
+  // Debug: Log event type for troubleshooting
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Event type detection:', {
+      typeName,
+      typeObject: event.type,
+      event_type: event.event_type,
+      name: event.name,
+      hasPlayerOut: !!event.player_out,
+      hasPlayerIn: !!event.player_in,
+      fullEvent: event
+    });
   }
-  return '•';
+  
+  // Substitution - check first as it's most specific
+  if (typeName.includes('substitution') || 
+      typeName.includes('sub') || 
+      typeName.includes('değişiklik') ||
+      event.player_out ||
+      event.player_in ||
+      event.player_out_name ||
+      event.player_in_name ||
+      event.player_out?.name ||
+      event.player_in?.name) {
+    return { Icon: UserCheck, color: 'text-blue-500', bgColor: 'bg-blue-500/10' };
+  }
+  
+  // Goal events
+  if (typeName.includes('goal') || typeName.includes('gol')) {
+    return { Icon: Target, color: 'text-green-500', bgColor: 'bg-green-500/10' };
+  }
+  
+  // Yellow card
+  if (typeName.includes('yellow') || 
+      (typeName.includes('card') && typeName.includes('yellow')) ||
+      typeName === 'yellowcard' ||
+      typeName === 'yellow card') {
+    return { Icon: AlertCircle, color: 'text-yellow-500', bgColor: 'bg-yellow-500/10' };
+  }
+  
+  // Red card
+  if (typeName.includes('red') || 
+      (typeName.includes('card') && typeName.includes('red')) ||
+      typeName === 'redcard' ||
+      typeName === 'red card') {
+    return { Icon: AlertCircle, color: 'text-red-500', bgColor: 'bg-red-500/10' };
+  }
+  
+  // Penalty
+  if (typeName.includes('penalty') || typeName.includes('penaltı')) {
+    return { Icon: Target, color: 'text-purple-500', bgColor: 'bg-purple-500/10' };
+  }
+  
+  // Corner
+  if (typeName.includes('corner') || typeName.includes('korner')) {
+    return { Icon: Circle, color: 'text-orange-500', bgColor: 'bg-orange-500/10' };
+  }
+  
+  // Offside
+  if (typeName.includes('offside') || typeName.includes('ofsayt')) {
+    return { Icon: AlertCircle, color: 'text-gray-500', bgColor: 'bg-gray-500/10' };
+  }
+  
+  // Default - use Circle as fallback
+  return { Icon: Circle, color: 'text-gray-400', bgColor: 'bg-gray-500/10' };
 }
 
-// Format event text
+// Format event text with proper structure
 function formatEvent(event, homeTeam, awayTeam) {
   const minute = event.minute || event.time || event.elapsed || '';
-  const player = event.player?.name || event.player_name || event.player || '';
-  const team = event.team?.name || event.team_name || '';
-  const isHome = team === homeTeam;
   
-  const icon = getEventIcon(event);
+  // Player can be nested: event.player.name or direct: event.player
+  // Check multiple possible field names for player information
+  const player = (
+    event.player?.name || 
+    event.player?.fullname ||
+    event.player?.display_name ||
+    (typeof event.player === 'string' ? event.player : '') ||
+    event.player_name || 
+    event.playerName ||
+    event.name || // Sometimes event name contains player name
+    ''
+  );
   
-  if (event.type?.toLowerCase().includes('substitution') || event.event_type?.toLowerCase().includes('substitution')) {
-    const playerOut = event.player_out?.name || event.player_out || '';
-    const playerIn = event.player_in?.name || event.player_in || '';
-    return `${icon} ${minute}' ${playerOut} → ${playerIn}`;
+  // Team can be nested: event.team.name or direct: event.team
+  const team = (
+    event.team?.name || 
+    (typeof event.team === 'string' ? event.team : '') ||
+    event.team_name || 
+    ''
+  );
+  
+  // Check multiple possible fields for event type
+  // Sportmonks API returns type as nested object: { type: { name: "...", type: "..." } }
+  const typeName = (
+    event.type?.name ||           // Primary: type.name from nested object
+    event.type?.type ||           // Alternative: type.type
+    (typeof event.type === 'string' ? event.type : '') ||  // If type is string directly
+    event.event_type?.name ||
+    event.event_type?.type ||
+    (typeof event.event_type === 'string' ? event.event_type : '') ||
+    event.name ||
+    ''
+  ).toLowerCase();
+  
+  const isHome = team === homeTeam || team?.toLowerCase() === homeTeam?.toLowerCase();
+  
+  const iconResult = getEventIcon(event);
+  const { Icon, color, bgColor } = iconResult;
+  
+  // Debug: Verify Icon is a valid React component
+  if (process.env.NODE_ENV === 'development') {
+    // Log Icon type for debugging
+    console.log('Icon check in formatEvent:', {
+      Icon,
+      IconType: typeof Icon,
+      IconIsFunction: typeof Icon === 'function',
+      IconName: Icon?.name || Icon?.displayName || 'unknown',
+      iconResult,
+      eventType: event.type,
+      typeName
+    });
   }
   
-  return `${icon} ${minute}' ${player}`;
+  // Substitution handling - check for player_out/player_in first
+  // Check multiple possible field names for player_out and player_in
+  const playerOut = (
+    event.player_out?.name || 
+    (typeof event.player_out === 'string' ? event.player_out : '') ||
+    event.player_out_name ||
+    event.playerOut?.name ||
+    (typeof event.playerOut === 'string' ? event.playerOut : '') ||
+    event.playerOutName ||
+    ''
+  );
+  const playerIn = (
+    event.player_in?.name || 
+    (typeof event.player_in === 'string' ? event.player_in : '') ||
+    event.player_in_name ||
+    event.playerIn?.name ||
+    (typeof event.playerIn === 'string' ? event.playerIn : '') ||
+    event.playerInName ||
+    ''
+  );
+  
+  // Check if this is a substitution event
+  const isSubstitution = typeName.includes('substitution') || 
+                         typeName.includes('sub') || 
+                         typeName.includes('değişiklik') ||
+                         playerOut ||
+                         playerIn;
+  
+  if (isSubstitution) {
+    return {
+      minute,
+      Icon,
+      iconColor: color,
+      iconBg: bgColor,
+      type: 'substitution',
+      playerOut: playerOut || player, // Use player as fallback for playerOut
+      playerIn: playerIn || '', // Don't use player as fallback for playerIn
+      isHome
+    };
+  }
+  
+  // Goal handling
+  if (typeName.includes('goal') || typeName.includes('gol')) {
+    // For goals, ensure we have player information
+    // If player is empty, try to get it from other fields
+    const goalPlayer = player || 
+                      event.goal_scorer?.name ||
+                      event.goalscorer?.name ||
+                      event.scorer?.name ||
+                      event.assist?.name || // Sometimes assist info is available
+                      'Gol';
+    
+    return {
+      minute,
+      Icon,
+      iconColor: color,
+      iconBg: bgColor,
+      type: 'goal',
+      player: goalPlayer,
+      isHome
+    };
+  }
+  
+  // Card handling
+  if (typeName.includes('card') || typeName.includes('kart')) {
+    const cardType = typeName.includes('yellow') || typeName.includes('sarı') ? 'yellow' : 'red';
+    return {
+      minute,
+      Icon,
+      iconColor: color,
+      iconBg: bgColor,
+      type: 'card',
+      cardType,
+      player,
+      isHome
+    };
+  }
+  
+  // Other events
+  return {
+    minute,
+    Icon,
+    iconColor: color,
+    iconBg: bgColor,
+    type: 'other',
+    player,
+    eventType: event.type?.name || event.type || event.event_type || '',
+    isHome
+  };
 }
 
 const LiveMatchCard = ({ match }) => {
@@ -56,6 +259,88 @@ const LiveMatchCard = ({ match }) => {
 
   // Track odds changes
   const { getOddsChange } = useOddsTracking(match.id, match, 5000);
+  
+  // Translate odds labels to Turkish
+  const translateOddsLabel = (label) => {
+    if (!label) return label;
+    const labelLower = label.toLowerCase().trim();
+    
+    // Translate common English labels to Turkish
+    if (labelLower === 'home' || label === '1') return '1';
+    if (labelLower === 'away' || label === '2') return '2';
+    if (labelLower === 'draw' || label === 'x' || label === 'X') return 'X';
+    
+    // If already in Turkish format, return as is
+    if (label === 'Beraberlik' || label === 'X' || label === '1' || label === '2') {
+      // Convert Beraberlik to X for display
+      return label === 'Beraberlik' ? 'X' : label;
+    }
+    
+    // Fallback: try to translate
+    return label
+      .replace(/home/gi, '1')
+      .replace(/away/gi, '2')
+      .replace(/draw/gi, 'X')
+      .replace(/beraberlik/gi, 'X');
+  };
+  
+  // Sort options to always show in order: 1, X, 2
+  const sortOptions = (options) => {
+    if (!options || !Array.isArray(options)) return options;
+    
+    const getSortOrder = (label) => {
+      if (!label) return 999;
+      const labelLower = label.toLowerCase().trim();
+      // Home/1 should be first
+      if (labelLower === 'home' || label === '1') return 1;
+      // Draw/X/Beraberlik should be second
+      if (labelLower === 'draw' || label === 'x' || label === 'X' || label === 'Beraberlik' || labelLower === 'beraberlik') return 2;
+      // Away/2 should be third
+      if (labelLower === 'away' || label === '2') return 3;
+      return 999;
+    };
+    
+    return [...options].sort((a, b) => {
+      const orderA = getSortOrder(a.label);
+      const orderB = getSortOrder(b.label);
+      return orderA - orderB;
+    });
+  };
+  
+  // Get current minute from events if available (more up-to-date than match.minute)
+  // Don't show minute if match is finished
+  const currentMinute = useMemo(() => {
+    // If match is finished, don't show minute
+    if (match.isFinished) {
+      return null;
+    }
+    
+    const matchMinute = match.minute ? parseInt(match.minute, 10) : null;
+    
+    if (events && events.length > 0) {
+      // Get the latest event minute
+      const latestEvent = events.reduce((latest, event) => {
+        const eventMinute = parseInt(event.minute || event.time || event.elapsed || 0);
+        const latestMinute = parseInt(latest.minute || latest.time || latest.elapsed || 0);
+        return eventMinute > latestMinute ? event : latest;
+      }, events[0]);
+      
+      const eventMinute = parseInt(latestEvent.minute || latestEvent.time || latestEvent.elapsed || 0);
+      
+      // Use the higher value between event minute and match minute
+      if (eventMinute > 0) {
+        if (matchMinute && matchMinute > eventMinute) {
+          // Match minute is more recent
+          return matchMinute;
+        }
+        // Event minute is available and is more recent or equal
+        return eventMinute;
+      }
+    }
+    
+    // Fallback to match.minute
+    return matchMinute;
+  }, [events, match.minute, match.isFinished]);
 
   // Check if betting should be locked due to dangerous situations
   const lockStatus = useMemo(() => {
@@ -63,16 +348,51 @@ const LiveMatchCard = ({ match }) => {
   }, [match, events, statistics]);
   
   // Get recent events (last 3-5)
+  // Include all events: goals, substitutions, cards, etc.
   const recentEvents = useMemo(() => {
     if (!events || events.length === 0) return [];
-    return events
-      .filter(e => e.minute || e.time || e.elapsed)
+    
+    const filtered = events
+      .filter(e => {
+        // Include events that have a minute/time OR are important events (goals, cards, substitutions)
+        const hasTime = e.minute || e.time || e.elapsed;
+        const hasType = e.type || e.event_type;
+        const isImportant = hasType; // Include all events with type information
+        
+        return hasTime || isImportant;
+      })
       .sort((a, b) => {
+        // Sort by minute descending (most recent first)
         const aMin = parseInt(a.minute || a.time || a.elapsed || 0);
         const bMin = parseInt(b.minute || b.time || b.elapsed || 0);
         return bMin - aMin;
       })
       .slice(0, 5);
+    
+    // Debug: Log events structure
+    if (process.env.NODE_ENV === 'development' && filtered.length > 0) {
+      console.log('Recent events structure:', filtered.map(e => {
+        const typeName = (e.type?.name || e.type || e.event_type || '').toLowerCase();
+        const isGoal = typeName.includes('goal') || typeName.includes('gol');
+        return {
+          minute: e.minute,
+          type: e.type,
+          event_type: e.event_type,
+          typeName: e.type?.name || e.type || e.event_type,
+          player: e.player,
+          playerName: e.player?.name,
+          playerFullname: e.player?.fullname,
+          player_name: e.player_name,
+          player_out: e.player_out,
+          player_in: e.player_in,
+          name: e.name,
+          isGoal,
+          fullEvent: e
+        };
+      }));
+    }
+    
+    return filtered;
   }, [events]);
   
   // Extract key statistics
@@ -145,10 +465,19 @@ const LiveMatchCard = ({ match }) => {
       {/* Live Badge Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-red-500/10 border-b border-red-500/20">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-          <span className="text-red-500 text-xs sm:text-sm font-bold">CANLI</span>
-          {match.minute && (
-            <span className="text-white text-xs sm:text-sm font-bold ml-2">{match.minute}'</span>
+          {match.status === 'HT' || match.status === 'HALF_TIME' ? (
+            <>
+              <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+              <span className="text-yellow-500 text-xs sm:text-sm font-bold">DEVRE ARASI</span>
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+              <span className="text-red-500 text-xs sm:text-sm font-bold">CANLI</span>
+              {currentMinute && (
+                <span className="text-white text-xs sm:text-sm font-bold ml-2">{currentMinute}'</span>
+              )}
+            </>
           )}
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
@@ -199,12 +528,107 @@ const LiveMatchCard = ({ match }) => {
       {/* Live Events */}
       {recentEvents.length > 0 && (
         <div className="px-3 sm:px-4 pb-2 border-b border-[#1e2736]">
-          <div className="flex flex-col gap-1">
-            {recentEvents.slice(0, expanded ? 5 : 3).map((event, idx) => (
-              <div key={idx} className="text-[10px] sm:text-xs text-gray-400">
-                {formatEvent(event, match.homeTeam, match.awayTeam)}
-              </div>
-            ))}
+          <div className="flex flex-col gap-1.5">
+            {recentEvents.slice(0, expanded ? 5 : 3).map((event, idx) => {
+              const eventData = formatEvent(event, match.homeTeam, match.awayTeam);
+              const { Icon, iconColor, iconBg, minute, type, isHome } = eventData;
+              
+              // Ensure Icon is a valid component
+              // Icon should be a React component (function), but sometimes it might be an object
+              // Check if Icon is a function, or if it's an object with a render method
+              let EventIcon = Circle; // Default fallback
+              
+              if (Icon) {
+                if (typeof Icon === 'function') {
+                  EventIcon = Icon;
+                } else if (Icon && typeof Icon === 'object' && Icon.render) {
+                  // If Icon is an object with render method, it might be a React component wrapper
+                  EventIcon = Icon;
+                } else if (Icon && typeof Icon === 'object' && Icon.default) {
+                  // If Icon is an object with default export
+                  EventIcon = Icon.default;
+                }
+              }
+              
+              // Debug: Log event data if icon is missing
+              if (process.env.NODE_ENV === 'development') {
+                if (!Icon || (typeof Icon !== 'function' && typeof Icon !== 'object')) {
+                  console.warn('Event icon missing or invalid:', {
+                    event,
+                    eventData,
+                    Icon,
+                    IconType: typeof Icon,
+                    IconIsFunction: typeof Icon === 'function',
+                    type: event.type,
+                    event_type: event.event_type,
+                    typeName: event.type?.name || event.type || event.event_type,
+                    getEventIconResult: getEventIcon(event)
+                  });
+                }
+              }
+              
+              return (
+                <div 
+                  key={idx} 
+                  className={`flex items-center gap-2 text-[10px] sm:text-xs ${
+                    isHome ? 'text-amber-400' : 'text-blue-400'
+                  }`}
+                >
+                  {/* Event Icon */}
+                  <div className={`flex items-center justify-center w-5 h-5 rounded ${iconBg || 'bg-gray-500/10'} flex-shrink-0`}>
+                    {EventIcon && typeof EventIcon === 'function' ? (
+                      <EventIcon size={12} className={iconColor || 'text-gray-400'} />
+                    ) : (
+                      <Circle size={12} className={iconColor || 'text-gray-400'} />
+                    )}
+                  </div>
+                  
+                  {/* Event Content */}
+                  <div className="flex-1 min-w-0">
+                    {type === 'substitution' ? (
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {eventData.playerOut ? (
+                          <>
+                            <span className="font-medium">{eventData.playerOut}</span>
+                            {eventData.playerIn ? (
+                              <>
+                                <ArrowRight size={10} className="text-gray-500 flex-shrink-0" />
+                                <span className="font-medium">{eventData.playerIn}</span>
+                              </>
+                            ) : (
+                              <span className="text-gray-500 text-[9px] ml-1">(Değişiklik)</span>
+                            )}
+                          </>
+                        ) : eventData.player ? (
+                          <span className="font-medium">{eventData.player}</span>
+                        ) : (
+                          <span className="font-medium">Oyuncu Değişikliği</span>
+                        )}
+                      </div>
+                    ) : type === 'goal' ? (
+                      <div className="font-medium">
+                        {eventData.player && eventData.player !== 'Gol' ? eventData.player : 'Gol'}
+                      </div>
+                    ) : type === 'card' ? (
+                      <div className="font-medium">
+                        {eventData.player || 'Oyuncu'}
+                        {eventData.cardType === 'yellow' && <span className="text-yellow-500 ml-1">(Sarı Kart)</span>}
+                        {eventData.cardType === 'red' && <span className="text-red-500 ml-1">(Kırmızı Kart)</span>}
+                      </div>
+                    ) : (
+                      <div className="font-medium">
+                        {eventData.player || eventData.eventType || 'Olay'}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Minute */}
+                  <div className="text-gray-500 font-semibold flex-shrink-0">
+                    {minute}'
+                  </div>
+                </div>
+              );
+            })}
           </div>
           {recentEvents.length > 3 && (
             <button
@@ -213,7 +637,7 @@ const LiveMatchCard = ({ match }) => {
                 e.stopPropagation();
                 setExpanded(!expanded);
               }}
-              className="mt-1 text-[10px] text-amber-500 hover:text-amber-400 flex items-center gap-1"
+              className="mt-1.5 text-[10px] text-amber-500 hover:text-amber-400 flex items-center gap-1"
             >
               {expanded ? (
                 <>
@@ -265,7 +689,7 @@ const LiveMatchCard = ({ match }) => {
       {mainMarket && mainMarket.options && mainMarket.options.length > 0 ? (
         <div className="px-3 sm:px-4 pb-3">
           <div className="flex gap-1.5 sm:gap-2">
-            {mainMarket.options.map((opt) => {
+            {sortOptions(mainMarket.options).map((opt) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
               // Only show if odds value is valid (> 0)
@@ -288,7 +712,7 @@ const LiveMatchCard = ({ match }) => {
                       : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                   }`}
                 >
-                  <span className="text-[10px] sm:text-xs text-gray-400 block leading-tight">{opt.label}</span>
+                  <span className="text-[10px] sm:text-xs text-gray-400 block leading-tight">{translateOddsLabel(opt.label)}</span>
                   <span className="font-bold text-sm sm:text-base flex items-center justify-center gap-1">
                     {isDisabled ? (
                       <Lock size={12} className="inline" />

@@ -67,7 +67,8 @@ async def get_matches(
             date_to = (now_turkey + timedelta(days=7)).strftime("%Y-%m-%d")
         
         # Include odds (simpler format to avoid API errors)
-        include = "participants;scores;events;league;odds"
+        # Include event types and players for proper event icon detection
+        include = "participants;scores;events.type;events.player;league;odds"
         
         fixtures = await sportmonks_service.get_fixtures(
             date_from=date_from,
@@ -125,18 +126,21 @@ async def get_matches(
 
 @api_router.get("/matches/live")
 async def get_live_matches():
-    """Get all live matches"""
+    """Get all live matches (excludes finished matches)"""
     try:
         # Include odds (simpler format to avoid API errors)
-        include = "participants;scores;events;league;odds"
+        # Include event types and players for proper event icon detection
+        include = "participants;scores;events.type;events.player;league;odds"
         
         livescores = await sportmonks_service.get_livescores(include=include)
         
-        # Transform livescores to match format
+        # Transform livescores to match format and filter out finished matches
         matches = []
         for livescore in livescores:
             transformed = sportmonks_service._transform_livescore_to_match(livescore)
-            matches.append(transformed)
+            # Only include matches that are actually live (not finished)
+            if transformed.get("is_live", False) and not transformed.get("is_finished", False):
+                matches.append(transformed)
         
         return {
             "success": True,
@@ -156,7 +160,8 @@ async def get_match_details(match_id: int):
     try:
         # Include all relevant data with nested odds structure
         # Note: Using simpler odds format to avoid API errors
-        include = "participants;scores;statistics;lineups;events;odds;venue;season"
+        # Include event types and players for proper event icon detection
+        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season"
         
         fixture = await sportmonks_service.get_fixture(
             fixture_id=match_id,
@@ -245,6 +250,30 @@ async def get_leagues():
         }
     except Exception as e:
         logger.error(f"Error fetching leagues: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/leagues/{league_id}/standings")
+async def get_league_standings(
+    league_id: int,
+    season_id: Optional[int] = Query(None, description="Optional season ID. If not provided, uses current season.")
+):
+    """Get league standings by league ID"""
+    try:
+        standings = await sportmonks_service.get_standings_by_league(league_id, season_id)
+        
+        if not standings:
+            return {
+                "success": False,
+                "data": None,
+                "message": "Standings not found for this league"
+            }
+        
+        return {
+            "success": True,
+            "data": standings
+        }
+    except Exception as e:
+        logger.error(f"Error fetching standings for league {league_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
