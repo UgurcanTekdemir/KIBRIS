@@ -1,22 +1,18 @@
 /**
  * Image Handling Utilities
- * Handles image paths from Sportmonks V3 API and provides fallback icons
+ * Handles image paths from API and provides fallback icons
  */
 
 /**
  * Get team image path from participant data
- * @param {Object} participant - Participant object from Sportmonks V3
+ * @param {Object} participant - Participant object
  * @returns {string|null} Image URL or null
  */
 export function getTeamImagePath(participant) {
   if (!participant) return null;
   
-  // Sportmonks V3 provides image_path
-  if (participant.image_path) {
-    return participant.image_path;
-  }
-  
-  // Fallback: check for logo or image fields
+  // Check for image_path, logo, or image fields
+  if (participant.image_path) return participant.image_path;
   if (participant.logo) return participant.logo;
   if (participant.image) return participant.image;
   
@@ -25,7 +21,7 @@ export function getTeamImagePath(participant) {
 
 /**
  * Get league image path from league data
- * @param {Object} league - League object from Sportmonks V3
+ * @param {Object} league - League object
  * @returns {string|null} Image URL or null
  */
 export function getLeagueImagePath(league) {
@@ -34,11 +30,7 @@ export function getLeagueImagePath(league) {
   // Handle nested data structure (league.data)
   const leagueData = league.data || league;
   
-  if (leagueData.image_path) {
-    return leagueData.image_path;
-  }
-  
-  // Fallback: check for logo or image fields
+  if (leagueData.image_path) return leagueData.image_path;
   if (leagueData.logo) return leagueData.logo;
   if (leagueData.image) return leagueData.image;
   

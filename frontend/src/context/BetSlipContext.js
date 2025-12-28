@@ -7,11 +7,15 @@ export const BetSlipProvider = ({ children }) => {
   const [selections, setSelections] = useState([]);
   const [stake, setStake] = useState(0);
 
-  const addSelection = (match, marketName, option, odds, isLocked = false) => {
+  const addSelection = (match, marketName, option, odds, isLocked = false, fixtureId = null, selectionId = null) => {
     // Prevent adding locked selections
     if (isLocked) {
       return;
     }
+
+    // Extract fixtureId and selectionId from match or parameters
+    const finalFixtureId = fixtureId || match.fixtureId || match.sportmonksData?.fixtureId || match.id;
+    const finalSelectionId = selectionId || (match.markets?.[0]?.options?.find(opt => opt.label === option)?.selectionId);
 
     // Check if the exact same selection already exists (toggle off)
     const existingSelectionIndex = selections.findIndex(
@@ -32,34 +36,29 @@ export const BetSlipProvider = ({ children }) => {
       (s) => s.matchId === match.id && s.marketName === marketName
     );
 
+    const selectionData = {
+      matchId: match.id,
+      matchName: `${match.homeTeam} vs ${match.awayTeam}`,
+      league: match.league,
+      marketName,
+      option,
+      odds,
+      isLive: match.isLive || false,
+      isLocked: false, // New selection is not locked
+      fixtureId: finalFixtureId, // Sportmonks fixture ID
+      selectionId: finalSelectionId, // Sportmonks selection ID
+    };
+
     if (existingMarketIndex > -1) {
       // Replace existing selection in the same market
       const updated = [...selections];
-      updated[existingMarketIndex] = {
-        matchId: match.id,
-        matchName: `${match.homeTeam} vs ${match.awayTeam}`,
-        league: match.league,
-        marketName,
-        option,
-        odds,
-        isLive: match.isLive || false,
-        isLocked: false, // New selection is not locked
-      };
+      updated[existingMarketIndex] = selectionData;
       setSelections(updated);
     } else {
       // Add new selection
       setSelections([
         ...selections,
-        {
-          matchId: match.id,
-          matchName: `${match.homeTeam} vs ${match.awayTeam}`,
-          league: match.league,
-          marketName,
-          option,
-          odds,
-          isLive: match.isLive || false,
-          isLocked: false, // New selection is not locked
-        },
+        selectionData,
       ]);
     }
   };

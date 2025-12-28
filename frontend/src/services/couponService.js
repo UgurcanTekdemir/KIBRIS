@@ -59,10 +59,16 @@ export const createCoupon = async (couponData) => {
     // Create coupon document
     const couponRef = doc(collection(db, COUPONS_COLLECTION));
     const uniqueId = generateCouponId();
+    // Ensure selections include fixtureId and selectionId from Sportmonks
+    const enrichedSelections = selections.map(selection => ({
+      ...selection,
+      fixtureId: selection.fixtureId || selection.matchId, // Use fixtureId if available, fallback to matchId
+      selectionId: selection.selectionId || null, // Sportmonks selection ID
+    }));
     batch.set(couponRef, {
       userId,
       agentId,
-      selections,
+      selections: enrichedSelections,
       stake,
       totalOdds,
       potentialWin,

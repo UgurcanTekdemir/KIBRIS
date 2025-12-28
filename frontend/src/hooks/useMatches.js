@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { matchAPI } from '../services/api';
+import * as footballService from '../services/football';
 import { mapApiMatchesToInternal } from '../utils/matchMapper';
 
 /**
@@ -28,8 +28,11 @@ export function useMatches(filters = {}, options = {}) {
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      const apiMatches = await matchAPI.getMatches(queryFilters);
-      return mapApiMatchesToInternal(apiMatches);
+      // Use Sportmonks V3 API to get upcoming fixtures
+      const apiMatches = await footballService.getUpcomingFixtures();
+      // Ensure it's an array
+      const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
+      return mapApiMatchesToInternal(matchesArray);
     },
     enabled: options.enabled !== undefined ? options.enabled : true, // Allow conditional fetching
     staleTime: options.staleTime || 60000, // Data is fresh for 60 seconds (optimized from 30s)
@@ -56,8 +59,11 @@ export function useLiveMatches(matchType = 1) {
   const query = useQuery({
     queryKey: ['liveMatches', matchType],
     queryFn: async () => {
-      const apiMatches = await matchAPI.getLiveMatches(matchType);
-      const mappedMatches = mapApiMatchesToInternal(apiMatches || []);
+      // Use Sportmonks V3 API to get live scores
+      const apiMatches = await footballService.getLivescores();
+      // Ensure it's an array
+      const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
+      const mappedMatches = mapApiMatchesToInternal(matchesArray);
       // Filter only live matches that are NOT finished
       // Also include matches with scores/events even if isLive is not explicitly true
       return mappedMatches.filter(m => {
@@ -104,7 +110,7 @@ export function useMatchDetails(matchId) {
       const { mapApiMatchToInternal } = await import('../utils/matchMapper');
 
       // Get match details from Sportmonks V3
-      const apiMatch = await matchAPI.getMatchDetails(matchId);
+      const apiMatch = await footballService.getFixtureById(parseInt(matchId, 10));
       if (apiMatch) {
         const mappedMatch = mapApiMatchToInternal(apiMatch);
         if (!mappedMatch) {

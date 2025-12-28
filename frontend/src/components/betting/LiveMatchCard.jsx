@@ -51,7 +51,8 @@ const LiveMatchCard = ({ match }) => {
   const { events } = useLiveMatchEvents(match.id, match.isLive, 12000);
   const { statistics } = useLiveMatchStatistics(match.id, match.isLive, 30000);
   
-  const mainMarket = match.markets?.[0];
+  // Filter for Market ID 1 (Match Winner / Fulltime Result)
+  const mainMarket = match.markets?.find(m => m.marketId === 1) || match.markets?.[0];
 
   // Track odds changes
   const { getOddsChange } = useOddsTracking(match.id, match, 5000);
@@ -124,6 +125,9 @@ const LiveMatchCard = ({ match }) => {
   }, [statistics]);
 
   const handleOddsClick = (e, opt) => {
+    // Extract fixtureId and selectionId from match data
+    const fixtureId = match.fixtureId || match.sportmonksData?.fixtureId || match.id;
+    const selectionId = opt.selectionId || null;
     e.preventDefault();
     e.stopPropagation();
     
@@ -133,7 +137,7 @@ const LiveMatchCard = ({ match }) => {
     }
     
     const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-    addSelection(match, mainMarket.name, opt.label, oddsValue, lockStatus.isLocked);
+    addSelection(match, mainMarket.name, opt.label, oddsValue, lockStatus.isLocked, fixtureId, selectionId);
   };
 
   return (
