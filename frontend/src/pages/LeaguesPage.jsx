@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Trophy, Search, ArrowLeft, Globe, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { matchAPI } from '../services/api';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
+import { getLeagues } from '../services/football';
+import { useMatches } from '../hooks/useMatches';
+import MatchCard from '../components/betting/MatchCard';
 
 const LeaguesPage = () => {
   const navigate = useNavigate();
@@ -15,36 +18,81 @@ const LeaguesPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('all');
 
-  // Fetch leagues from matches (extract unique leagues from live matches)
+  // Fetch all matches (no league_id filter) to group by league
+  const today = new Date().toISOString().split('T')[0];
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const { matches: allMatches, loading: matchesLoading, error: matchesError } = useMatches({
+    date_from: today,
+    date_to: sevenDaysLater,
+    matchType: 1
+  });
+
+  // Fetch leagues from API
   useEffect(() => {
     const fetchLeagues = async () => {
       try {
         setLoading(true);
         setError(null);
         
-        // Get live matches and extract unique leagues
-        const matches = await matchAPI.getLiveMatches();
+        // Get leagues from API
+        const response = await getLeagues();
         
-        // Extract unique leagues from matches
-        const leagueMap = new Map();
-        matches.forEach(match => {
-          if (match.league && match.league_id) {
-            const leagueId = match.league_id;
-            if (!leagueMap.has(leagueId)) {
-              leagueMap.set(leagueId, {
-                id: leagueId,
-                name: match.league,
-                country: match.country || '',
-                league_id: leagueId,
-                league_name: match.league,
-                image_path: match.league_logo || null,
-              });
+        // Handle response format (could be { data: [...], success: true } or direct array)
+        let leaguesData = [];
+        if (response && typeof response === 'object') {
+          if (response.data && Array.isArray(response.data)) {
+            leaguesData = response.data;
+          } else if (response.success && response.data && Array.isArray(response.data)) {
+            leaguesData = response.data;
+          } else if (Array.isArray(response)) {
+            leaguesData = response;
+          }
+        }
+        
+        // Transform leagues data to match our format
+        const transformedLeagues = leaguesData.map(league => {
+          // Extract country name from nested structure
+          let countryName = '';
+          if (league.country) {
+            if (typeof league.country === 'string') {
+              countryName = league.country;
+            } else if (league.country.name) {
+              countryName = league.country.name;
+            } else if (league.country.data && league.country.data.name) {
+              countryName = league.country.data.name;
             }
           }
-        });
+          
+          // Extract season info if available
+          let season = '';
+          if (league.current_season) {
+            if (typeof league.current_season === 'object') {
+              const seasonData = league.current_season.data || league.current_season;
+              if (seasonData && seasonData.name) {
+                season = seasonData.name;
+              } else if (seasonData && seasonData.year) {
+                season = seasonData.year.toString();
+              }
+            }
+          }
+          
+          return {
+            id: league.id,
+            league_id: league.id,
+            name: league.name || '',
+            league_name: league.name || '',
+            country: countryName,
+            image_path: league.image_path || null,
+            short_code: league.short_code || null,
+            type: league.type || '',
+            sub_type: league.sub_type || '',
+            active: league.active !== false, // Default to true if not specified
+            season: season,
+            last_played_at: league.last_played_at || null,
+          };
+        }).filter(league => league.active); // Only show active leagues
         
-        const leaguesArray = Array.from(leagueMap.values());
-        setLeagues(leaguesArray);
+        setLeagues(transformedLeagues);
       } catch (err) {
         console.error('Error fetching leagues:', err);
         setError(err.message || 'Ligler yüklenirken bir hata oluştu');
@@ -57,22 +105,113 @@ const LeaguesPage = () => {
     fetchLeagues();
   }, []);
 
-  // Get unique countries from leagues
-  const countries = useMemo(() => {
+  // Group matches by league_id and extract league info from matches
+  const { matchesByLeague, leaguesFromMatches } = useMemo(() => {
+    if (!allMatches || !Array.isArray(allMatches)) {
+      return { matchesByLeague: new Map(), leaguesFromMatches: new Map() };
+    }
+    
+    const grouped = new Map();
+    const leaguesMap = new Map(); // Store league info extracted from matches
+    
+    allMatches.forEach(match => {
+      // Get league ID and ensure it's a number for consistent comparison
+      const matchLeagueId = match.leagueId || match.league_id || match.league?.id;
+      if (matchLeagueId) {
+        // Convert to number for consistent comparison
+        const leagueId = typeof matchLeagueId === 'string' ? parseInt(matchLeagueId, 10) : matchLeagueId;
+        if (!isNaN(leagueId)) {
+          // Group matches by league_id
+          if (!grouped.has(leagueId)) {
+            grouped.set(leagueId, []);
+          }
+          grouped.get(leagueId).push(match);
+          
+          // Extract league info from match if not already stored
+          if (!leaguesMap.has(leagueId)) {
+            const leagueName = match.league || match.league_name || match.leagueName || '';
+            const leagueLogo = match.leagueLogo || match.league_logo || null;
+            const country = match.country || '';
+            
+            if (leagueName) {
+              leaguesMap.set(leagueId, {
+                id: leagueId,
+                league_id: leagueId,
+                name: leagueName,
+                league_name: leagueName,
+                country: country,
+                image_path: leagueLogo,
+                fromMatches: true, // Flag to indicate this league was extracted from matches
+              });
+            }
+          }
+        }
+      }
+    });
+    
+    // Sort matches by date and time within each league
+    grouped.forEach((matches, leagueId) => {
+      matches.sort((a, b) => {
+        // Sort by date first
+        if (a.date !== b.date) {
+          return (a.date || '').localeCompare(b.date || '');
+        }
+        // Then by time
+        return (a.time || '').localeCompare(b.time || '');
+      });
+    });
+    
+    return { matchesByLeague: grouped, leaguesFromMatches: leaguesMap };
+  }, [allMatches]);
+
+  // Merge leagues from API with leagues extracted from matches
+  const mergedLeagues = useMemo(() => {
     if (!Array.isArray(leagues)) return [];
-    const countrySet = new Set();
+    
+    // Create a map of leagues from API (by id)
+    const leaguesMap = new Map();
     leagues.forEach(league => {
+      const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+      if (!isNaN(leagueId)) {
+        leaguesMap.set(leagueId, league);
+      }
+    });
+    
+    // Add leagues from matches that don't exist in API leagues
+    leaguesFromMatches.forEach((leagueFromMatch, leagueId) => {
+      if (!leaguesMap.has(leagueId)) {
+        leaguesMap.set(leagueId, leagueFromMatch);
+      } else {
+        // If league exists in API but missing some info from matches, merge them
+        const existingLeague = leaguesMap.get(leagueId);
+        if (!existingLeague.image_path && leagueFromMatch.image_path) {
+          existingLeague.image_path = leagueFromMatch.image_path;
+        }
+        if (!existingLeague.country && leagueFromMatch.country) {
+          existingLeague.country = leagueFromMatch.country;
+        }
+      }
+    });
+    
+    return Array.from(leaguesMap.values());
+  }, [leagues, leaguesFromMatches]);
+
+  // Get unique countries from merged leagues
+  const countries = useMemo(() => {
+    if (!Array.isArray(mergedLeagues)) return [];
+    const countrySet = new Set();
+    mergedLeagues.forEach(league => {
       if (league && league.country) {
         countrySet.add(league.country);
       }
     });
     return Array.from(countrySet).sort();
-  }, [leagues]);
+  }, [mergedLeagues]);
 
   // Filter leagues by search query and country
   const filteredLeagues = useMemo(() => {
-    if (!Array.isArray(leagues)) return [];
-    let filtered = leagues;
+    if (!Array.isArray(mergedLeagues)) return [];
+    let filtered = mergedLeagues;
 
     // Filter by country
     if (selectedCountry !== 'all') {
@@ -95,65 +234,67 @@ const LeaguesPage = () => {
       const nameB = (b.name || b.league_name || '').toLowerCase();
       return nameA.localeCompare(nameB);
     });
-  }, [leagues, searchQuery, selectedCountry]);
-
-  // Format date range
-  const formatDateRange = (startDate, endDate) => {
-    if (!startDate && !endDate) return null;
-    
-    const formatDate = (dateStr) => {
-      if (!dateStr) return '';
-      try {
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('tr-TR', { 
-          year: 'numeric', 
-          month: 'short',
-          day: 'numeric'
-        });
-      } catch {
-        return dateStr;
-      }
-    };
-
-    if (startDate && endDate) {
-      return `${formatDate(startDate)} - ${formatDate(endDate)}`;
-    } else if (startDate) {
-      return `Başlangıç: ${formatDate(startDate)}`;
-    } else if (endDate) {
-      return `Bitiş: ${formatDate(endDate)}`;
-    }
-    return null;
-  };
+  }, [mergedLeagues, searchQuery, selectedCountry]);
 
   // Get league flag emoji based on country
   const getCountryFlag = (country) => {
     if (!country) return '🏆';
     
+    const countryLower = country.toLowerCase();
+    
     const flagMap = {
-      'Turkey': '🇹🇷',
-      'Türkiye': '🇹🇷',
-      'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-      'İngiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-      'Spain': '🇪🇸',
-      'İspanya': '🇪🇸',
-      'Italy': '🇮🇹',
-      'İtalya': '🇮🇹',
-      'Germany': '🇩🇪',
-      'Almanya': '🇩🇪',
-      'France': '🇫🇷',
-      'Fransa': '🇫🇷',
-      'Netherlands': '🇳🇱',
-      'Hollanda': '🇳🇱',
-      'Portugal': '🇵🇹',
-      'Portekiz': '🇵🇹',
-      'Brazil': '🇧🇷',
-      'Brezilya': '🇧🇷',
-      'Argentina': '🇦🇷',
-      'Arjantin': '🇦🇷',
+      // Europe
+      'turkey': '🇹🇷',
+      'türkiye': '🇹🇷',
+      'england': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'ingiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'united kingdom': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'uk': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'spain': '🇪🇸',
+      'ispanya': '🇪🇸',
+      'italy': '🇮🇹',
+      'italya': '🇮🇹',
+      'germany': '🇩🇪',
+      'almanya': '🇩🇪',
+      'france': '🇫🇷',
+      'fransa': '🇫🇷',
+      'netherlands': '🇳🇱',
+      'hollanda': '🇳🇱',
+      'portugal': '🇵🇹',
+      'portekiz': '🇵🇹',
+      'belgium': '🇧🇪',
+      'belçika': '🇧🇪',
+      'austria': '🇦🇹',
+      'avusturya': '🇦🇹',
+      'denmark': '🇩🇰',
+      'danimarka': '🇩🇰',
+      'croatia': '🇭🇷',
+      'hrvatska': '🇭🇷',
+      'czech republic': '🇨🇿',
+      'çek cumhuriyeti': '🇨🇿',
+      'czechia': '🇨🇿',
+      'bulgaria': '🇧🇬',
+      'bulgaristan': '🇧🇬',
+      // Americas
+      'brazil': '🇧🇷',
+      'brezilya': '🇧🇷',
+      'argentina': '🇦🇷',
+      'arjantin': '🇦🇷',
+      'usa': '🇺🇸',
+      'united states': '🇺🇸',
+      // Asia
+      'japan': '🇯🇵',
+      'japonya': '🇯🇵',
+      'south korea': '🇰🇷',
+      'güney kore': '🇰🇷',
+      // International
+      'international': '🌍',
+      'uefa': '🇪🇺',
+      'world': '🌍',
     };
 
     for (const [key, flag] of Object.entries(flagMap)) {
-      if (country.toLowerCase().includes(key.toLowerCase())) {
+      if (countryLower.includes(key)) {
         return flag;
       }
     }
@@ -161,20 +302,7 @@ const LeaguesPage = () => {
     return '🏆';
   };
 
-  // League card skeleton
-  const LeagueCardSkeleton = () => (
-    <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
-      <div className="flex items-center gap-3 mb-3">
-        <Skeleton className="w-12 h-12 rounded-lg bg-[#1a2332]" />
-        <div className="flex-1">
-          <Skeleton className="h-5 w-32 mb-2 bg-[#1a2332]" />
-          <Skeleton className="h-4 w-24 bg-[#1a2332]" />
-        </div>
-      </div>
-      <Skeleton className="h-4 w-full mb-2 bg-[#1a2332]" />
-      <Skeleton className="h-4 w-3/4 bg-[#1a2332]" />
-    </div>
-  );
+  const isLoading = loading || matchesLoading;
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -193,24 +321,24 @@ const LeaguesPage = () => {
           <div>
             <h1 className="text-2xl font-bold text-white">Futbol Ligleri</h1>
             <p className="text-sm text-gray-400">
-              {loading ? 'Yükleniyor...' : `${filteredLeagues.length} lig bulundu`}
+              {isLoading ? 'Yükleniyor...' : `${filteredLeagues.length} lig bulundu`}
             </p>
           </div>
         </div>
       </div>
 
       {/* Error Alert */}
-      {error && (
+      {(error || matchesError) && (
         <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/30">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-white">
-            {error}
+            {error || matchesError}
           </AlertDescription>
         </Alert>
       )}
 
       {/* Filters */}
-      {!loading && leagues.length > 0 && (
+      {!isLoading && leagues.length > 0 && (
         <div className="mb-6 space-y-4">
           {/* Search Bar */}
           <div className="relative">
@@ -262,68 +390,99 @@ const LeaguesPage = () => {
         </div>
       )}
 
-      {/* Leagues Grid */}
-      {loading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[...Array(9)].map((_, i) => (
-            <LeagueCardSkeleton key={i} />
+      {/* Leagues Accordion */}
+      {isLoading ? (
+        <div className="space-y-4">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <Skeleton className="w-12 h-12 rounded-lg bg-[#1a2332]" />
+                <div className="flex-1">
+                  <Skeleton className="h-5 w-48 mb-2 bg-[#1a2332]" />
+                  <Skeleton className="h-4 w-32 bg-[#1a2332]" />
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
         <>
           {filteredLeagues.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Accordion type="multiple" className="w-full space-y-2">
               {filteredLeagues.map((league) => {
-                const leagueId = league.id || league.league_id || league.main_id;
+                const leagueId = league.id || league.league_id;
+                // Ensure leagueId is a number for consistent comparison
+                const leagueIdNum = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
                 const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
                 const country = league.country || '';
-                const season = league.season || '';
-                const dateRange = formatDateRange(league.start_date, league.end_date);
+                const leagueMatches = matchesByLeague.get(leagueIdNum) || [];
+                const matchCount = leagueMatches.length;
 
                 return (
-                  <Link
-                    key={leagueId}
-                    to={`/league-standings/${leagueId}`}
-                    className="bg-[#0d1117] border border-[#1e2736] rounded-xl p-4 hover:border-amber-500/50 transition-all group"
+                  <AccordionItem
+                    key={leagueIdNum}
+                    value={`league-${leagueIdNum}`}
+                    className="bg-[#0d1117] border border-[#1e2736] rounded-xl px-4 data-[state=open]:border-amber-500/50 transition-colors"
                   >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-12 h-12 rounded-lg bg-amber-500/20 flex items-center justify-center text-2xl">
-                        {getCountryFlag(country)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-white font-semibold text-lg group-hover:text-amber-500 transition-colors truncate">
-                          {leagueName}
-                        </h3>
-                        {country && (
-                          <p className="text-sm text-gray-400 truncate">
-                            {country}
-                          </p>
+                    <AccordionTrigger className="hover:no-underline py-4">
+                      <div className="flex items-center gap-3 flex-1">
+                        {league.image_path ? (
+                          <div className="w-12 h-12 rounded-lg bg-[#1a2332] flex items-center justify-center overflow-hidden flex-shrink-0">
+                            <img 
+                              src={league.image_path} 
+                              alt={leagueName}
+                              className="w-full h-full object-contain p-1"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = `<span class="text-2xl">${getCountryFlag(country)}</span>`;
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-amber-500/20 flex items-center justify-center text-2xl flex-shrink-0">
+                            {getCountryFlag(country)}
+                          </div>
                         )}
+                        <div className="flex-1 min-w-0 text-left">
+                          <h3 className="text-white font-semibold text-lg truncate">
+                            {leagueName}
+                          </h3>
+                          <div className="flex items-center gap-2 text-sm text-gray-400">
+                            {country && (
+                              <span className="truncate">
+                                {getCountryFlag(country)} {country}
+                              </span>
+                            )}
+                            {matchCount > 0 && (
+                              <>
+                                <span>•</span>
+                                <span>{matchCount} maç</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-
-                    {season && (
-                      <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-                        <Calendar size={14} />
-                        <span>{season}</span>
-                      </div>
-                    )}
-
-                    {dateRange && (
-                      <div className="text-xs text-gray-500">
-                        {dateRange}
-                      </div>
-                    )}
-
-                    <div className="mt-3 pt-3 border-t border-[#1e2736]">
-                      <span className="text-xs text-amber-500 font-medium">
-                        Puan Durumu →
-                      </span>
-                    </div>
-                  </Link>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-4">
+                      {matchCount > 0 ? (
+                        <div className="grid gap-4 md:grid-cols-2 pt-2">
+                          {leagueMatches.map((match) => (
+                            <MatchCard 
+                              key={match.id || `${match.homeTeam}-${match.awayTeam}-${match.date}`} 
+                              match={match} 
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <p>Bu lig için maç bulunmuyor</p>
+                        </div>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
                 );
               })}
-            </div>
+            </Accordion>
           ) : (
             <div className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
@@ -360,4 +519,3 @@ const LeaguesPage = () => {
 };
 
 export default LeaguesPage;
-

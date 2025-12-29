@@ -315,19 +315,20 @@ const MatchesPage = () => {
 
         <TabsContent value="upcoming" className="mt-0">
           {isLoading ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
               {[...Array(4)].map((_, i) => (
-                <MatchCardSkeleton key={i} />
+                <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+                  <MatchCardSkeleton />
+                </div>
               ))}
             </div>
           ) : (
             <>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
                 {upcomingMatches.map((match) => (
-                  <MatchCard
-                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
-                    match={match}
-                  />
+                  <div key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+                    <MatchCard match={match} />
+                  </div>
                 ))}
               </div>
               {upcomingMatches.length === 0 && !isLoading && (
@@ -341,19 +342,20 @@ const MatchesPage = () => {
 
         <TabsContent value="past" className="mt-0">
           {isLoading ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
               {[...Array(4)].map((_, i) => (
-                <MatchCardSkeleton key={i} />
+                <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+                  <MatchCardSkeleton />
+                </div>
               ))}
             </div>
           ) : (
             <>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
                 {pastMatches.map((match) => (
-                  <MatchCard
-                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
-                    match={match}
-                  />
+                  <div key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+                    <MatchCard match={match} />
+                  </div>
                 ))}
               </div>
               {pastMatches.length === 0 && !isLoading && (

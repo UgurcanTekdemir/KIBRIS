@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useBetSlip } from '../context/BetSlipContext';
-import { ArrowLeft, Clock, TrendingUp, AlertCircle, Filter, Activity, Target } from 'lucide-react';
+import { ArrowLeft, Clock, TrendingUp, AlertCircle, Filter, Activity, Target, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
@@ -15,14 +15,29 @@ import { groupMarketsByCategory, getCategoryOrder } from '../utils/marketCategor
 import { getTeamImagePath, getFallbackIcon } from '../utils/imageUtils';
 
 // Format date for display - always show actual date, not "Bugün" or "Yarın"
+// date can be in format DD.MM.YYYY (from matchMapper) or YYYY-MM-DD (legacy)
 function formatMatchDateTime(date, time) {
-  if (!date) return time || '';
+  if (!date || typeof date !== 'string') {
+    return time || '';
+  }
   
-    // Format as DD.MM.YYYY
-    const [year, month, day] = date.split('-');
-  const formattedDate = `${day}.${month}.${year}`;
+  let formattedDate = date;
   
-  if (time) {
+  // Check if date is in YYYY-MM-DD format (legacy)
+  if (date.includes('-') && date.match(/^\d{4}-\d{2}-\d{2}/)) {
+    // Convert YYYY-MM-DD to DD.MM.YYYY
+    const parts = date.split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      if (year && month && day) {
+        formattedDate = `${day}.${month}.${year}`;
+      }
+    }
+  }
+  // If date is already in DD.MM.YYYY format (from matchMapper), use it directly
+  // No conversion needed
+  
+  if (time && typeof time === 'string') {
     return `${formattedDate} ${time}`;
   }
   return formattedDate;

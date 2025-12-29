@@ -106,9 +106,11 @@ const LiveMatchesPage = () => {
             </p>
           </div>
           {/* Loading Skeletons */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
             {[...Array(4)].map((_, i) => (
-              <MatchCardSkeleton key={i} />
+              <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+                <MatchCardSkeleton />
+              </div>
             ))}
           </div>
         </>
@@ -128,9 +130,11 @@ const LiveMatchesPage = () => {
         </div>
       ) : (
         /* Matches List */
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
           {matches.map((match, idx) => (
-            <LiveMatchCard key={match.id || `live-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} />
+            <div key={match.id || `live-${idx}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
+              <LiveMatchCard match={match} />
+            </div>
           ))}
         </div>
       )}

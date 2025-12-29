@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import MatchCard from '../components/betting/MatchCard';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
 import HeroBannerSlider from '../components/HeroBannerSlider';
@@ -170,6 +170,37 @@ const HomePage = () => {
     );
   }, [upcomingMatches, searchQuery]);
 
+  // Auto-slider ref and effect for today's matches
+  const todayMatchesSliderRef = useRef(null);
+
+  useEffect(() => {
+    if (!todayMatchesSliderRef.current || filteredTodayMatches.length <= 1) return;
+    if (window.innerWidth >= 768) return; // Only on mobile
+
+    const slider = todayMatchesSliderRef.current;
+    const sliderItems = slider.querySelectorAll('.slider-item');
+    if (sliderItems.length <= 1) return;
+
+    let currentIndex = 0;
+
+    const autoScroll = () => {
+      currentIndex = (currentIndex + 1) % sliderItems.length;
+      const targetItem = sliderItems[currentIndex];
+      
+      if (targetItem) {
+        targetItem.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'start'
+        });
+      }
+    };
+
+    const interval = setInterval(autoScroll, 5000); // Change slide every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [filteredTodayMatches]);
+
   return (
     <div className="w-full max-w-6xl mx-auto space-y-3 sm:space-y-4 lg:space-y-6">
       {/* Role Helper - Temporary component for setting roles */}
@@ -216,22 +247,37 @@ const HomePage = () => {
           </div>
         )}
         
-        <div className="overflow-x-auto pb-2 -mx-2 sm:-mx-3 sm:mx-0 sm:px-0 scrollbar-hide">
-          <div className="flex gap-2 sm:gap-3 px-2 sm:px-0">
-            {isLoading ? (
-              <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
-                Oranlar yükleniyor...
+        <div 
+          ref={todayMatchesSliderRef}
+          className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0"
+          style={{ 
+            scrollSnapType: 'x mandatory',
+            scrollBehavior: 'smooth',
+            WebkitOverflowScrolling: 'touch'
+          }}
+        >
+          {isLoading ? (
+            <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full md:col-span-2">
+              Oranlar yükleniyor...
+            </div>
+          ) : filteredTodayMatches.length > 0 ? (
+            filteredTodayMatches.slice(0, 4).map((match, idx) => (
+              <div 
+                key={match.id || `home-today-${idx}-${match.homeTeam}-${match.awayTeam}`} 
+                className="slider-item min-w-[85%] md:min-w-0 flex-shrink-0 transition-transform duration-300 ease-in-out"
+                style={{ 
+                  scrollSnapAlign: 'start',
+                  scrollSnapStop: 'always'
+                }}
+              >
+                <MatchCard match={match} compact={true} />
               </div>
-            ) : filteredTodayMatches.length > 0 ? (
-              filteredTodayMatches.slice(0, 4).map((match, idx) => (
-                <MatchCard key={match.id || `home-today-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} compact={true} />
-              ))
-            ) : (
-              <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full">
-                {searchQuery ? 'Arama kriterlerinize uygun maç bulunamadı.' : 'Bugün için maç bulunamadı.'}
-              </div>
-            )}
-          </div>
+            ))
+          ) : (
+            <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm w-full md:col-span-2">
+              {searchQuery ? 'Arama kriterlerinize uygun maç bulunamadı.' : 'Bugün için maç bulunamadı.'}
+            </div>
+          )}
         </div>
       </section>
 
