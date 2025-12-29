@@ -138,8 +138,15 @@ async def get_live_matches():
         matches = []
         for livescore in livescores:
             transformed = sportmonks_service._transform_livescore_to_match(livescore)
-            # Only include matches that are actually live (not finished)
-            if transformed.get("is_live", False) and not transformed.get("is_finished", False):
+            # Include matches that are:
+            # 1. Live (is_live = True) and not finished, OR
+            # 2. In half-time break (HT status) and not finished (to show "DEVRE ARASI")
+            status = (transformed.get("status", "") or "").upper()
+            is_live = transformed.get("is_live", False)
+            is_finished = transformed.get("is_finished", False)
+            is_ht = status in ["HT", "HALF_TIME"]
+            
+            if not is_finished and (is_live or is_ht):
                 matches.append(transformed)
         
         return {
@@ -161,7 +168,8 @@ async def get_match_details(match_id: int):
         # Include all relevant data with nested odds structure
         # Note: Using simpler odds format to avoid API errors
         # Include event types and players for proper event icon detection
-        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season"
+        # Include league with nested structure
+        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season;league"
         
         fixture = await sportmonks_service.get_fixture(
             fixture_id=match_id,
@@ -171,8 +179,8 @@ async def get_match_details(match_id: int):
         if not fixture:
             raise HTTPException(status_code=404, detail="Match not found")
         
-        # Transform fixture to match format
-        match = sportmonks_service._transform_fixture_to_match(fixture)
+        # Transform fixture to match format with Turkey timezone
+        match = sportmonks_service._transform_fixture_to_match(fixture, timezone_offset=3)
         
         # If odds are empty, try to fetch them separately
         if not match.get("odds") or len(match.get("odds", [])) == 0:
@@ -235,6 +243,142 @@ async def get_match_odds(match_id: int):
     except Exception as e:
         logger.error(f"Error fetching odds for match {match_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/matches/{match_id}/lineups")
+async def get_match_lineups(match_id: int):
+    """
+    Get lineups for a specific match.
+    Returns lineups data from match details.
+    """
+    try:
+        # Get match details which includes lineups
+        include = "participants;lineups.player;lineups.position"
+        
+        fixture = await sportmonks_service.get_fixture(
+            fixture_id=match_id,
+            include=include
+        )
+        
+        if not fixture:
+            raise HTTPException(status_code=404, detail="Match not found")
+        
+        # Extract lineups from fixture
+        lineups_data = fixture.get("lineups", [])
+        if isinstance(lineups_data, dict) and "data" in lineups_data:
+            lineups_data = lineups_data["data"]
+        
+        # Get participants to identify home/away teams
+        participants = fixture.get("participants", [])
+        if isinstance(participants, dict) and "data" in participants:
+            participants = participants["data"]
+        
+        home_team_id = None
+        away_team_id = None
+        
+        for participant in participants:
+            if participant.get("meta", {}).get("location") == "home":
+                home_team_id = participant.get("id")
+            elif participant.get("meta", {}).get("location") == "away":
+                away_team_id = participant.get("id")
+        
+        # Transform lineups to a more usable format
+        transformed_lineups = {
+            "home": {
+                "startingXI": [],
+                "substitutes": []
+            },
+            "away": {
+                "startingXI": [],
+                "substitutes": []
+            }
+        }
+        
+        if isinstance(lineups_data, list):
+            # Type ID 12 = Starting XI, Type ID 13 = Substitutes (or check type name)
+            for lineup_item in lineups_data:
+                team_id = lineup_item.get("team_id") or lineup_item.get("participant_id")
+                type_id = lineup_item.get("type_id")
+                type_name = lineup_item.get("type", {})
+                if isinstance(type_name, dict):
+                    type_name = type_name.get("name", "").lower()
+                else:
+                    type_name = str(type_name).lower()
+                
+                # Determine if starting XI or substitute
+                is_starting = (
+                    type_id == 12 or 
+                    "starting" in type_name or 
+                    "xi" in type_name or
+                    "lineup" in type_name
+                )
+                
+                player_data = {
+                    "id": lineup_item.get("player_id"),
+                    "name": lineup_item.get("player_name") or lineup_item.get("player", {}).get("name", ""),
+                    "position": lineup_item.get("position", {}).get("name", "") if isinstance(lineup_item.get("position"), dict) else "",
+                    "jersey_number": lineup_item.get("jersey_number"),
+                    "image": lineup_item.get("player", {}).get("image_path", "") if isinstance(lineup_item.get("player"), dict) else ""
+                }
+                
+                if team_id == home_team_id:
+                    if is_starting:
+                        transformed_lineups["home"]["startingXI"].append(player_data)
+                    else:
+                        transformed_lineups["home"]["substitutes"].append(player_data)
+                elif team_id == away_team_id:
+                    if is_starting:
+                        transformed_lineups["away"]["startingXI"].append(player_data)
+                    else:
+                        transformed_lineups["away"]["substitutes"].append(player_data)
+        
+        return {
+            "success": True,
+            "data": transformed_lineups
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching lineups for match {match_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/teams/{team_id}/injuries")
+async def get_team_injuries(team_id: int):
+    """
+    Get injuries and suspensions for a specific team.
+    Note: Sportmonks API may not have injuries endpoint, returns empty array if not available.
+    """
+    try:
+        # Try to fetch injuries from Sportmonks API
+        # Note: Sportmonks V3 may not have a direct injuries endpoint
+        # This is a placeholder that can be extended if the API supports it
+        try:
+            response = await sportmonks_service._get(f"teams/{team_id}/injuries")
+            if isinstance(response, dict) and "data" in response:
+                injuries = response["data"]
+            elif isinstance(response, list):
+                injuries = response
+            else:
+                injuries = []
+        except Exception as e:
+            # If injuries endpoint doesn't exist, return empty array
+            logger.debug(f"Injuries endpoint not available for team {team_id}: {e}")
+            injuries = []
+        
+        return {
+            "success": True,
+            "data": injuries if isinstance(injuries, list) else [],
+            "count": len(injuries) if isinstance(injuries, list) else 0
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching injuries for team {team_id}: {e}")
+        # Return empty array instead of error, as injuries may not be available
+        return {
+            "success": True,
+            "data": [],
+            "count": 0
+        }
 
 @api_router.get("/leagues")
 async def get_leagues():

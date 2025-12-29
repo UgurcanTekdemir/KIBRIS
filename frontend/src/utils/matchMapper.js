@@ -57,71 +57,22 @@ function mapSportmonksFixtureToInternal(fixture) {
     }
   }
 
-  // Parse starting_at or commence_time timestamp
-  // Backend sends commence_time already in Turkey timezone (UTC+3)
-  // If commence_time exists, use it directly (already converted by backend)
-  // Otherwise, parse starting_at (may be UTC) and convert to Turkey timezone
-  let date = '';
-  let time = '';
-  
-  if (fixture.commence_time) {
-    // Backend already converted to Turkey timezone, parse and use directly
-    const timeStr = fixture.commence_time;
-    if (timeStr.includes(' ')) {
-      const [datePart, timePart] = timeStr.split(' ');
-      const [year, month, day] = datePart.split('-');
-      const [hour, minute] = timePart.split(':');
-      
-      // Format date as DD.MM.YYYY (already in Turkey timezone)
-      date = `${day}.${month}.${year}`;
-      // Format time as HH:mm (already in Turkey timezone)
-      time = `${hour}:${minute}`;
-    } else {
-      // ISO format - parse as Turkey timezone (backend already converted)
-      const commenceTime = new Date(timeStr);
-      if (!isNaN(commenceTime.getTime())) {
-        // Extract date and time directly (already in Turkey timezone)
-        const year = commenceTime.getFullYear();
-        const month = String(commenceTime.getMonth() + 1).padStart(2, '0');
-        const day = String(commenceTime.getDate()).padStart(2, '0');
-        const hours = String(commenceTime.getHours()).padStart(2, '0');
-        const minutes = String(commenceTime.getMinutes()).padStart(2, '0');
-        
-        date = `${day}.${month}.${year}`;
-        time = `${hours}:${minutes}`;
-      }
-    }
-  } else if (fixture.starting_at) {
-    // Parse starting_at (may be UTC) and convert to Turkey timezone
-    // Format: "2025-11-10 10:30:00" (YYYY-MM-DD HH:mm:ss) or ISO format
-    let startingAt = null;
-    
-    if (fixture.starting_at.includes('T') || fixture.starting_at.includes('Z') || fixture.starting_at.includes('+')) {
-      // ISO format with timezone info - parse as UTC and convert
-      startingAt = new Date(fixture.starting_at);
-    } else {
-      // Simple format - assume UTC and add 'Z' for parsing
-      startingAt = new Date(fixture.starting_at.replace(' ', 'T') + 'Z');
-    }
-    
+  // Parse starting_at timestamp
+  // Format: "2025-11-10 10:30:00" (YYYY-MM-DD HH:mm:ss)
+  let startingAt = null;
+  if (fixture.starting_at) {
+    // Convert to ISO format for Date parsing
+    startingAt = new Date(fixture.starting_at.replace(' ', 'T') + 'Z');
     if (isNaN(startingAt.getTime()) && fixture.starting_at_timestamp) {
       // Fallback to timestamp
       startingAt = new Date(fixture.starting_at_timestamp * 1000);
     }
-    
-    if (startingAt && !isNaN(startingAt.getTime())) {
-      // Convert to Turkey timezone
-      date = startingAt ? formatDateFromISO(startingAt) : '';
-      time = startingAt ? formatTimeFromISO(startingAt, true) : '';
-    }
   } else if (fixture.starting_at_timestamp) {
-    // Fallback: use timestamp
-    const startingAt = new Date(fixture.starting_at_timestamp * 1000);
-    if (!isNaN(startingAt.getTime())) {
-      date = formatDateFromISO(startingAt);
-      time = formatTimeFromISO(startingAt, true);
-    }
+    startingAt = new Date(fixture.starting_at_timestamp * 1000);
   }
+
+  const date = startingAt ? formatDateFromISO(startingAt) : '';
+  const time = startingAt ? formatTimeFromISO(startingAt, false) : ''; // Backend already in Turkey timezone
 
   // Determine match status from state_id
   // state_id: 1,2 = Not Started (NS), 3 = Live (LIVE), 5 = Finished (FT)
@@ -382,6 +333,9 @@ function mapBackendMatchToInternal(backendMatch) {
     // If no market_id, group by market_name
     const oddsByMarket = {};
     backendMatch.odds.forEach(odd => {
+      // Skip stopped odds
+      if (odd && odd.stopped === true) return;
+      
       const marketId = odd.market_id || null;
       const marketName = odd.market_name || odd.market_description || 'Unknown';
       // Use market_id as primary key, fallback to market_name
@@ -433,15 +387,27 @@ function mapBackendMatchToInternal(backendMatch) {
     
     // Convert to markets array
     Object.values(oddsByMarket).forEach(market => {
-      const options = Object.entries(market.options).map(([label, value]) => ({
-        label,
-        value
-      }));
+      const options = Object.entries(market.options).map(([label, value]) => {
+        // Translate label to Turkish for common markets
+        let translatedLabel = label;
+        if (market.marketId === 1 || market.name.toLowerCase().includes('match winner') || market.name.toLowerCase().includes('fulltime result')) {
+          const labelLower = label.toLowerCase();
+          if (labelLower === 'home' || label === '1') translatedLabel = '1';
+          else if (labelLower === 'away' || label === '2') translatedLabel = '2';
+          else if (labelLower === 'draw' || label === 'x' || label === 'X') translatedLabel = 'X';
+        }
+        return {
+          label: translatedLabel,
+          value
+        };
+      });
       
       if (options.length > 0) {
+        // Translate market name to Turkish
+        const translatedMarketName = translateMarketName(market.name);
         markets.push({
           marketId: market.marketId,
-          name: market.name,
+          name: translatedMarketName,
           options: options
         });
       }
@@ -514,7 +480,7 @@ export function mapApiMatchToInternal(apiMatch) {
   // Parse commence_time (ISO 8601 format: "2021-09-10T00:20:00Z")
   const commenceTime = apiMatch.commence_time ? new Date(apiMatch.commence_time) : null;
   const date = commenceTime ? formatDateFromISO(commenceTime) : '';
-  const time = commenceTime ? formatTimeFromISO(commenceTime, true) : ''; // Convert to Turkey timezone for consistency
+  const time = commenceTime ? formatTimeFromISO(commenceTime) : '';
   
   // Extract odds from h2h market outcomes
   const homeOdds = h2hMarket?.home || null;

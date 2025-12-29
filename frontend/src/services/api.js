@@ -145,10 +145,16 @@ async function fetchAPI(endpoint, options = {}) {
  * @deprecated Consider using football service directly instead
  */
 export const matchAPI = {
-  async getLeagueStandings(leagueId, season) {
-    // TODO: Implement league standings endpoint
-    console.warn('matchAPI.getLeagueStandings() is not implemented yet');
-    throw new Error('getLeagueStandings is not implemented');
+  async getLeagueStandings(leagueId, season = null) {
+    // Fetch league standings from backend
+    try {
+      const params = season ? `?season_id=${season}` : '';
+      const response = await fetchAPI(`/leagues/${leagueId}/standings${params}`);
+      return response.data || null;
+    } catch (error) {
+      console.error('Error fetching league standings:', error);
+      return null;
+    }
   },
 
   async getTeamDetails(teamId) {
@@ -164,15 +170,31 @@ export const matchAPI = {
   },
 
   async getMatchLineups(matchId) {
-    // TODO: Implement match lineups endpoint
-    console.warn('matchAPI.getMatchLineups() is not implemented yet');
-    throw new Error('getMatchLineups is not implemented');
+    try {
+      const response = await fetchAPI(`/matches/${matchId}/lineups`);
+      return response.data || null;
+    } catch (error) {
+      // If lineups endpoint returns 404, return null (lineups may not be available)
+      if (error.status === 404) {
+        return null;
+      }
+      console.error('Error fetching match lineups:', error);
+      throw error;
+    }
   },
 
   async getInjuriesSuspensions(teamId, leagueId) {
-    // TODO: Implement injuries/suspensions endpoint
-    console.warn('matchAPI.getInjuriesSuspensions() is not implemented yet');
-    throw new Error('getInjuriesSuspensions is not implemented');
+    try {
+      if (!teamId) {
+        return [];
+      }
+      const response = await fetchAPI(`/teams/${teamId}/injuries`);
+      return response.data || [];
+    } catch (error) {
+      // If injuries endpoint returns error, return empty array (injuries may not be available)
+      console.warn('Error fetching injuries/suspensions:', error);
+      return [];
+    }
   },
 
   async getHeadToHead(team1Id, team2Id) {
@@ -213,6 +235,17 @@ export const matchAPI = {
       return match.events || [];
     } catch (error) {
       console.error('Error fetching match events:', error);
+      return [];
+    }
+  },
+
+  async getLeagues() {
+    // Fetch all leagues from backend
+    try {
+      const response = await fetchAPI('/leagues');
+      return response.data || [];
+    } catch (error) {
+      console.error('Error fetching leagues:', error);
       return [];
     }
   },

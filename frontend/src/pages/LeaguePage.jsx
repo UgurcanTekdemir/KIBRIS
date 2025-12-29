@@ -6,112 +6,89 @@ import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatches } from '../hooks/useMatches';
-import { getLeagues } from '../services/football';
-
-// Helper function to get country flag emoji
-const getCountryFlag = (country) => {
-  if (!country) return '🏆';
-  
-  const countryLower = country.toLowerCase();
-  
-  const flagMap = {
-    'turkey': '🇹🇷', 'türkiye': '🇹🇷',
-    'england': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'ingiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'united kingdom': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'uk': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-    'spain': '🇪🇸', 'ispanya': '🇪🇸',
-    'italy': '🇮🇹', 'italya': '🇮🇹',
-    'germany': '🇩🇪', 'almanya': '🇩🇪',
-    'france': '🇫🇷', 'fransa': '🇫🇷',
-    'netherlands': '🇳🇱', 'hollanda': '🇳🇱',
-    'portugal': '🇵🇹', 'portekiz': '🇵🇹',
-    'belgium': '🇧🇪', 'belçika': '🇧🇪',
-    'austria': '🇦🇹', 'avusturya': '🇦🇹',
-    'denmark': '🇩🇰', 'danimarka': '🇩🇰',
-    'croatia': '🇭🇷', 'hrvatska': '🇭🇷',
-    'czech republic': '🇨🇿', 'çek cumhuriyeti': '🇨🇿', 'czechia': '🇨🇿',
-    'bulgaria': '🇧🇬', 'bulgaristan': '🇧🇬',
-    'brazil': '🇧🇷', 'brezilya': '🇧🇷',
-    'argentina': '🇦🇷', 'arjantin': '🇦🇷',
-    'international': '🌍', 'uefa': '🇪🇺', 'world': '🌍',
-  };
-
-  for (const [key, flag] of Object.entries(flagMap)) {
-    if (countryLower.includes(key)) {
-      return flag;
-    }
-  }
-
-  return '🏆';
-};
+import { matchAPI } from '../services/api';
 
 const LeaguePage = () => {
   const { id } = useParams();
   const leagueId = parseInt(id, 10);
   const [leagueInfo, setLeagueInfo] = useState(null);
-  const [leagueLoading, setLeagueLoading] = useState(true);
+  const [loadingLeague, setLoadingLeague] = useState(true);
   const today = new Date().toISOString().split('T')[0];
   // Calculate 7 days (1 week) from today
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // Fetch league info from API
+  // Fetch league info from backend
   useEffect(() => {
-    const fetchLeagueInfo = async () => {
+    async function fetchLeagueInfo() {
       try {
-        setLeagueLoading(true);
-        const response = await getLeagues();
+        setLoadingLeague(true);
+        const leaguesData = await matchAPI.getLeagues();
         
-        // Handle response format
-        let leaguesData = [];
-        if (response && typeof response === 'object') {
-          if (response.data && Array.isArray(response.data)) {
-            leaguesData = response.data;
-          } else if (response.success && response.data && Array.isArray(response.data)) {
-            leaguesData = response.data;
-          } else if (Array.isArray(response)) {
-            leaguesData = response;
-          }
-        }
-        
-        // Find the league by ID
-        const league = leaguesData.find(l => l.id === leagueId);
+        // Find league by ID
+        const league = leaguesData.find(l => {
+          const id = l.id || l.league_id || l.main_id;
+          return id === leagueId;
+        });
         
         if (league) {
-          // Extract country name
-          let countryName = '';
-          if (league.country) {
-            if (typeof league.country === 'string') {
-              countryName = league.country;
-            } else if (league.country.name) {
-              countryName = league.country.name;
-            } else if (league.country.data && league.country.data.name) {
-              countryName = league.country.data.name;
-            }
-          }
+          // Handle nested country structure
+          const countryName = league.country?.name || 
+                             (typeof league.country === 'string' ? league.country : '') ||
+                             league.country_name || '';
+          
+          // Handle image_path - check multiple possible fields
+          const imagePath = league.image_path || 
+                           league.logo || 
+                           league.image || 
+                           league.logo_path ||
+                           null;
           
           setLeagueInfo({
-            id: league.id,
-            name: league.name || 'Bilinmeyen Lig',
+            id: league.id || league.league_id || league.main_id,
+            name: league.name || league.league_name || 'Bilinmeyen Lig',
             country: countryName,
             flag: getCountryFlag(countryName),
-            image_path: league.image_path || null,
+            image_path: imagePath,
+            season: league.current_season?.name || league.season || '',
+            active: league.active !== undefined ? league.active : true,
           });
+        } else {
+          setLeagueInfo(null);
         }
-      } catch (err) {
-        console.error('Error fetching league info:', err);
+      } catch (error) {
+        console.error('Error fetching league info:', error);
+        setLeagueInfo(null);
       } finally {
-        setLeagueLoading(false);
+        setLoadingLeague(false);
       }
-    };
-
+    }
+    
     if (leagueId) {
       fetchLeagueInfo();
     }
   }, [leagueId]);
 
-  // Fetch matches filtered by league_id
-  const { matches: allMatches, loading, error, refetch } = useMatches({ 
-    league_id: leagueId,
-    matchType: 1 
-  });
+  // Helper function to get country flag emoji
+  function getCountryFlag(country) {
+    const flagMap = {
+      'Türkiye': '🇹🇷',
+      'Turkey': '🇹🇷',
+      'İngiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'İspanya': '🇪🇸',
+      'Spain': '🇪🇸',
+      'İtalya': '🇮🇹',
+      'Italy': '🇮🇹',
+      'Almanya': '🇩🇪',
+      'Germany': '🇩🇪',
+      'Fransa': '🇫🇷',
+      'France': '🇫🇷',
+    };
+    return flagMap[country] || '🏆';
+  }
+
+  // Fetch all matches and filter by league
+  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
 
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
@@ -130,41 +107,109 @@ const LeaguePage = () => {
     });
   }, [allMatches, loading]);
   
-  // Show loading until matches with odds are loaded
-  const isLoading = loading || !hasMatchesWithOdds;
+  // Show loading until league info is loaded, but don't wait for odds
+  // (matches can be shown even without odds)
+  const isLoading = loadingLeague || loading;
 
   // Filter matches by league_id and date (only show upcoming matches within 7 days, exclude finished)
   const leagueMatches = useMemo(() => {
-    if (!allMatches || !Array.isArray(allMatches)) return [];
+    if (!leagueInfo || !allMatches) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('LeaguePage: No leagueInfo or allMatches', {
+          hasLeagueInfo: !!leagueInfo,
+          hasAllMatches: !!allMatches,
+          allMatchesCount: allMatches?.length || 0
+        });
+      }
+      return [];
+    }
     
-    return allMatches
+    // Normalize date format for comparison (DD.MM.YYYY to YYYY-MM-DD)
+    const normalizeDate = (dateStr) => {
+      if (!dateStr) return '';
+      // If already in YYYY-MM-DD format, return as is
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+        return dateStr;
+      }
+      // If in DD.MM.YYYY format, convert to YYYY-MM-DD
+      if (dateStr.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+        const [day, month, year] = dateStr.split('.');
+        return `${year}-${month}-${day}`;
+      }
+      return dateStr;
+    };
+    
+    const filtered = allMatches
       .filter(match => {
-        // Match by league_id (from backend filtering)
-        const matchLeagueId = match.leagueId || match.league_id;
-        if (matchLeagueId !== leagueId) return false;
+        // Match by league_id first (most accurate) - handle both string and number
+        const matchLeagueId = match.leagueId;
+        const leagueIdNum = parseInt(leagueInfo.id, 10);
+        const matchesLeagueId = matchLeagueId === leagueInfo.id || 
+                                matchLeagueId === leagueIdNum ||
+                                String(matchLeagueId) === String(leagueInfo.id);
+        
+        // Match by league name (case-insensitive) as fallback
+        const matchLeague = (match.league || '').toLowerCase();
+        const leagueNameLower = (leagueInfo.name || '').toLowerCase();
+        const matchesLeagueName = leagueNameLower && (
+          matchLeague === leagueNameLower || 
+          matchLeague.includes(leagueNameLower) ||
+          leagueNameLower.includes(matchLeague)
+        );
+        
+        if (!matchesLeagueId && !matchesLeagueName) {
+          return false;
+        }
         
         // Exclude finished matches
         const status = (match.status || '').toUpperCase();
-        const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+        const isFinished = match.isFinished || 
+                          status === 'FT' || 
+                          status === 'FINISHED' || 
+                          status === 'CANCELED' || 
+                          status === 'CANCELLED';
         if (isFinished) return false;
         
         // Exclude postponed matches
-        if (status === 'POSTPONED') return false;
+        if (match.isPostponed || status === 'POSTPONED') return false;
         
         // Only show matches within 7 days (1 week) from today
-        const matchDate = match.date || '';
-        const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+        // Normalize date format for comparison
+        const matchDate = normalizeDate(match.date || '');
+        const isWithin7Days = matchDate && matchDate >= today && matchDate <= sevenDaysLater;
         
         return isWithin7Days;
       })
       .sort((a, b) => {
         // Sort by date, then by time
-        if (a.date !== b.date) {
-          return a.date.localeCompare(b.date);
+        const dateA = normalizeDate(a.date || '');
+        const dateB = normalizeDate(b.date || '');
+        if (dateA !== dateB) {
+          return dateA.localeCompare(dateB);
         }
         return (a.time || '').localeCompare(b.time || '');
       });
-  }, [allMatches, leagueId, today, sevenDaysLater]);
+    
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('LeaguePage: Filtering matches', {
+        leagueInfo: {
+          id: leagueInfo.id,
+          name: leagueInfo.name
+        },
+        allMatchesCount: allMatches.length,
+        filteredCount: filtered.length,
+        sampleMatch: allMatches[0] ? {
+          leagueId: allMatches[0].leagueId,
+          league: allMatches[0].league,
+          date: allMatches[0].date,
+          status: allMatches[0].status
+        } : null
+      });
+    }
+    
+    return filtered;
+  }, [allMatches, leagueInfo, today, sevenDaysLater]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (
@@ -184,41 +229,21 @@ const LeaguePage = () => {
     </div>
   );
 
-  // Show loading state while fetching league info
-  if (leagueLoading || (!leagueInfo && !error)) {
+  if (loadingLeague) {
     return (
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
-          <Skeleton className="w-10 h-10 bg-[#1a2332]" />
+          <Skeleton className="h-12 w-12 rounded-xl bg-[#1a2332]" />
           <div>
             <Skeleton className="h-8 w-48 mb-2 bg-[#1a2332]" />
             <Skeleton className="h-4 w-32 bg-[#1a2332]" />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden">
-              <div className="px-4 py-3 bg-[#0a0e14] border-b border-[#1e2736]">
-                <Skeleton className="h-4 w-32 bg-[#1a2332]" />
-              </div>
-              <div className="p-4 space-y-3">
-                <Skeleton className="h-6 w-full bg-[#1a2332]" />
-                <Skeleton className="h-6 w-full bg-[#1a2332]" />
-                <div className="flex gap-2">
-                  <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
-                  <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
-                  <Skeleton className="h-12 flex-1 bg-[#1a2332]" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     );
   }
 
-  // Show error if league not found
-  if (!leagueInfo && !leagueLoading) {
+  if (!leagueInfo) {
     return (
       <div className="max-w-6xl mx-auto">
         <Alert variant="destructive" className="mb-6 bg-red-500/10 border-red-500/30">
@@ -227,10 +252,10 @@ const LeaguePage = () => {
             Lig bulunamadı. Geçerli bir lig ID'si girin.
           </AlertDescription>
         </Alert>
-        <Link to="/leagues">
+        <Link to="/">
           <Button variant="outline" className="border-[#2a3a4d] text-gray-400 hover:text-white">
             <ArrowLeft size={16} className="mr-2" />
-            Liglere Dön
+            Ana Sayfaya Dön
           </Button>
         </Link>
       </div>
@@ -240,44 +265,59 @@ const LeaguePage = () => {
   return (
     <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Link to="/leagues">
-          <Button 
-            variant="outline" 
-            className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
-          >
-            <ArrowLeft size={16} />
-          </Button>
-        </Link>
-        <div className="flex items-center gap-3">
-          {leagueInfo.image_path ? (
-            <div className="w-12 h-12 rounded-xl bg-[#1a2332] flex items-center justify-center overflow-hidden">
-              <img 
-                src={leagueInfo.image_path} 
-                alt={leagueInfo.name}
-                className="w-full h-full object-contain p-1"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.parentElement.innerHTML = `<div class="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center"><svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg></div>`;
-                }}
-              />
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Link to="/leagues">
+            <Button 
+              variant="outline" 
+              className="border-[#2a3a4d] text-gray-400 hover:text-white hover:bg-[#1a2332]"
+            >
+              <ArrowLeft size={16} />
+            </Button>
+          </Link>
+          <div className="flex items-center gap-3">
+            {/* League Logo or Flag */}
+            {leagueInfo.image_path ? (
+              <div className="w-12 h-12 rounded-xl bg-[#1a2332] flex items-center justify-center flex-shrink-0 overflow-hidden border border-[#1e2736]">
+                <img 
+                  src={leagueInfo.image_path} 
+                  alt={leagueInfo.name}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling?.classList.remove('hidden');
+                  }}
+                />
+                <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center hidden">
+                  <Trophy size={24} className="text-amber-500" />
+                </div>
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                <Trophy size={24} className="text-amber-500" />
+              </div>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">{leagueInfo.flag}</span>
+                {leagueInfo.name}
+              </h1>
+              <p className="text-sm text-gray-400">
+                {leagueInfo.country && `${leagueInfo.country} • `}
+                {isLoading ? 'Oranlar yükleniyor...' : `${leagueMatches.length} maç bulundu`}
+              </p>
             </div>
-          ) : (
-            <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-              <Trophy size={24} className="text-amber-500" />
-            </div>
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <span className="text-2xl">{leagueInfo.flag}</span>
-              {leagueInfo.name}
-            </h1>
-            <p className="text-sm text-gray-400">
-              {isLoading ? 'Oranlar yükleniyor...' : `${leagueMatches.length} maç bulundu`}
-              {leagueInfo.country && ` • ${leagueInfo.country}`}
-            </p>
           </div>
         </div>
+        <Link to={`/league-standings/${leagueId}`}>
+          <Button 
+            variant="outline" 
+            className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:border-amber-500"
+          >
+            <Calendar size={16} className="mr-2" />
+            Puan Durumu
+          </Button>
+        </Link>
       </div>
 
       {/* Error Alert */}
@@ -299,20 +339,16 @@ const LeaguePage = () => {
 
       {/* Matches Grid */}
       {isLoading ? (
-        <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+        <div className="grid gap-4 md:grid-cols-2">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-              <MatchCardSkeleton />
-            </div>
+            <MatchCardSkeleton key={i} />
           ))}
         </div>
       ) : (
         <>
-          <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+          <div className="grid gap-4 md:grid-cols-2">
             {leagueMatches.map((match, idx) => (
-              <div key={match.id || `league-${idx}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-                <MatchCard match={match} />
-              </div>
+              <MatchCard key={match.id || `league-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} />
             ))}
           </div>
 

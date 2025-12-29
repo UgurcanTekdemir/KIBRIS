@@ -9,16 +9,31 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatches } from '../hooks/useMatches';
 
+// Helper function to normalize date format for comparison
+const normalizeDateForComparison = (dateStr) => {
+  if (!dateStr) return '';
+  // If already in YYYY-MM-DD format, return as is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  // If in DD.MM.YYYY format, convert to YYYY-MM-DD
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
+    const [day, month, year] = dateStr.split('.');
+    return `${year}-${month}-${day}`;
+  }
+  return dateStr;
+};
+
 const MatchesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlSearchQuery = searchParams.get('search') || '';
   const [searchTerm, setSearchTerm] = useState(urlSearchQuery);
   const [activeTab, setActiveTab] = useState('upcoming');
   const today = new Date().toISOString().split('T')[0];
-  // Calculate 7 days (1 week) from today for upcoming matches
-  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  // Calculate 7 days ago for past matches (lazy loaded only when past tab is active)
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Calculate 12 days from today for upcoming matches
+  const twelveDaysLater = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Calculate 10 days ago for past matches (lazy loaded only when past tab is active)
+  const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Sync URL search param with local state
   useEffect(() => {
@@ -31,14 +46,14 @@ const MatchesPage = () => {
   const { matches: upcomingMatchesData, loading: upcomingLoading, error: upcomingError, refetch: refetchUpcoming } = useMatches({ 
     matchType: 1,
     date_from: today,
-    date_to: sevenDaysLater
+    date_to: twelveDaysLater
   });
 
   // Lazy loading: Only fetch past matches when past tab is active
   const shouldFetchPast = activeTab === 'past';
   const { matches: pastMatchesData, loading: pastLoading, error: pastError, refetch: refetchPast } = useMatches({ 
     matchType: 1,
-    date_from: sevenDaysAgo,
+    date_from: tenDaysAgo,
     date_to: today
   }, {
     enabled: shouldFetchPast // Only fetch when past tab is active
@@ -67,7 +82,23 @@ const MatchesPage = () => {
                          status === 'AET' ||
                          status === 'FT_PEN' ||
                          status === 'AWARDED';
-      const isPastDate = m.date && m.date < today;
+      // Normalize dates for comparison
+      const normalizedMatchDate = normalizeDateForComparison(m.date || '');
+      const isPastDate = normalizedMatchDate && normalizedMatchDate < today;
+      
+      // Exclude matches without odds
+      if (!m.markets || !Array.isArray(m.markets) || m.markets.length === 0) {
+        return false;
+      }
+      const hasValidOdds = m.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+      if (!hasValidOdds) return false;
+      
       return !isPostponed && !isFinished && !(isPastDate && !m.isLive);
     }).length;
   }, [upcomingMatchesData]);
@@ -88,7 +119,23 @@ const MatchesPage = () => {
                          status === 'AET' ||
                          status === 'FT_PEN' ||
                          status === 'AWARDED';
-      const isPastDate = m.date && m.date < today;
+      // Normalize dates for comparison
+      const normalizedMatchDate = normalizeDateForComparison(m.date || '');
+      const isPastDate = normalizedMatchDate && normalizedMatchDate < today;
+      
+      // Exclude matches without odds
+      if (!m.markets || !Array.isArray(m.markets) || m.markets.length === 0) {
+        return false;
+      }
+      const hasValidOdds = m.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+      if (!hasValidOdds) return false;
+      
       return !isPostponed && (isFinished || (isPastDate && !m.isLive));
     }).length;
   }, [shouldFetchPast, pastMatchesData]);
@@ -120,12 +167,31 @@ const MatchesPage = () => {
   const filteredMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];
     
-    return allMatches.filter(
-      (match) =>
+    return allMatches.filter((match) => {
+      // Filter by search term
+      const matchesSearch = 
         match.homeTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         match.awayTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        match.league?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+        match.league?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      if (!matchesSearch) return false;
+      
+      // Filter out matches without odds
+      if (!match.markets || !Array.isArray(match.markets) || match.markets.length === 0) {
+        return false;
+      }
+      
+      // Check if at least one market has valid odds
+      const hasValidOdds = match.markets.some(market => {
+        if (!market.options || !Array.isArray(market.options)) return false;
+        return market.options.some(opt => {
+          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          return oddsValue > 0;
+        });
+      });
+      
+      return hasValidOdds;
+    });
   }, [allMatches, searchTerm]);
 
   // Separate matches based on active tab
@@ -149,7 +215,10 @@ const MatchesPage = () => {
                          status === 'AET' ||
                          status === 'FT_PEN' ||
                          status === 'AWARDED';
-      const isPastDate = match.date && match.date < today;
+      // Normalize dates for comparison
+      const normalizedMatchDate = normalizeDateForComparison(match.date || '');
+      const normalizedToday = normalizeDateForComparison(today);
+      const isPastDate = normalizedMatchDate && normalizedMatchDate < normalizedToday;
       
       if (isPostponed) {
         // Postponed matches go to separate list
@@ -163,19 +232,59 @@ const MatchesPage = () => {
       }
     }
     
-    // Sort upcoming by date/time (ascending)
+    // Sort upcoming by date/time (ascending - nearest first)
+    // Handle both DD.MM.YYYY and YYYY-MM-DD date formats
     upcoming.sort((a, b) => {
-      if (a.date !== b.date) {
-        return a.date.localeCompare(b.date);
+      // Normalize dates to YYYY-MM-DD for comparison
+      const normalizeDate = (dateStr) => {
+        if (!dateStr) return '';
+        // If already in YYYY-MM-DD format, return as is
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return dateStr;
+        }
+        // If in DD.MM.YYYY format, convert to YYYY-MM-DD
+        if (/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('.');
+          return `${year}-${month}-${day}`;
+        }
+        return dateStr;
+      };
+      
+      const dateA = normalizeDate(a.date || '');
+      const dateB = normalizeDate(b.date || '');
+      
+      if (dateA !== dateB) {
+        return dateA.localeCompare(dateB);
       }
+      // If same date, sort by time (earlier time first)
       return (a.time || '').localeCompare(b.time || '');
     });
     
     // Sort past by date/time (descending - most recent first)
+    // Handle both DD.MM.YYYY and YYYY-MM-DD date formats
     past.sort((a, b) => {
-      if (a.date !== b.date) {
-        return b.date.localeCompare(a.date);
+      // Normalize dates to YYYY-MM-DD for comparison
+      const normalizeDate = (dateStr) => {
+        if (!dateStr) return '';
+        // If already in YYYY-MM-DD format, return as is
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return dateStr;
+        }
+        // If in DD.MM.YYYY format, convert to YYYY-MM-DD
+        if (/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('.');
+          return `${year}-${month}-${day}`;
+        }
+        return dateStr;
+      };
+      
+      const dateA = normalizeDate(a.date || '');
+      const dateB = normalizeDate(b.date || '');
+      
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA); // Descending for past matches
       }
+      // If same date, sort by time (later time first for past matches)
       return (b.time || '').localeCompare(a.time || '');
     });
     
@@ -222,7 +331,10 @@ const MatchesPage = () => {
           <div>
             <h1 className="text-2xl font-bold text-white">Tüm Maçlar</h1>
             <p className="text-sm text-gray-400">
-              {isLoading ? 'Oranlar yükleniyor...' : `${filteredMatches.length} maç listeleniyor`}
+              {isLoading ? 'Oranlar yükleniyor...' : (() => {
+                const count = activeTab === 'past' ? pastMatches.length : upcomingMatches.length;
+                return `${count} maç listeleniyor`;
+              })()}
             </p>
           </div>
         </div>
@@ -315,20 +427,19 @@ const MatchesPage = () => {
 
         <TabsContent value="upcoming" className="mt-0">
           {isLoading ? (
-            <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+            <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-                  <MatchCardSkeleton />
-                </div>
+                <MatchCardSkeleton key={i} />
               ))}
             </div>
           ) : (
             <>
-              <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+              <div className="grid gap-4 md:grid-cols-2">
                 {upcomingMatches.map((match) => (
-                  <div key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-                    <MatchCard match={match} />
-                  </div>
+                  <MatchCard
+                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
+                    match={match}
+                  />
                 ))}
               </div>
               {upcomingMatches.length === 0 && !isLoading && (
@@ -342,20 +453,19 @@ const MatchesPage = () => {
 
         <TabsContent value="past" className="mt-0">
           {isLoading ? (
-            <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+            <div className="grid gap-4 md:grid-cols-2">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-                  <MatchCardSkeleton />
-                </div>
+                <MatchCardSkeleton key={i} />
               ))}
             </div>
           ) : (
             <>
-              <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
+              <div className="grid gap-4 md:grid-cols-2">
                 {pastMatches.map((match) => (
-                  <div key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
-                    <MatchCard match={match} />
-                  </div>
+                  <MatchCard
+                    key={`${match.id}-${match.date}-${match.homeTeam}-${match.awayTeam}`}
+                    match={match}
+                  />
                 ))}
               </div>
               {pastMatches.length === 0 && !isLoading && (

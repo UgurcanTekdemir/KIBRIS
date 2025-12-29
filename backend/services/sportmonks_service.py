@@ -554,6 +554,87 @@ class SportmonksService:
             logger.error(f"Error fetching leagues: {e}")
             return []
 
+    def _transform_standings_data(self, table_data: List[Dict[str, Any]], season_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Transform standings data from API format to frontend format.
+        
+        Args:
+            table_data: List of standing entries from API
+            season_id: Optional season ID
+            
+        Returns:
+            Transformed standings data
+        """
+        transformed_table = []
+        for entry in table_data:
+            if isinstance(entry, dict):
+                # Extract participant/team info
+                participant = entry.get("participant") or entry.get("team") or {}
+                if isinstance(participant, dict):
+                    team_name = participant.get("name") or participant.get("full_name") or ""
+                    team_id = participant.get("id")
+                    team_logo = participant.get("image_path") or participant.get("logo") or ""
+                elif isinstance(participant, str):
+                    team_name = participant
+                    team_id = entry.get("participant_id")
+                    team_logo = ""
+                else:
+                    team_name = entry.get("team_name") or entry.get("name") or ""
+                    team_id = entry.get("participant_id") or entry.get("team_id")
+                    team_logo = ""
+                
+                # Extract details if available
+                details = entry.get("details", [])
+                details_dict = {}
+                if isinstance(details, list):
+                    for detail in details:
+                        if isinstance(detail, dict):
+                            type_id = detail.get("type_id")
+                            value = detail.get("value", 0)
+                            details_dict[type_id] = value
+                
+                # Map type_id to field names based on Sportmonks API
+                # Type IDs: 129=played, 130=won, 131=drawn, 132=lost, 133=goals_for, 134=goals_against, 187=points
+                played = details_dict.get(129) or entry.get("played") or entry.get("matches_played") or entry.get("games_played") or 0
+                won = details_dict.get(130) or entry.get("won") or entry.get("wins") or 0
+                drawn = details_dict.get(131) or entry.get("drawn") or entry.get("draws") or entry.get("ties") or 0
+                lost = details_dict.get(132) or entry.get("lost") or entry.get("losses") or 0
+                goals_for = details_dict.get(133) or entry.get("goals_for") or entry.get("goals_scored") or entry.get("gf") or 0
+                goals_against = details_dict.get(134) or entry.get("goals_against") or entry.get("goals_conceded") or entry.get("ga") or 0
+                points = details_dict.get(187) or entry.get("points") or entry.get("pts") or 0
+                
+                # Calculate averages
+                avg_points = round(points / played, 2) if played > 0 else 0
+                avg_goals_for = round(goals_for / played, 2) if played > 0 else 0
+                avg_goals_against = round(goals_against / played, 2) if played > 0 else 0
+                
+                transformed_entry = {
+                    "position": entry.get("position") or entry.get("rank") or entry.get("standing") or 0,
+                    "team_name": team_name,
+                    "team_id": team_id,
+                    "team_logo": team_logo,
+                    "played": played,
+                    "won": won,
+                    "drawn": drawn,
+                    "lost": lost,
+                    "goals_for": goals_for,
+                    "goals_against": goals_against,
+                    "goal_difference": entry.get("goal_difference") or entry.get("gd") or entry.get("diff") or (goals_for - goals_against),
+                    "points": points,
+                    "avg_points": avg_points,
+                    "avg_goals_for": avg_goals_for,
+                    "avg_goals_against": avg_goals_against,
+                }
+                transformed_table.append(transformed_entry)
+        
+        # Sort by position
+        transformed_table.sort(key=lambda x: x.get("position", 999))
+        
+        return {
+            "table": transformed_table,
+            "season_id": season_id or (table_data[0].get("season_id") if table_data else None),
+        }
+    
     async def get_standings_by_season(
         self,
         season_id: int,
@@ -561,6 +642,7 @@ class SportmonksService:
     ) -> Dict[str, Any]:
         """
         Get league standings by season ID from Sportmonks V3.
+        Uses the general standings endpoint and filters by season_id.
         
         Args:
             season_id: Season ID
@@ -573,69 +655,62 @@ class SportmonksService:
             params = {}
             if include:
                 params["include"] = include
+            else:
+                params["include"] = "participant;details"
             
-            response = await self._get(f"standings/seasons/{season_id}", params=params)
+            # Try the general standings endpoint first
+            response = await self._get("standings", params=params)
+            
+            # Filter by season_id if response is successful
+            if isinstance(response, dict) and "data" in response:
+                standings_list = response["data"]
+                if isinstance(standings_list, list):
+                    # Filter by season_id
+                    filtered_standings = [s for s in standings_list if s.get("season_id") == season_id]
+                    response = {"data": filtered_standings}
+            
+            # If general endpoint doesn't work or returns empty, try the season-specific endpoint
+            if not response or (isinstance(response, dict) and "data" in response and len(response.get("data", [])) == 0):
+                response = await self._get(f"standings/seasons/{season_id}", params=params)
+            
+            # Check if response contains error message
+            if isinstance(response, dict) and "message" in response:
+                error_message = response.get("message", "")
+                # If it's an access/subscription error, log and return empty
+                if "access" in error_message.lower() or "subscription" in error_message.lower() or "not found" in error_message.lower():
+                    logger.warning(f"Standings not available for season {season_id}: {error_message}")
+                    return {}
+            
+            # Check if response contains error message
+            if isinstance(response, dict) and "message" in response:
+                error_message = response.get("message", "")
+                # If it's an access/subscription error, log and return empty
+                if "access" in error_message.lower() or "subscription" in error_message.lower() or "not found" in error_message.lower():
+                    logger.warning(f"Standings not available for season {season_id}: {error_message}")
+                    return {}
             
             # Extract standings from response
-            standings_data = {}
+            # The general standings endpoint returns data as a list directly
+            table_data = []
             if isinstance(response, dict):
                 if "data" in response:
-                    standings_data = response["data"]
-                else:
-                    standings_data = response
+                    # Data is a list of standings
+                    table_data = response["data"]
+                    if not isinstance(table_data, list):
+                        table_data = []
+                elif "message" not in response:  # Only use response if it's not an error message
+                    # Try to extract from other possible structures
+                    if "standings" in response:
+                        table_data = response["standings"] if isinstance(response["standings"], list) else []
+                    elif isinstance(response.get("table"), list):
+                        table_data = response["table"]
+                    elif isinstance(response.get("results"), list):
+                        table_data = response["results"]
             elif isinstance(response, list):
-                standings_data = response[0] if response else {}
+                table_data = response
             
-            # Transform standings to match frontend format
-            if not standings_data:
-                return {}
-            
-            # Extract table data
-            table_data = []
-            if isinstance(standings_data, dict):
-                # Check for different possible structures
-                if "standings" in standings_data:
-                    table_data = standings_data["standings"]
-                elif "data" in standings_data and isinstance(standings_data["data"], list):
-                    table_data = standings_data["data"]
-                elif isinstance(standings_data.get("table"), list):
-                    table_data = standings_data["table"]
-                elif isinstance(standings_data.get("results"), list):
-                    table_data = standings_data["results"]
-            
-            # Transform table entries
-            transformed_table = []
-            for entry in table_data:
-                if isinstance(entry, dict):
-                    # Extract participant/team info
-                    participant = entry.get("participant") or entry.get("team") or {}
-                    if isinstance(participant, dict):
-                        team_name = participant.get("name") or participant.get("full_name") or ""
-                    elif isinstance(participant, str):
-                        team_name = participant
-                    else:
-                        team_name = entry.get("team_name") or entry.get("name") or ""
-                    
-                    transformed_entry = {
-                        "position": entry.get("position") or entry.get("rank") or entry.get("standing") or 0,
-                        "team_name": team_name,
-                        "team_id": participant.get("id") if isinstance(participant, dict) else entry.get("team_id"),
-                        "played": entry.get("played") or entry.get("matches_played") or entry.get("games_played") or 0,
-                        "won": entry.get("won") or entry.get("wins") or 0,
-                        "drawn": entry.get("drawn") or entry.get("draws") or entry.get("ties") or 0,
-                        "lost": entry.get("lost") or entry.get("losses") or 0,
-                        "goals_for": entry.get("goals_for") or entry.get("goals_scored") or entry.get("gf") or 0,
-                        "goals_against": entry.get("goals_against") or entry.get("goals_conceded") or entry.get("ga") or 0,
-                        "goal_difference": entry.get("goal_difference") or entry.get("gd") or entry.get("diff") or 0,
-                        "points": entry.get("points") or entry.get("pts") or 0,
-                    }
-                    transformed_table.append(transformed_entry)
-            
-            return {
-                "table": transformed_table,
-                "season_id": season_id,
-                "raw_data": standings_data  # Keep raw data for reference
-            }
+            # Transform table entries using helper function
+            return self._transform_standings_data(table_data, season_id)
         except Exception as e:
             logger.error(f"Error fetching standings for season {season_id}: {e}")
             return {}
@@ -647,17 +722,49 @@ class SportmonksService:
     ) -> Dict[str, Any]:
         """
         Get league standings by league ID.
-        If season_id is not provided, uses current season from league.
+        Uses the general standings endpoint and filters by league_id.
+        If season_id is not provided, uses the first available season from standings.
         
         Args:
             league_id: League ID
-            season_id: Optional season ID (if not provided, fetches current season)
+            season_id: Optional season ID (if not provided, uses first available from standings)
             
         Returns:
             Standings data
         """
         try:
-            # If season_id not provided, get league info to find current season
+            # Try to get standings from general endpoint first
+            params = {"include": "participant;details"}
+            response = await self._get("standings", params=params)
+            
+            if isinstance(response, dict) and "data" in response:
+                standings_list = response["data"]
+                if isinstance(standings_list, list):
+                    # Filter by league_id
+                    league_standings = [s for s in standings_list if s.get("league_id") == league_id]
+                    
+                    if league_standings:
+                        # If season_id not provided, use the most common season_id from filtered standings
+                        if not season_id:
+                            # Count season_id occurrences
+                            season_counts = {}
+                            for s in league_standings:
+                                sid = s.get("season_id")
+                                if sid:
+                                    season_counts[sid] = season_counts.get(sid, 0) + 1
+                            
+                            # Use the season_id with most standings (likely current season)
+                            if season_counts:
+                                season_id = max(season_counts.items(), key=lambda x: x[1])[0]
+                        
+                        # Filter by season_id if provided
+                        if season_id:
+                            league_standings = [s for s in league_standings if s.get("season_id") == season_id]
+                        
+                        # Transform standings to match frontend format
+                        return self._transform_standings_data(league_standings, season_id)
+            
+            # Fallback: try to get season_id and use season-specific endpoint
             if not season_id:
                 include = "currentSeason"
                 leagues = await self.get_leagues(include=include)
@@ -670,12 +777,11 @@ class SportmonksService:
                     elif isinstance(current_season, list) and len(current_season) > 0:
                         season_id = current_season[0].get("id")
             
-            if not season_id:
-                logger.warning(f"No season ID found for league {league_id}")
-                return {}
+            if season_id:
+                return await self.get_standings_by_season(season_id)
             
-            # Get standings by season
-            return await self.get_standings_by_season(season_id)
+            logger.warning(f"No standings found for league {league_id}")
+            return {}
         except Exception as e:
             logger.error(f"Error fetching standings for league {league_id}: {e}")
             return {}

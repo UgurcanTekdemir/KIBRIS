@@ -4,13 +4,19 @@
  * and determines if betting should be locked
  */
 
+// Store previous events count and last check time to detect new goals
+let previousGoalCounts = new Map(); // Map<matchId, goalCount>
+let lastCheckTime = new Map(); // Map<matchId, timestamp>
+
 /**
  * Check if there was a goal in the last N seconds
  * @param {Array} events - Match events array
  * @param {number} secondsThreshold - Time threshold in seconds (default: 30)
+ * @param {number|string} currentMinute - Current match minute
+ * @param {string|number} matchId - Match ID for tracking
  * @returns {boolean} True if goal occurred recently
  */
-export function hasRecentGoal(events, secondsThreshold = 30) {
+export function hasRecentGoal(events, secondsThreshold = 30, currentMinute = null, matchId = null) {
   if (!events || !Array.isArray(events) || events.length === 0) {
     return false;
   }
@@ -18,44 +24,100 @@ export function hasRecentGoal(events, secondsThreshold = 30) {
   const now = Date.now();
   const thresholdMs = secondsThreshold * 1000;
 
-  // Find most recent goal
-  const recentGoal = events
+  // Find all goals
+  const goals = events
     .filter(event => {
-      // Handle nested event type structure (Sportmonks API returns type as object)
-      const typeName = (
-        event.type?.name ||           // Primary: type.name from nested object
-        event.type?.type ||           // Alternative: type.type
-        (typeof event.type === 'string' ? event.type : '') ||  // If type is string directly
+      // Event type can be nested: event.type.name or direct: event.type
+      const type = (
+        event.type?.name || 
+        event.type?.type ||
+        (typeof event.type === 'string' ? event.type : '') ||
         event.event_type?.name ||
         event.event_type?.type ||
         (typeof event.event_type === 'string' ? event.event_type : '') ||
-        event.name ||
         ''
       ).toLowerCase();
-      return typeName.includes('goal') || typeName.includes('gol');
+      return type.includes('goal') || type.includes('gol');
     })
     .sort((a, b) => {
       // Sort by minute/time descending
       const aMin = parseInt(a.minute || a.time || a.elapsed || 0);
       const bMin = parseInt(b.minute || b.time || b.elapsed || 0);
       return bMin - aMin;
-    })[0];
+    });
 
-  if (!recentGoal) return false;
-
-  // Check if goal happened recently
-  // If we have timestamp, use it; otherwise estimate from minute
-  if (recentGoal.timestamp) {
-    const goalTime = new Date(recentGoal.timestamp).getTime();
-    return (now - goalTime) < thresholdMs;
+  if (goals.length === 0) {
+    // No goals, clear tracking
+    if (matchId) {
+      previousGoalCounts.set(matchId, 0);
+    }
+    return false;
   }
 
-  // Estimate: assume events are recent if they're in the last few minutes
-  // This is a fallback - ideally API should provide timestamps
-  const goalMinute = parseInt(recentGoal.minute || recentGoal.time || recentGoal.elapsed || 0);
-  // If goal minute is very recent (last 1-2 minutes), consider it dangerous
-  // This is approximate - we'll rely more on statistics for dangerous attacks
-  return goalMinute > 0; // If we have a goal event, it's potentially dangerous
+  const recentGoal = goals[0];
+
+  // Check if goal happened recently using timestamp (most accurate)
+  if (recentGoal.timestamp) {
+    const goalTime = new Date(recentGoal.timestamp).getTime();
+    const timeDiff = now - goalTime;
+    return timeDiff < thresholdMs;
+  }
+
+  // If we have matchId, track goal count to detect new goals
+  // This works because events are refreshed every 12 seconds
+  // If goal count increased, it's a new goal (likely within last 12 seconds)
+  if (matchId) {
+    const currentGoalCount = goals.length;
+    const previousGoalCount = previousGoalCounts.get(matchId) || 0;
+    const lastCheck = lastCheckTime.get(matchId);
+    const timeSinceLastCheck = lastCheck ? now - lastCheck : null;
+    
+    // If goal count increased, it's a new goal
+    if (currentGoalCount > previousGoalCount) {
+      // Only consider it recent if we've checked before (not first load)
+      // and it's been less than 30 seconds since last check
+      if (lastCheck && timeSinceLastCheck && timeSinceLastCheck < thresholdMs) {
+        // Update tracking
+        previousGoalCounts.set(matchId, currentGoalCount);
+        lastCheckTime.set(matchId, now);
+        // Events refresh every 12 seconds, so new goal is likely within last 12 seconds
+        // This is within our 30 second threshold
+        return true;
+      } else if (!lastCheck) {
+        // First time checking - initialize tracking but don't lock
+        previousGoalCounts.set(matchId, currentGoalCount);
+        lastCheckTime.set(matchId, now);
+        return false;
+      }
+    }
+    
+    // Update tracking even if no new goal
+    previousGoalCounts.set(matchId, currentGoalCount);
+    lastCheckTime.set(matchId, now);
+  }
+
+  // If we have current minute, compare with goal minute
+  // Without timestamp or matchId tracking, we can only approximate
+  if (currentMinute !== null && currentMinute !== undefined) {
+    const goalMinute = parseInt(recentGoal.minute || recentGoal.time || recentGoal.elapsed || 0);
+    const currentMin = parseInt(currentMinute);
+    
+    if (isNaN(goalMinute) || isNaN(currentMin)) {
+      return false;
+    }
+    
+    const minuteDiff = currentMin - goalMinute;
+    
+    // Without exact timestamps, we cannot accurately determine if goal was within 30 seconds
+    // A goal in the same minute could have been at minute 14:00 or minute 14:59
+    // We need to be conservative to avoid false positives
+    
+    // Don't lock based on minute alone - it's too inaccurate
+    return false;
+  }
+
+  // No timestamp, no matchId tracking, and no current minute available
+  return false;
 }
 
 /**
@@ -160,8 +222,10 @@ export function shouldLockBetting(match, events, statistics) {
     return { isLocked: false, reason: null };
   }
 
-  // Check for recent goal
-  if (hasRecentGoal(events, 30)) {
+  // Check for recent goal - pass current minute and match ID for accurate timing
+  const currentMinute = match.minute || null;
+  const matchId = match.id || match.sportmonksId || null;
+  if (hasRecentGoal(events, 30, currentMinute, matchId)) {
     return {
       isLocked: true,
       reason: 'Son 30 saniye içinde gol atıldı. Oranlar geçici olarak kilitlendi.'

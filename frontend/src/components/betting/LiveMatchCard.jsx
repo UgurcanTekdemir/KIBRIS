@@ -307,40 +307,29 @@ const LiveMatchCard = ({ match }) => {
     });
   };
   
-  // Get current minute from events if available (more up-to-date than match.minute)
-  // Don't show minute if match is finished
+  // Get current minute directly from match.minute (API provides accurate data)
+  // Don't show minute if match is finished or in half-time break
   const currentMinute = useMemo(() => {
     // If match is finished, don't show minute
     if (match.isFinished) {
       return null;
     }
     
-    const matchMinute = match.minute ? parseInt(match.minute, 10) : null;
-    
-    if (events && events.length > 0) {
-      // Get the latest event minute
-      const latestEvent = events.reduce((latest, event) => {
-        const eventMinute = parseInt(event.minute || event.time || event.elapsed || 0);
-        const latestMinute = parseInt(latest.minute || latest.time || latest.elapsed || 0);
-        return eventMinute > latestMinute ? event : latest;
-      }, events[0]);
-      
-      const eventMinute = parseInt(latestEvent.minute || latestEvent.time || latestEvent.elapsed || 0);
-      
-      // Use the higher value between event minute and match minute
-      if (eventMinute > 0) {
-        if (matchMinute && matchMinute > eventMinute) {
-          // Match minute is more recent
-          return matchMinute;
-        }
-        // Event minute is available and is more recent or equal
-        return eventMinute;
-      }
+    // Check if match is in half-time break (HT/HALF_TIME status)
+    const status = (match.status || '').toUpperCase();
+    if (status === 'HT' || status === 'HALF_TIME') {
+      return null; // Don't show minute during half-time break
     }
     
-    // Fallback to match.minute
+    // Only show minute if match is live
+    if (!match.isLive) {
+      return null;
+    }
+    
+    // Use match.minute directly from API (most accurate)
+    const matchMinute = match.minute ? parseInt(match.minute, 10) : null;
     return matchMinute;
-  }, [events, match.minute, match.isFinished]);
+  }, [match.minute, match.isFinished, match.isLive, match.status]);
 
   // Check if betting should be locked due to dangerous situations
   const lockStatus = useMemo(() => {
@@ -481,7 +470,12 @@ const LiveMatchCard = ({ match }) => {
           )}
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          <span className="text-[10px] sm:text-xs text-gray-400">{match.leagueFlag} {match.league}</span>
+          {match.leagueLogo ? (
+            <img src={match.leagueLogo} alt={match.league} className="w-3 h-3 sm:w-4 sm:h-4 object-contain flex-shrink-0" />
+          ) : match.leagueFlag && match.leagueFlag.startsWith('http') ? (
+            <img src={match.leagueFlag} alt={match.league} className="w-3 h-3 sm:w-4 sm:h-4 object-contain flex-shrink-0" />
+          ) : null}
+          <span className="text-[10px] sm:text-xs text-gray-400">{match.league}</span>
         </div>
       </div>
 
