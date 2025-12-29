@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Trophy, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -6,32 +6,127 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useLeagueStandings } from '../hooks/useLeagueStandings';
 import { matchAPI } from '../services/api';
-import { LEAGUE_MAP } from '../utils/leagueMap';
 
 const LeagueStandingsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const leagueId = parseInt(id, 10);
-  const leagueInfo = LEAGUE_MAP[leagueId];
+  const [leagueInfo, setLeagueInfo] = useState(null);
+  const [loadingLeague, setLoadingLeague] = useState(true);
+  const [logoError, setLogoError] = useState(false);
   const [season, setSeason] = useState(null);
   const [seasons, setSeasons] = useState([]);
   const [loadingSeasons, setLoadingSeasons] = useState(true);
 
   const { standings, loading, error, refetch } = useLeagueStandings(leagueId?.toString(), season);
 
-  // Fetch available seasons
-  React.useEffect(() => {
+  // Helper function to get country flag emoji
+  function getCountryFlag(country) {
+    if (!country) return '🏆';
+    
+    const countryLower = country.toLowerCase();
+    const flagMap = {
+      'turkey': '🇹🇷', 'türkiye': '🇹🇷',
+      'england': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'ingiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'united kingdom': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'uk': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'spain': '🇪🇸', 'ispanya': '🇪🇸',
+      'italy': '🇮🇹', 'italya': '🇮🇹',
+      'germany': '🇩🇪', 'almanya': '🇩🇪',
+      'france': '🇫🇷', 'fransa': '🇫🇷',
+      'netherlands': '🇳🇱', 'hollanda': '🇳🇱',
+      'portugal': '🇵🇹', 'portekiz': '🇵🇹',
+      'belgium': '🇧🇪', 'belçika': '🇧🇪',
+      'austria': '🇦🇹', 'avusturya': '🇦🇹',
+      'denmark': '🇩🇰', 'danimarka': '🇩🇰',
+      'croatia': '🇭🇷', 'hrvatska': '🇭🇷',
+      'czech republic': '🇨🇿', 'çek cumhuriyeti': '🇨🇿', 'czechia': '🇨🇿',
+      'bulgaria': '🇧🇬', 'bulgaristan': '🇧🇬',
+      'brazil': '🇧🇷', 'brezilya': '🇧🇷',
+      'argentina': '🇦🇷', 'arjantin': '🇦🇷',
+    };
+    
+    for (const [key, flag] of Object.entries(flagMap)) {
+      if (countryLower.includes(key)) {
+        return flag;
+      }
+    }
+    
+    return '🏆';
+  }
+
+  // Fetch league info from API
+  useEffect(() => {
+    async function fetchLeagueInfo() {
+      try {
+        setLoadingLeague(true);
+        const leaguesData = await matchAPI.getLeagues();
+        
+        // Find league by ID
+        const league = leaguesData.find(l => {
+          const id = l.id || l.league_id || l.main_id;
+          return id === leagueId;
+        });
+        
+        if (league) {
+          // Handle nested country structure
+          const countryName = league.country?.name || 
+                             (typeof league.country === 'string' ? league.country : '') ||
+                             league.country_name || '';
+          
+          // Handle image_path - check multiple possible fields
+          const imagePath = league.image_path || 
+                           league.logo || 
+                           league.image || 
+                           league.logo_path ||
+                           null;
+          
+          // Debug log
+          if (process.env.NODE_ENV === 'development') {
+            console.log('LeagueStandingsPage - League info:', {
+              id: league.id,
+              name: league.name,
+              image_path: imagePath,
+              raw_league: league
+            });
+          }
+          
+          setLeagueInfo({
+            id: league.id || league.league_id || league.main_id,
+            name: league.name || league.league_name || 'Bilinmeyen Lig',
+            country: countryName,
+            flag: getCountryFlag(countryName),
+            image_path: imagePath,
+            season: league.current_season?.name || league.season || '',
+            active: league.active !== undefined ? league.active : true,
+          });
+          // Reset logo error when league changes
+          setLogoError(false);
+        } else {
+          setLeagueInfo(null);
+        }
+      } catch (error) {
+        console.error('Error fetching league info:', error);
+        setLeagueInfo(null);
+      } finally {
+        setLoadingLeague(false);
+      }
+    }
+    
+    if (leagueId) {
+      fetchLeagueInfo();
+    }
+  }, [leagueId]);
+
+  // Fetch available seasons (optional - not implemented yet)
+  useEffect(() => {
     async function fetchSeasons() {
       try {
         setLoadingSeasons(true);
-        const seasonsData = await matchAPI.getLeagueSeasons(leagueId?.toString());
-        setSeasons(seasonsData || []);
-        if (seasonsData && seasonsData.length > 0 && !season) {
-          // Set current season as default
-          setSeason(seasonsData[0].season || seasonsData[0].name || null);
-        }
+        // For now, skip seasons fetch as it's not implemented
+        // TODO: Implement getLeagueSeasons in API
+        setSeasons([]);
       } catch (err) {
         console.error('Error fetching seasons:', err);
+        setSeasons([]);
       } finally {
         setLoadingSeasons(false);
       }
@@ -41,9 +136,21 @@ const LeagueStandingsPage = () => {
     }
   }, [leagueId]);
 
+  if (loadingLeague) {
+    return (
+      <div className="max-w-6xl mx-auto px-2 sm:px-4">
+        <div className="flex items-center gap-4 mb-6">
+          <Skeleton className="h-10 w-10 bg-[#1a2332]" />
+          <Skeleton className="h-8 w-64 bg-[#1a2332]" />
+        </div>
+        <Skeleton className="h-64 w-full bg-[#1a2332]" />
+      </div>
+    );
+  }
+
   if (!leagueInfo) {
     return (
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4">
         <Alert variant="destructive" className="bg-red-500/10 border-red-500/30">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-white">
@@ -67,12 +174,22 @@ const LeagueStandingsPage = () => {
           </Button>
         </Link>
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-            <Trophy size={24} className="text-amber-500" />
+          <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center overflow-hidden">
+            {leagueInfo.image_path && !logoError ? (
+              <img 
+                src={leagueInfo.image_path} 
+                alt={leagueInfo.name}
+                className="w-full h-full object-contain p-1"
+                onError={() => setLogoError(true)}
+                onLoad={() => setLogoError(false)}
+              />
+            ) : (
+              <Trophy size={24} className="text-amber-500" />
+            )}
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
-              <span className="text-2xl">{leagueInfo.flag}</span>
+              {(!leagueInfo.image_path || logoError) && <span className="text-2xl">{leagueInfo.flag}</span>}
               {leagueInfo.name} Puan Durumu
             </h1>
             <p className="text-xs sm:text-sm text-gray-400">
@@ -141,33 +258,69 @@ const LeagueStandingsPage = () => {
               </thead>
               <tbody>
                 {standings.table && Array.isArray(standings.table) ? (
-                  standings.table.map((team, idx) => (
-                    <tr key={idx} className="border-b border-[#1e2736] hover:bg-[#1a2332] transition-colors">
-                      <td className="p-3 text-xs sm:text-sm text-white font-medium">{team.position || idx + 1}</td>
-                      <td className="p-3 text-xs sm:text-sm text-white">{team.team_name || team.name || 'Takım'}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.played || team.matches_played || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-green-400">{team.won || team.wins || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.drawn || team.draws || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-red-400">{team.lost || team.losses || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_for || team.goals_scored || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_against || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-amber-500 font-bold">{team.points || 0}</td>
-                    </tr>
-                  ))
+                  standings.table.map((team, idx) => {
+                    const teamLogo = team.team_logo || team.logo || team.image_path || null;
+                    const teamName = team.team_name || team.name || 'Takım';
+                    return (
+                      <tr key={idx} className="border-b border-[#1e2736] hover:bg-[#1a2332] transition-colors">
+                        <td className="p-3 text-xs sm:text-sm text-white font-medium">{team.position || idx + 1}</td>
+                        <td className="p-3 text-xs sm:text-sm text-white">
+                          <div className="flex items-center gap-2">
+                            {teamLogo ? (
+                              <img 
+                                src={teamLogo} 
+                                alt={teamName}
+                                className="w-6 h-6 object-contain flex-shrink-0"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                            ) : null}
+                            <span className="truncate">{teamName}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.played || team.matches_played || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-green-400">{team.won || team.wins || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.drawn || team.draws || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-red-400">{team.lost || team.losses || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_for || team.goals_scored || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_against || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-amber-500 font-bold">{team.points || 0}</td>
+                      </tr>
+                    );
+                  })
                 ) : standings.teams && Array.isArray(standings.teams) ? (
-                  standings.teams.map((team, idx) => (
-                    <tr key={idx} className="border-b border-[#1e2736] hover:bg-[#1a2332] transition-colors">
-                      <td className="p-3 text-xs sm:text-sm text-white font-medium">{team.position || idx + 1}</td>
-                      <td className="p-3 text-xs sm:text-sm text-white">{team.team_name || team.name || 'Takım'}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.played || team.matches_played || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-green-400">{team.won || team.wins || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.drawn || team.draws || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-red-400">{team.lost || team.losses || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_for || team.goals_scored || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_against || 0}</td>
-                      <td className="p-3 text-xs sm:text-sm text-center text-amber-500 font-bold">{team.points || 0}</td>
-                    </tr>
-                  ))
+                  standings.teams.map((team, idx) => {
+                    const teamLogo = team.team_logo || team.logo || team.image_path || null;
+                    const teamName = team.team_name || team.name || 'Takım';
+                    return (
+                      <tr key={idx} className="border-b border-[#1e2736] hover:bg-[#1a2332] transition-colors">
+                        <td className="p-3 text-xs sm:text-sm text-white font-medium">{team.position || idx + 1}</td>
+                        <td className="p-3 text-xs sm:text-sm text-white">
+                          <div className="flex items-center gap-2">
+                            {teamLogo ? (
+                              <img 
+                                src={teamLogo} 
+                                alt={teamName}
+                                className="w-6 h-6 object-contain flex-shrink-0"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                            ) : null}
+                            <span className="truncate">{teamName}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.played || team.matches_played || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-green-400">{team.won || team.wins || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.drawn || team.draws || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-red-400">{team.lost || team.losses || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_for || team.goals_scored || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-gray-300">{team.goals_against || 0}</td>
+                        <td className="p-3 text-xs sm:text-sm text-center text-amber-500 font-bold">{team.points || 0}</td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={9} className="p-6 text-center text-gray-500">

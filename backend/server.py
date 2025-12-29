@@ -420,6 +420,102 @@ async def get_league_standings(
         logger.error(f"Error fetching standings for league {league_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/stats")
+async def get_stats():
+    """Get homepage statistics (today matches, upcoming matches, total matches, leagues count)"""
+    try:
+        from datetime import timezone, timedelta
+        
+        # Turkey timezone (UTC+3)
+        turkey_tz = timezone(timedelta(hours=3))
+        now_turkey = datetime.now(turkey_tz)
+        today = now_turkey.strftime("%Y-%m-%d")
+        seven_days_later = (now_turkey + timedelta(days=7)).strftime("%Y-%m-%d")
+        
+        # Get matches for the next 7 days
+        include = "participants;scores;events.type;events.player;league;odds"
+        fixtures = await sportmonks_service.get_fixtures(
+            date_from=today,
+            date_to=seven_days_later,
+            include=include
+        )
+        
+        # Transform fixtures to match format
+        matches = []
+        for fixture in fixtures:
+            transformed = sportmonks_service._transform_fixture_to_match(fixture, timezone_offset=3)
+            matches.append(transformed)
+        
+        # Filter matches
+        today_matches = []
+        upcoming_matches = []
+        unique_leagues = set()
+        
+        for m in matches:
+            # Exclude finished and postponed matches
+            status = (m.get("status") or "").upper()
+            is_finished = status in ["FT", "FINISHED", "CANCELED", "CANCELLED"]
+            is_postponed = status == "POSTPONED"
+            
+            if is_finished or is_postponed:
+                continue
+            
+            # Get date from match - could be in date field or commence_time
+            match_date = m.get("date")
+            if not match_date:
+                # Extract date from commence_time (YYYY-MM-DD format)
+                commence_time = m.get("commence_time") or m.get("commence_time_utc")
+                if commence_time:
+                    try:
+                        if isinstance(commence_time, str):
+                            # Handle different formats: "2025-12-29 19:45:00" or "2025-12-29T19:45:00Z"
+                            if "T" in commence_time:
+                                match_date = commence_time.split("T")[0]
+                            elif " " in commence_time:
+                                match_date = commence_time.split(" ")[0]
+                            else:
+                                match_date = commence_time[:10] if len(commence_time) >= 10 else None
+                    except:
+                        pass
+            
+            if not match_date:
+                continue
+            
+            # Normalize date format (handle DD.MM.YYYY to YYYY-MM-DD)
+            if "." in match_date and len(match_date.split(".")) == 3:
+                try:
+                    parts = match_date.split(".")
+                    if len(parts) == 3:
+                        match_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                except:
+                    pass
+            
+            # Count today matches
+            if match_date == today:
+                today_matches.append(m)
+            
+            # Count upcoming matches (including today)
+            if match_date >= today:
+                upcoming_matches.append(m)
+            
+            # Collect unique leagues
+            league = m.get("league") or m.get("league_name") or m.get("leagueName")
+            if league and league.strip():
+                unique_leagues.add(league.strip())
+        
+        return {
+            "success": True,
+            "data": {
+                "today": len(today_matches),
+                "upcoming": len(upcoming_matches),
+                "total": len(matches),
+                "leagues": len(unique_leagues)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # CORS Configuration
 cors_origins_str = os.environ.get('CORS_ORIGINS', '*')

@@ -41,7 +41,7 @@ const MobileNavigation = () => {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a0e14] border-t border-[#1e2736] lg:hidden safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#0a0e14] border-t border-[#1e2736] md:hidden safe-area-bottom">
       {/* Magic Navigation Bar - Mobile */}
       <div className="flex justify-center items-center py-3 px-2 w-full">
         <ul className="magic-navigation-mobile">

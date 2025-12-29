@@ -249,6 +249,17 @@ export const matchAPI = {
       return [];
     }
   },
+
+  async getStats() {
+    // Fetch homepage statistics from backend
+    try {
+      const response = await fetchAPI('/stats');
+      return response.data || { today: 0, upcoming: 0, total: 0, leagues: 0 };
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      return { today: 0, upcoming: 0, total: 0, leagues: 0 };
+    }
+  },
 };
 
 /**

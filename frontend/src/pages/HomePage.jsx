@@ -8,6 +8,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ScrollArea, ScrollBar } from '../components/ui/scroll-area';
 import { useMatches } from '../hooks/useMatches';
+import { useLeagues } from '../hooks/useLeagues';
+import { matchAPI } from '../services/api';
 import SetRoleHelper from '../components/SetRoleHelper';
 
 // Popular Leagues Component
@@ -15,69 +17,204 @@ function PopularLeagues({ allMatches }) {
   const today = new Date().toISOString().split('T')[0];
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
-  const leagues = useMemo(() => [
-    { id: 1, name: 'Süper Lig', flag: '🇹🇷', sport_key: 'soccer_turkey_super_league', leagueNames: ['Süper Lig', 'Super Lig', 'Turkish Super League', 'Turkey Super League'] },
-    { id: 2, name: 'Premier Lig', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', sport_key: 'soccer_epl', leagueNames: ['Premier League', 'Premier Lig', 'English Premier League', 'EPL'] },
-    { id: 3, name: 'La Liga', flag: '🇪🇸', sport_key: 'soccer_spain_la_liga', leagueNames: ['La Liga', 'Spanish La Liga', 'Primera División'] },
-    { id: 4, name: 'Serie A', flag: '🇮🇹', sport_key: 'soccer_italy_serie_a', leagueNames: ['Serie A', 'Italian Serie A'] },
-    { id: 5, name: 'Bundesliga', flag: '🇩🇪', sport_key: 'soccer_germany_bundesliga', leagueNames: ['Bundesliga', 'German Bundesliga'] },
-    { id: 6, name: 'Ligue 1', flag: '🇫🇷', sport_key: 'soccer_france_ligue_one', leagueNames: ['Ligue 1', 'French Ligue 1', 'Ligue 1 Uber Eats'] },
-  ], []);
-
-  const leagueCounts = useMemo(() => {
-    const counts = {};
-    leagues.forEach(league => {
-        // Filter matches by league name (Sportmonks V3 uses league name, not sport_key)
-        counts[league.id] = allMatches.filter(match => {
-          // Match by league name (case-insensitive)
-          const matchLeague = (match.league || '').toLowerCase();
-          const matchesLeague = league.leagueNames.some(leagueName => 
-            matchLeague.includes(leagueName.toLowerCase())
-          );
-          
-          if (!matchesLeague) return false;
-          
-          // Only count matches within 7 days (including today)
-          const matchDate = match.date || '';
-          const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
-          
-          if (!isWithin7Days) return false;
-          
-          // Include live matches, upcoming matches, but exclude finished and postponed
-          const status = (match.status || '').toUpperCase();
-          const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
-          const isPostponed = status === 'POSTPONED';
-          
-          // Count live matches and upcoming matches (not finished, not postponed)
-          return !isFinished && !isPostponed;
-        }).length;
+  // Fetch leagues from API (cached)
+  const { leagues: apiLeagues, loading: leaguesLoading } = useLeagues();
+  
+  // Helper function to convert DD.MM.YYYY to YYYY-MM-DD for comparison
+  const convertDateToISO = (dateStr) => {
+    if (!dateStr) return '';
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return dateStr;
+    }
+    if (dateStr.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
+      const [day, month, year] = dateStr.split('.');
+      return `${year}-${month}-${day}`;
+    }
+    return dateStr;
+  };
+  
+  // Group matches by league_id
+  const matchesByLeague = useMemo(() => {
+    if (!allMatches || !Array.isArray(allMatches)) {
+      return new Map();
+    }
+    
+    const grouped = new Map();
+    
+    allMatches.forEach(match => {
+      const matchLeagueId = match.leagueId || match.league_id || match.sportmonksData?.leagueId;
+      if (matchLeagueId) {
+        const leagueId = typeof matchLeagueId === 'string' ? parseInt(matchLeagueId, 10) : matchLeagueId;
+        if (!isNaN(leagueId)) {
+          if (!grouped.has(leagueId)) {
+            grouped.set(leagueId, []);
+          }
+          grouped.get(leagueId).push(match);
+        }
+      }
     });
-    return counts;
-  }, [allMatches, today, sevenDaysLater, leagues]);
+    
+    return grouped;
+  }, [allMatches]);
+  
+  // Get popular leagues sorted by match count
+  const popularLeagues = useMemo(() => {
+    if (!Array.isArray(apiLeagues) || apiLeagues.length === 0) {
+      return [];
+    }
+    
+    const leaguesWithMatchCount = apiLeagues.map(league => {
+      const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+      const leagueMatches = matchesByLeague.get(leagueId) || [];
+      
+      // Filter matches within 7 days and not finished/postponed
+      const validMatches = leagueMatches.filter(match => {
+        const matchDate = convertDateToISO(match.date || '');
+        const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+        const status = (match.status || '').toUpperCase();
+        const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+        const isPostponed = status === 'POSTPONED';
+        return isWithin7Days && !isFinished && !isPostponed;
+      });
+      
+      return {
+        ...league,
+        matchCount: validMatches.length,
+      };
+    });
+    
+    // Sort by match count (descending), then by name
+    leaguesWithMatchCount.sort((a, b) => {
+      if (b.matchCount !== a.matchCount) {
+        return b.matchCount - a.matchCount;
+      }
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    
+    // Return top 6 leagues that have at least 1 match
+    return leaguesWithMatchCount.filter(league => league.matchCount > 0).slice(0, 6);
+  }, [apiLeagues, matchesByLeague, today, sevenDaysLater]);
+  
+  // Get country flag emoji
+  const getCountryFlag = (country) => {
+    if (!country) return '🏆';
+    
+    const countryLower = country.toLowerCase();
+    const flagMap = {
+      'turkey': '🇹🇷', 'türkiye': '🇹🇷',
+      'england': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'ingiltere': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'united kingdom': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'uk': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'spain': '🇪🇸', 'ispanya': '🇪🇸',
+      'italy': '🇮🇹', 'italya': '🇮🇹',
+      'germany': '🇩🇪', 'almanya': '🇩🇪',
+      'france': '🇫🇷', 'fransa': '🇫🇷',
+      'netherlands': '🇳🇱', 'hollanda': '🇳🇱',
+      'portugal': '🇵🇹', 'portekiz': '🇵🇹',
+      'belgium': '🇧🇪', 'belçika': '🇧🇪',
+      'austria': '🇦🇹', 'avusturya': '🇦🇹',
+      'denmark': '🇩🇰', 'danimarka': '🇩🇰',
+      'croatia': '🇭🇷', 'hrvatska': '🇭🇷',
+      'czech republic': '🇨🇿', 'çek cumhuriyeti': '🇨🇿', 'czechia': '🇨🇿',
+      'bulgaria': '🇧🇬', 'bulgaristan': '🇧🇬',
+      'brazil': '🇧🇷', 'brezilya': '🇧🇷',
+      'argentina': '🇦🇷', 'arjantin': '🇦🇷',
+    };
+    
+    for (const [key, flag] of Object.entries(flagMap)) {
+      if (countryLower.includes(key)) {
+        return flag;
+      }
+    }
+    
+    return '🏆';
+  };
+
+  if (leaguesLoading) {
+    return (
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 animate-pulse">
+            <div className="w-full aspect-square rounded-lg bg-[#1a2332] mb-2"></div>
+            <div className="h-3 w-full mb-1 bg-[#1a2332] rounded"></div>
+            <div className="h-2 w-2/3 bg-[#1a2332] rounded"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (popularLeagues.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500 text-sm">
+        Popüler lig bulunamadı
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-      {leagues.map((league) => (
-        <Link
-          key={league.id}
-          to={`/league/${league.id}`}
-          className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
-        >
-          <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{league.flag}</span>
-          <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{league.name}</p>
-          <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 font-semibold">{leagueCounts[league.id] || 0} maç</p>
-        </Link>
-      ))}
+      {popularLeagues.map((league) => {
+        const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+        const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
+        const country = league.country || '';
+        const flag = getCountryFlag(country);
+        
+        return (
+          <Link
+            key={leagueId}
+            to={`/league/${leagueId}`}
+            className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
+          >
+            {league.image_path ? (
+              <div className="w-full aspect-square flex items-center justify-center mb-0.5 sm:mb-1 md:mb-2 overflow-hidden">
+                <img 
+                  src={league.image_path} 
+                  alt={leagueName}
+                  className="w-full h-full object-contain p-1"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = `<span class="text-xl sm:text-2xl md:text-3xl">${flag}</span>`;
+                  }}
+                />
+              </div>
+            ) : (
+              <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{flag}</span>
+            )}
+            <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{leagueName}</p>
+            {league.matchCount > 0 && (
+              <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 font-semibold">{league.matchCount} maç</p>
+            )}
+          </Link>
+        );
+      })}
     </div>
   );
 }
 
 const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [stats, setStats] = useState({ today: 0, upcoming: 0, total: 0, leagues: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
   const today = new Date().toISOString().split('T')[0];
   
   // Fetch matches from API
   const { matches: allMatches, loading, error } = useMatches({ matchType: 1 });
+  
+  // Fetch stats from API
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setStatsLoading(true);
+        const statsData = await matchAPI.getStats();
+        setStats(statsData);
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    
+    fetchStats();
+  }, []);
   
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
@@ -284,10 +421,10 @@ const HomePage = () => {
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
         {[
-          { label: 'Bugün', value: todayMatches.length, icon: Calendar, color: 'text-blue-500' },
-          { label: 'Yakın Maçlar', value: upcomingMatches.length, icon: Calendar, color: 'text-green-500' },
-          { label: 'Toplam', value: allMatches.length, icon: TrendingUp, color: 'text-amber-500' },
-          { label: 'Ligler', value: new Set(allMatches.map(m => m.league)).size, icon: Star, color: 'text-purple-500' },
+          { label: 'Bugün', value: statsLoading ? 0 : stats.today, icon: Calendar, color: 'text-blue-500' },
+          { label: 'Yakın Maçlar', value: statsLoading ? 0 : stats.upcoming, icon: Calendar, color: 'text-green-500' },
+          { label: 'Toplam', value: statsLoading ? 0 : stats.total, icon: TrendingUp, color: 'text-amber-500' },
+          { label: 'Ligler', value: statsLoading ? 0 : stats.leagues, icon: Star, color: 'text-purple-500' },
         ].map((stat, idx) => {
           const Icon = stat.icon;
           return (
