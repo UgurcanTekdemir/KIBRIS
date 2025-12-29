@@ -4,15 +4,13 @@ import { Home, Zap, Calendar, Trophy, ChevronRight, Search } from 'lucide-react'
 import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
 import { useMatches } from '../../hooks/useMatches';
-import * as footballService from '../../services/football';
+import { useLeagues } from '../../hooks/useLeagues';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [leagues, setLeagues] = useState([]);
-  const [loadingLeagues, setLoadingLeagues] = useState(true);
   const searchRef = useRef(null);
   const suggestionsRef = useRef(null);
 
@@ -25,71 +23,16 @@ const Sidebar = ({ isOpen, onClose }) => {
     matchType: 1
   });
 
-  // Fetch leagues from API for popular leagues
-  const [apiLeagues, setApiLeagues] = useState([]);
-  const [leaguesLoading, setLeaguesLoading] = useState(true);
+  // Fetch leagues using React Query hook (cached)
+  const { leagues: apiLeagues, loading: leaguesLoading } = useLeagues();
 
-  useEffect(() => {
-    const fetchLeagues = async () => {
-      try {
-        setLeaguesLoading(true);
-        const response = await footballService.getLeagues();
-        
-        let leaguesData = [];
-        if (response && typeof response === 'object') {
-          if (response.data && Array.isArray(response.data)) {
-            leaguesData = response.data;
-          } else if (response.success && response.data && Array.isArray(response.data)) {
-            leaguesData = response.data;
-          } else if (Array.isArray(response)) {
-            leaguesData = response;
-          }
-        }
-        
-        const transformedLeagues = leaguesData.map(league => {
-          let countryName = '';
-          if (league.country) {
-            if (typeof league.country === 'string') {
-              countryName = league.country;
-            } else if (league.country.name) {
-              countryName = league.country.name;
-            } else if (league.country.data && typeof league.country.data === 'object') {
-              countryName = league.country.data.name || 
-                           (league.country.data.data && league.country.data.data.name) || '';
-            }
-          }
-          
-          return {
-            id: league.id,
-            league_id: league.id,
-            name: league.name || '',
-            league_name: league.name || '',
-            country: countryName,
-            image_path: league.image_path || null,
-            active: league.active !== false,
-          };
-        }).filter(league => league.active && league.name);
-        
-        setApiLeagues(transformedLeagues);
-      } catch (err) {
-        console.error('Error fetching leagues for sidebar:', err);
-        setApiLeagues([]);
-      } finally {
-        setLeaguesLoading(false);
-      }
-    };
-
-    fetchLeagues();
-  }, []);
-
-  // Group matches by league_id and extract league info from matches
-  const { matchesByLeague, leaguesFromMatches } = useMemo(() => {
+  // Group matches by league_id
+  const matchesByLeague = useMemo(() => {
     if (!allMatches || !Array.isArray(allMatches)) {
-      return { matchesByLeague: new Map(), leaguesFromMatches: new Map() };
+      return new Map();
     }
     
     const grouped = new Map();
-    const leaguesMap = new Map();
     
     allMatches.forEach(match => {
       const matchLeagueId = match.sportmonksData?.leagueId || match.leagueId || match.league_id || match.league?.id;
@@ -100,69 +43,12 @@ const Sidebar = ({ isOpen, onClose }) => {
             grouped.set(leagueId, []);
           }
           grouped.get(leagueId).push(match);
-          
-          if (!leaguesMap.has(leagueId)) {
-            const leagueName = match.league || match.league_name || match.leagueName || '';
-            const leagueLogo = match.leagueLogo || match.league_logo || match.leagueFlag || null;
-            const country = match.country || '';
-            
-            if (leagueName) {
-              leaguesMap.set(leagueId, {
-                id: leagueId,
-                league_id: leagueId,
-                name: leagueName,
-                league_name: leagueName,
-                country: country,
-                image_path: leagueLogo,
-              });
-            }
-          }
         }
       }
     });
     
-    grouped.forEach((matches) => {
-      matches.sort((a, b) => {
-        if (a.date !== b.date) {
-          return (a.date || '').localeCompare(b.date || '');
-        }
-        return (a.time || '').localeCompare(b.time || '');
-      });
-    });
-    
-    return { matchesByLeague: grouped, leaguesFromMatches: leaguesMap };
+    return grouped;
   }, [allMatches]);
-
-  // Merge leagues from API with leagues from matches
-  const mergedLeagues = useMemo(() => {
-    const leaguesMap = new Map();
-    
-    apiLeagues.forEach(league => {
-      const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
-      if (!isNaN(leagueId)) {
-        leaguesMap.set(leagueId, league);
-      }
-    });
-    
-    leaguesFromMatches.forEach((leagueFromMatch, leagueId) => {
-      if (!leaguesMap.has(leagueId)) {
-        leaguesMap.set(leagueId, leagueFromMatch);
-      } else {
-        const existingLeague = leaguesMap.get(leagueId);
-        if (!existingLeague.image_path && leagueFromMatch.image_path) {
-          existingLeague.image_path = leagueFromMatch.image_path;
-        }
-        if (!existingLeague.country && leagueFromMatch.country) {
-          existingLeague.country = leagueFromMatch.country;
-        }
-        if (!existingLeague.country_id && leagueFromMatch.country_id) {
-          existingLeague.country_id = leagueFromMatch.country_id;
-        }
-      }
-    });
-    
-    return Array.from(leaguesMap.values());
-  }, [apiLeagues, leaguesFromMatches]);
 
   // Helper function to convert DD.MM.YYYY to YYYY-MM-DD for comparison
   const convertDateToISO = (dateStr) => {
@@ -179,11 +65,11 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   // Get popular leagues sorted by match count
   const popularLeagues = useMemo(() => {
-    if (!Array.isArray(mergedLeagues) || mergedLeagues.length === 0) {
+    if (!Array.isArray(apiLeagues) || apiLeagues.length === 0) {
       return [];
     }
     
-    const leaguesWithMatchCount = mergedLeagues.map(league => {
+    const leaguesWithMatchCount = apiLeagues.map(league => {
       const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
       const leagueMatches = matchesByLeague.get(leagueId) || [];
       
@@ -213,7 +99,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     
     // Return top 6 leagues that have at least 1 match
     return leaguesWithMatchCount.filter(league => league.matchCount > 0).slice(0, 6);
-  }, [mergedLeagues, matchesByLeague, today, sevenDaysLater]);
+  }, [apiLeagues, matchesByLeague, today, sevenDaysLater]);
 
   // Get country flag emoji
   const getCountryFlag = (country) => {
@@ -248,75 +134,6 @@ const Sidebar = ({ isOpen, onClose }) => {
     return '🏆';
   };
 
-  // Extract unique leagues from matches data
-  const extractedLeagues = useMemo(() => {
-    if (!allMatches || allMatches.length === 0) return [];
-    
-    const leagueMap = new Map();
-    
-    allMatches.forEach(match => {
-      // Use sportmonksData.leagueId or fallback to match.league_id
-      const leagueId = match.sportmonksData?.leagueId || match.league_id;
-      if (match.league && leagueId) {
-        const leagueIdStr = String(leagueId);
-        if (!leagueMap.has(leagueIdStr)) {
-          leagueMap.set(leagueIdStr, {
-            id: leagueIdStr,
-            name: match.league,
-            country: match.country || '',
-            logo: match.leagueFlag || null,
-            sport_key: match.sportKey || 'soccer'
-          });
-        }
-      }
-    });
-    
-    // Convert map to array and sort by name
-    const leaguesArray = Array.from(leagueMap.values());
-    leaguesArray.sort((a, b) => a.name.localeCompare(b.name));
-    
-    return leaguesArray;
-  }, [allMatches]);
-
-  // Update leagues state when extracted leagues change
-  // Use ref to prevent infinite loops
-  const hasFetchedLeagues = useRef(false);
-  
-  useEffect(() => {
-    if (extractedLeagues.length > 0) {
-      setLeagues(extractedLeagues);
-      setLoadingLeagues(false);
-      hasFetchedLeagues.current = false; // Reset flag when we have leagues from matches
-    } else if (allMatches.length === 0 && !hasFetchedLeagues.current) {
-      // If no matches loaded yet, try to fetch leagues from backend API as fallback (only once)
-      hasFetchedLeagues.current = true;
-      async function fetchLeagues() {
-        try {
-          setLoadingLeagues(true);
-          const leaguesData = await footballService.getLeagues();
-          // Backend returns { success: true, data: [...] } or just array
-          const leaguesArray = Array.isArray(leaguesData) 
-            ? leaguesData 
-            : (leaguesData?.data || [leaguesData].filter(Boolean));
-          // Map backend league format to internal format
-          const mappedLeagues = leaguesArray.map(league => ({
-            id: String(league.id || league.league_id),
-            name: league.name || league.league_name || '',
-            country: league.country?.name || league.country || '',
-            logo: league.image_path || league.logo || null,
-            sport_key: 'soccer'
-          }));
-          setLeagues(mappedLeagues);
-        } catch (error) {
-          console.error('Error fetching leagues:', error);
-          setLeagues([]);
-        } finally {
-          setLoadingLeagues(false);
-        }
-      }
-      fetchLeagues();
-    }
-  }, [extractedLeagues.length, allMatches.length]); // Use length instead of full arrays to prevent infinite loops
 
   const navItems = [
     { path: '/', label: 'Ana Sayfa', icon: Home },
@@ -325,13 +142,11 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/leagues', label: 'Ligler', icon: Trophy },
   ];
 
-  // Filter football leagues (soccer)
+  // Filter football leagues (soccer) - not needed anymore as useLeagues already returns only active leagues
+  // Keeping this for backward compatibility if needed elsewhere
   const footballLeagues = useMemo(() => {
-    return leagues.filter((l) => {
-      const sportKey = l.sport_key || '';
-      return sportKey.includes('soccer') || !sportKey || sportKey === 'soccer_unknown';
-    }).slice(0, 6);
-  }, [leagues]);
+    return apiLeagues.slice(0, 6);
+  }, [apiLeagues]);
 
   // Generate search suggestions
   const suggestions = useMemo(() => {

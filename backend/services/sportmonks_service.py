@@ -594,14 +594,40 @@ class SportmonksService:
                             details_dict[type_id] = value
                 
                 # Map type_id to field names based on Sportmonks API
-                # Type IDs: 129=played, 130=won, 131=drawn, 132=lost, 133=goals_for, 134=goals_against, 187=points
-                played = details_dict.get(129) or entry.get("played") or entry.get("matches_played") or entry.get("games_played") or 0
-                won = details_dict.get(130) or entry.get("won") or entry.get("wins") or 0
-                drawn = details_dict.get(131) or entry.get("drawn") or entry.get("draws") or entry.get("ties") or 0
-                lost = details_dict.get(132) or entry.get("lost") or entry.get("losses") or 0
-                goals_for = details_dict.get(133) or entry.get("goals_for") or entry.get("goals_scored") or entry.get("gf") or 0
-                goals_against = details_dict.get(134) or entry.get("goals_against") or entry.get("goals_conceded") or entry.get("ga") or 0
-                points = details_dict.get(187) or entry.get("points") or entry.get("pts") or 0
+                # Type IDs vary by league, common ones:
+                # 129=played, 130=won, 131=drawn, 132=lost, 133=goals_for, 134=goals_against, 135=won (home), 136=drawn (home), 137=lost (home), 138=lost (away), 139=won (home), 140=won (away), 141=drawn (home), 143=lost (home), 144=lost (away), 185=matches_played, 186=matches_played, 187=points
+                # Try multiple type IDs for each field
+                # Note: Some leagues use different type IDs, so we check multiple possibilities
+                # Use get() with explicit None check to handle 0 values correctly
+                def get_detail_value(*type_ids):
+                    for tid in type_ids:
+                        if tid in details_dict:
+                            val = details_dict[tid]
+                            # Return value even if it's 0 (0 is a valid value)
+                            return val if val is not None else None
+                    return None
+                
+                # For played: 129, 185, 186 are common
+                played_detail = get_detail_value(129, 185, 186)
+                played = played_detail if played_detail is not None else (entry.get("played") or entry.get("matches_played") or entry.get("games_played") or 0)
+                # For won: 130 is standard
+                won_detail = get_detail_value(130)
+                won = won_detail if won_detail is not None else (entry.get("won") or entry.get("wins") or 0)
+                # For drawn: 131 is standard
+                drawn_detail = get_detail_value(131)
+                drawn = drawn_detail if drawn_detail is not None else (entry.get("drawn") or entry.get("draws") or entry.get("ties") or 0)
+                # For lost: 132 is standard
+                lost_detail = get_detail_value(132)
+                lost = lost_detail if lost_detail is not None else (entry.get("lost") or entry.get("losses") or 0)
+                # For goals_for: 133 is standard
+                goals_for_detail = get_detail_value(133)
+                goals_for = goals_for_detail if goals_for_detail is not None else (entry.get("goals_for") or entry.get("goals_scored") or entry.get("gf") or 0)
+                # For goals_against: 134 is standard
+                goals_against_detail = get_detail_value(134)
+                goals_against = goals_against_detail if goals_against_detail is not None else (entry.get("goals_against") or entry.get("goals_conceded") or entry.get("ga") or 0)
+                # For points: 187 is standard
+                points_detail = get_detail_value(187)
+                points = points_detail if points_detail is not None else (entry.get("points") or entry.get("pts") or 0)
                 
                 # Calculate averages
                 avg_points = round(points / played, 2) if played > 0 else 0
@@ -638,7 +664,7 @@ class SportmonksService:
     async def get_standings_by_season(
         self,
         season_id: int,
-        include: str = "participant"
+        include: str = "participant;details"
     ) -> Dict[str, Any]:
         """
         Get league standings by season ID from Sportmonks V3.
@@ -765,22 +791,47 @@ class SportmonksService:
                         return self._transform_standings_data(league_standings, season_id)
             
             # Fallback: try to get season_id and use season-specific endpoint
+            # First try to get from league info directly (more efficient than fetching all leagues)
             if not season_id:
-                include = "currentSeason"
-                leagues = await self.get_leagues(include=include)
-                league = next((l for l in leagues if l.get("id") == league_id), None)
-                
-                if league:
-                    current_season = league.get("current_season")
-                    if isinstance(current_season, dict):
-                        season_id = current_season.get("id")
-                    elif isinstance(current_season, list) and len(current_season) > 0:
-                        season_id = current_season[0].get("id")
+                try:
+                    # Get league info directly
+                    include = "currentSeason"
+                    league_response = await self._get(f"leagues/{league_id}", params={"include": include})
+                    
+                    if isinstance(league_response, dict):
+                        league = league_response.get("data") or league_response
+                        if league:
+                            current_season = league.get("current_season") or league.get("currentseason")
+                            if isinstance(current_season, dict):
+                                if "data" in current_season:
+                                    current_season = current_season["data"]
+                                season_id = current_season.get("id") if isinstance(current_season, dict) else None
+                            elif isinstance(current_season, list) and len(current_season) > 0:
+                                season_id = current_season[0].get("id") if isinstance(current_season[0], dict) else None
+                except Exception as e:
+                    logger.debug(f"Error fetching league {league_id} directly: {e}")
+                    # Fallback to getting from all leagues
+                    include = "currentSeason"
+                    leagues = await self.get_leagues(include=include)
+                    league = next((l for l in leagues if l.get("id") == league_id), None)
+                    
+                    if league:
+                        current_season = league.get("current_season") or league.get("currentseason")
+                        if isinstance(current_season, dict):
+                            if "data" in current_season:
+                                current_season = current_season["data"]
+                            season_id = current_season.get("id") if isinstance(current_season, dict) else None
+                        elif isinstance(current_season, list) and len(current_season) > 0:
+                            season_id = current_season[0].get("id") if isinstance(current_season[0], dict) else None
             
+            # If we have season_id, try season-specific endpoint
             if season_id:
-                return await self.get_standings_by_season(season_id)
+                logger.info(f"Trying season-specific endpoint for league {league_id}, season {season_id}")
+                standings_result = await self.get_standings_by_season(season_id)
+                if standings_result and standings_result.get("table"):
+                    return standings_result
             
-            logger.warning(f"No standings found for league {league_id}")
+            logger.warning(f"No standings found for league {league_id}. No season_id available and no standings in general endpoint.")
             return {}
         except Exception as e:
             logger.error(f"Error fetching standings for league {league_id}: {e}")
