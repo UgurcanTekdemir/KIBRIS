@@ -21,8 +21,18 @@ export function hasRecentGoal(events, secondsThreshold = 30) {
   // Find most recent goal
   const recentGoal = events
     .filter(event => {
-      const type = (event.type || event.event_type || '').toLowerCase();
-      return type.includes('goal') || type.includes('gol');
+      // Handle nested event type structure (Sportmonks API returns type as object)
+      const typeName = (
+        event.type?.name ||           // Primary: type.name from nested object
+        event.type?.type ||           // Alternative: type.type
+        (typeof event.type === 'string' ? event.type : '') ||  // If type is string directly
+        event.event_type?.name ||
+        event.event_type?.type ||
+        (typeof event.event_type === 'string' ? event.event_type : '') ||
+        event.name ||
+        ''
+      ).toLowerCase();
+      return typeName.includes('goal') || typeName.includes('gol');
     })
     .sort((a, b) => {
       // Sort by minute/time descending
