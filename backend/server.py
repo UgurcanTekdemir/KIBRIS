@@ -169,7 +169,9 @@ async def get_match_details(match_id: int):
         # Note: Using simpler odds format to avoid API errors
         # Include event types and players for proper event icon detection
         # Include league with nested structure
-        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season;league"
+        # Include sidelined for match-specific injuries and suspensions
+        # Include nested player and type data for sidelined items
+        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season;league;sidelined.player;sidelined.type"
         
         fixture = await sportmonks_service.get_fixture(
             fixture_id=match_id,
@@ -186,8 +188,8 @@ async def get_match_details(match_id: int):
         if not match.get("odds") or len(match.get("odds", [])) == 0:
             logger.info(f"Odds not found in fixture response for match {match_id}, fetching separately...")
             try:
-                # Fetch odds separately
-                odds_include = "participants;odds.bookmaker;odds.market;odds.values"
+                # Fetch odds separately - include participants for player-specific odds
+                odds_include = "participants;odds.bookmaker;odds.market;odds.values;odds.participants"
                 odds_fixture = await sportmonks_service.get_fixture(
                     fixture_id=match_id,
                     include=odds_include

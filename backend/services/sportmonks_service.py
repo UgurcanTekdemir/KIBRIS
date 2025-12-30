@@ -965,12 +965,22 @@ class SportmonksService:
                 except (ValueError, TypeError):
                     continue
                 
+                # Extract market name with fallbacks
+                market_name = odd_item.get("market_description") or odd_item.get("market_name") or odd_item.get("market")
+                if isinstance(market_name, dict):
+                    market_name = market_name.get("name") or market_name.get("description")
+                
+                # Log if market name is missing for debugging
+                if not market_name or str(market_name).lower() == "unknown":
+                    market_id = odd_item.get("market_id")
+                    logger.debug(f"Unknown market detected in normalized format - market_id: {market_id}, odd_item keys: {list(odd_item.keys())}")
+                
                 # Build normalized odd object from already-normalized data
                 normalized_odd = {
                     "bookmaker_id": odd_item.get("bookmaker_id"),
                     "bookmaker_name": odd_item.get("bookmaker_name"),
                     "market_id": odd_item.get("market_id"),
-                    "market_name": odd_item.get("market_description") or odd_item.get("market_name"),
+                    "market_name": market_name or "Unknown",
                     "market_description": odd_item.get("market_description"),
                     "label": odd_item.get("label") or odd_item.get("name") or "",
                     "name": odd_item.get("name") or odd_item.get("label") or "",
@@ -1010,8 +1020,23 @@ class SportmonksService:
                 value_name = value_item.get("name") or value_item.get("label") or value_item.get("outcome", "")
                 value_odd = value_item.get("value") or value_item.get("odd") or value_item.get("price")
                 
+                # Extract participant (player) information if available
+                participant_data = value_item.get("participant", {})
+                if isinstance(participant_data, dict) and "data" in participant_data:
+                    participant_data = participant_data["data"]
+                
+                # If this is a player-specific odd and we have participant data, use player name
+                player_name = None
+                player_id = None
+                if isinstance(participant_data, dict):
+                    player_name = participant_data.get("name")
+                    player_id = participant_data.get("id")
+                
+                # Use player name if available, otherwise use value_name
+                final_label = player_name if player_name else value_name
+                
                 # Skip if no valid value
-                if not value_name or value_odd is None:
+                if not final_label or value_odd is None:
                     continue
                 
                 # Try to convert to float
@@ -1042,19 +1067,33 @@ class SportmonksService:
                     logger.warning(f"Failed to parse odds value: {value_odd} for {value_name}, error: {e}")
                     continue
                 
+                # Extract market name with fallbacks
+                market_name = None
+                if isinstance(market, dict):
+                    market_name = market.get("name") or market.get("description") or market.get("label")
+                if not market_name:
+                    market_name = odd_item.get("market_description") or odd_item.get("market_name")
+                
+                # Log if market name is missing for debugging
+                if not market_name or market_name.lower() == "unknown":
+                    market_id = market.get("id") if isinstance(market, dict) else odd_item.get("market_id")
+                    logger.debug(f"Unknown market detected - market_id: {market_id}, market dict: {market}, odd_item keys: {odd_item.keys()}")
+                
                 # Build normalized odd object
                 normalized_odd = {
                     "bookmaker_id": bookmaker.get("id") if isinstance(bookmaker, dict) else None,
                     "bookmaker_name": bookmaker.get("name") if isinstance(bookmaker, dict) else None,
                     "market_id": market.get("id") if isinstance(market, dict) else odd_item.get("market_id"),
-                    "market_name": market.get("name") if isinstance(market, dict) else odd_item.get("market_description"),
+                    "market_name": market_name or "Unknown",
                     "market_description": market.get("description") if isinstance(market, dict) else odd_item.get("market_description"),
-                    "label": value_name,
-                    "name": value_name,
+                    "label": final_label,
+                    "name": final_label,
                     "value": value_odd_float,
                     "odd": value_odd_float,
                     "price": value_odd_float,
                     "stopped": odd_item.get("stopped", False),
+                    "player_id": player_id,
+                    "player_name": player_name,
                 }
                 
                 normalized_odds.append(normalized_odd)
@@ -1492,6 +1531,225 @@ class SportmonksService:
         if isinstance(venue_data, dict) and "data" in venue_data:
             venue_data = venue_data["data"]
         
+        # Extract sidelined (match-specific injuries and suspensions)
+        sidelined_data = fixture.get("sidelined", [])
+        if isinstance(sidelined_data, dict) and "data" in sidelined_data:
+            sidelined_data = sidelined_data["data"]
+        if not isinstance(sidelined_data, list):
+            sidelined_data = []
+        
+        # Transform sidelined data
+        transformed_sidelined = []
+        home_team_id = home_team.get("id") if isinstance(home_team, dict) else None
+        away_team_id = away_team.get("id") if isinstance(away_team, dict) else None
+        
+        for sidelined_item in sidelined_data:
+            if not isinstance(sidelined_item, dict):
+                continue
+            
+            # Extract player information
+            player_data = sidelined_item.get("player", {})
+            if isinstance(player_data, dict) and "data" in player_data:
+                player_data = player_data["data"]
+            
+            player_name = player_data.get("name") if isinstance(player_data, dict) else None
+            player_id = sidelined_item.get("player_id") or (player_data.get("id") if isinstance(player_data, dict) else None)
+            player_image = player_data.get("image_path") if isinstance(player_data, dict) else None
+            
+            # Extract team information
+            # SportMonks uses participant_id instead of team_id for sidelined
+            team_id = sidelined_item.get("team_id") or sidelined_item.get("participant_id")
+            
+            # Extract type (injury/suspension)
+            sidelined_type = sidelined_item.get("type", "")
+            if isinstance(sidelined_type, dict):
+                if "data" in sidelined_type:
+                    sidelined_type = sidelined_type["data"].get("name", "") if isinstance(sidelined_type["data"], dict) else ""
+                else:
+                    sidelined_type = sidelined_type.get("name", "")
+            elif not sidelined_type:
+                # If type is not included, try to infer from type_id
+                type_id = sidelined_item.get("type_id")
+                # Common type_id mappings: 535=injury, 537=suspension, etc.
+                if type_id == 535:
+                    sidelined_type = "injury"
+                elif type_id == 537:
+                    sidelined_type = "suspension"
+                else:
+                    sidelined_type = "injury"  # Default
+            
+            # Translate type to Turkish
+            if sidelined_type:
+                sidelined_type_lower = sidelined_type.lower().strip()
+                
+                # Common type translations
+                type_translations = {
+                    # General
+                    "injury": "Sakatlık",
+                    "suspension": "Cezalı",
+                    "called up to national team": "Milli Takıma Çağrıldı",
+                    "national team": "Milli Takıma Çağrıldı",
+                    "virus": "Hastalık",
+                    "ill": "Hastalık",
+                    "illness": "Hastalık",
+                    "sick": "Hastalık",
+                    "disease": "Hastalık",
+                    
+                    # Injuries
+                    "hamstring injury": "Hamstring Sakatlığı",
+                    "ankle injury": "Ayak Bileği Sakatlığı",
+                    "knee injury": "Diz Sakatlığı",
+                    "shoulder injury": "Omuz Sakatlığı",
+                    "back injury": "Sırt Sakatlığı",
+                    "foot injury": "Ayak Sakatlığı",
+                    "leg injury": "Bacak Sakatlığı",
+                    "thigh injury": "Uyluk Sakatlığı",
+                    "thigh problems": "Uyluk Sorunu",
+                    "groin injury": "Kasık Sakatlığı",
+                    "muscle injury": "Kas Sakatlığı",
+                    "broken collarbone": "Köprücük Kemiği Kırığı",
+                    "broken leg": "Bacak Kırığı",
+                    "cruciate ligament tear": "Çapraz Bağ Kopması",
+                    "acl injury": "Çapraz Bağ Kopması",
+                    "bruised ribs": "Kaburga Ezilmesi",
+                    "rib injury": "Kaburga Sakatlığı",
+                    "ankle surgery": "Ayak Bileği Ameliyatı",
+                    "knee surgery": "Diz Ameliyatı",
+                    "shoulder surgery": "Omuz Ameliyatı",
+                    "concussion": "Sarsıntı",
+                    "head injury": "Kafa Sakatlığı",
+                    "neck injury": "Boyun Sakatlığı",
+                    "wrist injury": "Bilek Sakatlığı",
+                    "elbow injury": "Dirsek Sakatlığı",
+                    "hip injury": "Kalça Sakatlığı",
+                    "calf injury": "Baldır Sakatlığı",
+                    "achilles injury": "Aşil Tendonu Sakatlığı",
+                    "meniscus injury": "Menisküs Sakatlığı",
+                    "torn muscle": "Kas Yırtığı",
+                    "muscle tear": "Kas Yırtığı",
+                    "strain": "Zorlanma",
+                    "sprain": "Burkulma",
+                    "fracture": "Kırık",
+                    "dislocation": "Çıkık",
+                    "tendon injury": "Tendon Sakatlığı",
+                    "ligament injury": "Bağ Sakatlığı",
+                    
+                    # Suspensions
+                    "yellow card suspension": "Sarı Kart Cezası",
+                    "red card suspension": "Kırmızı Kart Cezası",
+                    "accumulated yellow cards": "Biriken Sarı Kart Cezası",
+                    "red card": "Kırmızı Kart Cezası",
+                    "yellow card": "Sarı Kart Cezası",
+                }
+                
+                # Try exact match first
+                if sidelined_type_lower in type_translations:
+                    sidelined_type = type_translations[sidelined_type_lower]
+                else:
+                    # Try partial matches
+                    if "injury" in sidelined_type_lower:
+                        sidelined_type = "Sakatlık"
+                    elif "suspension" in sidelined_type_lower or "suspended" in sidelined_type_lower:
+                        sidelined_type = "Cezalı"
+                    elif "national team" in sidelined_type_lower or "called up" in sidelined_type_lower:
+                        sidelined_type = "Milli Takıma Çağrıldı"
+                    elif "yellow card" in sidelined_type_lower:
+                        sidelined_type = "Sarı Kart Cezası"
+                    elif "red card" in sidelined_type_lower:
+                        sidelined_type = "Kırmızı Kart Cezası"
+                    elif "virus" in sidelined_type_lower or "ill" in sidelined_type_lower or "illness" in sidelined_type_lower or "sick" in sidelined_type_lower:
+                        sidelined_type = "Hastalık"
+                    elif "cruciate" in sidelined_type_lower or "acl" in sidelined_type_lower:
+                        sidelined_type = "Çapraz Bağ Kopması"
+                    elif "thigh" in sidelined_type_lower and "problem" in sidelined_type_lower:
+                        sidelined_type = "Uyluk Sorunu"
+                    elif "rib" in sidelined_type_lower and ("bruised" in sidelined_type_lower or "bruise" in sidelined_type_lower):
+                        sidelined_type = "Kaburga Ezilmesi"
+                    elif "rib" in sidelined_type_lower:
+                        sidelined_type = "Kaburga Sakatlığı"
+                    elif "ligament" in sidelined_type_lower and "tear" in sidelined_type_lower:
+                        sidelined_type = "Bağ Kopması"
+                    elif "muscle" in sidelined_type_lower and ("tear" in sidelined_type_lower or "torn" in sidelined_type_lower):
+                        sidelined_type = "Kas Yırtığı"
+                    elif "concussion" in sidelined_type_lower:
+                        sidelined_type = "Sarsıntı"
+                    elif "strain" in sidelined_type_lower:
+                        sidelined_type = "Zorlanma"
+                    elif "sprain" in sidelined_type_lower:
+                        sidelined_type = "Burkulma"
+                    elif "fracture" in sidelined_type_lower:
+                        sidelined_type = "Kırık"
+                    elif "dislocation" in sidelined_type_lower:
+                        sidelined_type = "Çıkık"
+                    # If no match, keep original but translate common words
+                    elif "surgery" in sidelined_type_lower:
+                        sidelined_type = sidelined_type.replace("Surgery", "Ameliyatı").replace("surgery", "Ameliyatı")
+                    elif "injury" in sidelined_type_lower:
+                        # General injury pattern - try to translate the body part
+                        if "head" in sidelined_type_lower or "kafa" in sidelined_type_lower:
+                            sidelined_type = "Kafa Sakatlığı"
+                        elif "neck" in sidelined_type_lower or "boyun" in sidelined_type_lower:
+                            sidelined_type = "Boyun Sakatlığı"
+                        elif "wrist" in sidelined_type_lower or "bilek" in sidelined_type_lower:
+                            sidelined_type = "Bilek Sakatlığı"
+                        elif "elbow" in sidelined_type_lower or "dirsek" in sidelined_type_lower:
+                            sidelined_type = "Dirsek Sakatlığı"
+                        elif "hip" in sidelined_type_lower or "kalça" in sidelined_type_lower:
+                            sidelined_type = "Kalça Sakatlığı"
+                        elif "calf" in sidelined_type_lower or "baldır" in sidelined_type_lower:
+                            sidelined_type = "Baldır Sakatlığı"
+                        elif "achilles" in sidelined_type_lower or "aşil" in sidelined_type_lower:
+                            sidelined_type = "Aşil Tendonu Sakatlığı"
+                        elif "meniscus" in sidelined_type_lower or "menisküs" in sidelined_type_lower:
+                            sidelined_type = "Menisküs Sakatlığı"
+                        elif "tendon" in sidelined_type_lower:
+                            sidelined_type = "Tendon Sakatlığı"
+                        elif "ligament" in sidelined_type_lower:
+                            sidelined_type = "Bağ Sakatlığı"
+                        else:
+                            sidelined_type = "Sakatlık"
+                    else:
+                        # If still no match, provide generic translation
+                        sidelined_type = "Sakatlık"
+            
+            # Extract description
+            description = sidelined_item.get("description", "")
+            if isinstance(description, dict):
+                description = description.get("name", "") if isinstance(description, dict) else ""
+            
+            # Extract dates
+            start_date = sidelined_item.get("start_date")
+            end_date = sidelined_item.get("end_date")
+            
+            # Extract is_active
+            is_active = sidelined_item.get("is_active", True)
+            
+            # Determine if it's home or away team
+            team_side = None
+            if team_id == home_team_id:
+                team_side = "home"
+            elif team_id == away_team_id:
+                team_side = "away"
+            
+            # Only include active sidelined items
+            if is_active and team_side:
+                transformed_sidelined.append({
+                    "player_id": player_id,
+                    "player_name": player_name or f"Player {player_id}" if player_id else "Unknown Player",
+                    "player_image": player_image,
+                    "team_id": team_id,
+                    "team_side": team_side,
+                    "type": sidelined_type or "injury",
+                    "description": description,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "is_active": is_active,
+                })
+            else:
+                logger.debug(f"Skipping sidelined item: is_active={is_active}, team_side={team_side}, team_id={team_id}, home_team_id={home_team_id}, away_team_id={away_team_id}")
+        
+        logger.info(f"Transformed sidelined count: {len(transformed_sidelined)}")
+        
         # Ensure minute is None if match is finished (prevent showing stale minute values)
         final_minute = time_status.get("minute")
         if time_status.get("is_finished", False):
@@ -1525,6 +1783,7 @@ class SportmonksService:
             "lineups": lineups_data if isinstance(lineups_data, list) else [],
             "odds": odds_data if isinstance(odds_data, list) else [],
             "venue": venue_data,
+            "sidelined": transformed_sidelined,  # Match-specific injuries and suspensions
             "participants": participants,  # Keep for reference
             "scores": scores_data,  # Keep for reference
             "time": time_data,  # Keep for reference

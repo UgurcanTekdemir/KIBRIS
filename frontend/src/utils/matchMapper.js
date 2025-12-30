@@ -337,7 +337,29 @@ function mapBackendMatchToInternal(backendMatch) {
       if (odd && odd.stopped === true) return;
       
       const marketId = odd.market_id || null;
-      const marketName = odd.market_name || odd.market_description || 'Unknown';
+      // Try multiple fields to get market name, avoid 'Unknown'
+      let marketName = odd.market_name || odd.market_description || odd.name || odd.label || null;
+      
+      // If still no market name and we have market_id, skip this odd
+      if (!marketName && !marketId) {
+        return; // Skip odds without market name or id
+      }
+      
+      // If we have market_id but no name, use a fallback based on market_id
+      if (marketId && !marketName) {
+        // Map common market_ids to names (you can expand this based on your API)
+        const marketIdMap = {
+          1: 'Match Result',
+          18: 'Total Goals',
+          // Add more mappings as needed
+        };
+        marketName = marketIdMap[marketId] || `Market ${marketId}`;
+      }
+      
+      if (!marketName) {
+        return; // Skip if still no market name
+      }
+      
       // Use market_id as primary key, fallback to market_name
       const marketKey = marketId ? `id_${marketId}` : `name_${marketName}`;
       
@@ -403,8 +425,19 @@ function mapBackendMatchToInternal(backendMatch) {
       });
       
       if (options.length > 0) {
+        // Skip markets with 'Unknown' name
+        if (market.name && market.name.toLowerCase().trim() === 'unknown') {
+          return; // Skip unknown markets
+        }
+        
         // Translate market name to Turkish
         const translatedMarketName = translateMarketName(market.name);
+        
+        // Skip if translation resulted in 'Unknown' or empty
+        if (!translatedMarketName || translatedMarketName.toLowerCase().trim() === 'unknown') {
+          return; // Skip unknown markets
+        }
+        
         markets.push({
           marketId: market.marketId,
           name: translatedMarketName,
@@ -443,6 +476,7 @@ function mapBackendMatchToInternal(backendMatch) {
     markets,
     odds: backendMatch.odds || [],
     venue: backendMatch.venue,
+    sidelined: backendMatch.sidelined || [],
   };
 }
 
@@ -1394,7 +1428,7 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
  * @param {string} marketName - English market name
  * @returns {string} Turkish market name
  */
-function translateMarketName(marketName) {
+export function translateMarketName(marketName) {
   if (!marketName) return marketName;
   
   const translations = {
@@ -1431,12 +1465,27 @@ function translateMarketName(marketName) {
     'first half goals': 'İlk Yarı Golleri',
     'half time goals': 'İlk Yarı Golleri',
     'ht goals': 'İlk Yarı Golleri',
+    'second half goals': 'İkinci Yarı Golleri',
+    '2nd half goals': 'İkinci Yarı Golleri',
+    '2nd half goller': 'İkinci Yarı Golleri',
+    'second half goller': 'İkinci Yarı Golleri',
+    'exact 2nd half goals': 'Kesin İkinci Yarı Golleri',
+    'exact 2nd half goller': 'Kesin İkinci Yarı Golleri',
+    'exact second half goals': 'Kesin İkinci Yarı Golleri',
     'first team to score': 'İlk Golü Atan',
     'first goal scorer': 'İlk Golü Atan',
+    '1st goal scorer': 'İlk Golü Atan',
+    '1st gol scorer': 'İlk Golü Atan',
+    'last goal scorer': 'Son Golü Atan',
+    'last gol scorer': 'Son Golü Atan',
     'anytime goal scorer': 'Gol Atan',
+    'goalscorers': 'Golcüler',
+    'goal scorers': 'Golcüler',
     'win margin': 'Kazanma Farkı',
     'winning margin': 'Kazanma Farkı',
     'exact goals': 'Kesin Gol Sayısı',
+    'number of goals in match': 'Maçtaki Gol Sayısı',
+    'number of goller in match': 'Maçtaki Gol Sayısı',
     'team total': 'Takım Toplamı',
     'player goals': 'Oyuncu Golleri',
     'player assists': 'Oyuncu Asistleri',
@@ -1445,6 +1494,38 @@ function translateMarketName(marketName) {
     'to win both halves': 'Her İki Yarıyı Kazanma',
     'to score in both halves': 'Her İki Yarıda Gol',
     'highest scoring half': 'En Çok Gol Atılan Yarı',
+    'a penalty in the match': 'Maçta Penaltı',
+    'penalty in the match': 'Maçta Penaltı',
+    'a penalty in match': 'Maçta Penaltı',
+    'penalty in match': 'Maçta Penaltı',
+    'score a penalty': 'Penaltı Golü',
+    'score a gol penalty': 'Penaltı Golü',
+    'gol atma a penalty': 'Penaltı Golü',
+    'gol atma penalty': 'Penaltı Golü',
+    'home team score a goal': 'Ev Sahibi Takım Gol Atar',
+    'home team score a gol': 'Ev Sahibi Takım Gol Atar',
+    'ev sahibi team score a gol': 'Ev Sahibi Takım Gol Atar',
+    'home team score a goal': 'Ev Sahibi Takım Gol Atar',
+    'away team score a goal': 'Deplasman Takımı Gol Atar',
+    'away team score a gol': 'Deplasman Takımı Gol Atar',
+    'deplasman team score a gol': 'Deplasman Takımı Gol Atar',
+    'deplasman team score a goal': 'Deplasman Takımı Gol Atar',
+    'home team odd/even goals': 'Ev Sahibi Takım Tek/Çift Goller',
+    'home team odd/even goller': 'Ev Sahibi Takım Tek/Çift Goller',
+    'ev sahibi team odd/even goller': 'Ev Sahibi Takım Tek/Çift Goller',
+    'home team odd even goals': 'Ev Sahibi Takım Tek/Çift Goller',
+    'early goal': 'Erken Gol',
+    'early gol': 'Erken Gol',
+    'late goal': 'Geç Gol',
+    'late gol': 'Geç Gol',
+    'first goal method': 'İlk Gol Metodu',
+    'first gol method': 'İlk Gol Metodu',
+    'goal method': 'Gol Metodu',
+    'gol method': 'Gol Metodu',
+    'score in half': 'Yarıda Gol',
+    'score in a half': 'Yarıda Gol',
+    'gol atma in half': 'Yarıda Gol',
+    'gol atma in a half': 'Yarıda Gol',
     'corners': 'Kornerler',
     'total corners': 'Toplam Korner',
     'cards': 'Kartlar',
@@ -1454,6 +1535,53 @@ function translateMarketName(marketName) {
     'penalties': 'Penaltılar',
     'offsides': 'Ofsaytlar',
     'fouls': 'Fauller',
+    'own goal': 'Kendi Kalesine Gol',
+    'own gol': 'Kendi Kalesine Gol',
+    'to score a penalty': 'Penaltı Golü Atar',
+    'to score or assist': 'Gol veya Asist',
+    'player gol atma or assist': 'Oyuncu Gol Atma veya Asist',
+    'player to score or assist': 'Oyuncu Gol veya Asist',
+    'time of first goal brackets': 'İlk Gol Zaman Aralıkları',
+    'time of ilk gol brackets': 'İlk Gol Zaman Aralıkları',
+    'teams gol atma': 'Takımlar Gol Atma',
+    'teams to score': 'Takımlar Gol Atar',
+    'win either half': 'Herhangi Bir Yarıda Kazanma',
+    'kazanma either half': 'Herhangi Bir Yarıda Kazanma',
+    'player shots': 'Oyuncu Şutları',
+    'multi scorers': 'Çoklu Golcüler',
+    'player shots on target': 'Oyuncu İsabetli Şutları',
+    'player to assist': 'Oyuncu Asist Yapar',
+    'player to be booked': 'Oyuncu Kart Görür',
+    'player to be sent off': 'Oyuncu Kırmızı Kart Görür',
+    'corner match bet': 'Korner Maç Bahsi',
+    'corner maç bet': 'Korner Maç Bahsi',
+    'first match corner': 'İlk Maç Korneri',
+    'ilk maç corner': 'İlk Maç Korneri',
+    'first card received': 'İlk Kart Alınır',
+    'ilk card received': 'İlk Kart Alınır',
+    'red card in the match': 'Maçta Kırmızı Kart',
+    'red card içinde the maç': 'Maçta Kırmızı Kart',
+    'time of first card': 'İlk Kart Zamanı',
+    'time of ilk card': 'İlk Kart Zamanı',
+    'match shots': 'Maç Şutları',
+    'maç shots': 'Maç Şutları',
+    'match shots on target': 'Maç İsabetli Şutları',
+    'maç shots on target': 'Maç İsabetli Şutları',
+    'team shots': 'Takım Şutları',
+    'takım shots': 'Takım Şutları',
+    'team shots on target': 'Takım İsabetli Şutları',
+    'takım shots on target': 'Takım İsabetli Şutları',
+    'away win both halves': 'Deplasman Her İki Yarıyı Kazanır',
+    'deplasman win both halves': 'Deplasman Her İki Yarıyı Kazanır',
+    'first 10 min winner': 'İlk 10 Dakika Kazananı',
+    'ilk 10 min winner': 'İlk 10 Dakika Kazananı',
+    'specials': 'Özel Bahisler',
+    'team performances': 'Takım Performansları',
+    'takım performances': 'Takım Performansları',
+    'win to nil': 'Sıfırla Kazanma',
+    'win both halves': 'Her İki Yarıyı Kazanma',
+    'win to nil - away': 'Sıfırla Kazanma - Deplasman',
+    'win to nil - deplasman': 'Sıfırla Kazanma - Deplasman',
   };
   
   const lowerName = marketName.toLowerCase().trim();
@@ -1473,14 +1601,39 @@ function translateMarketName(marketName) {
   // If no translation found, try to translate common English words
   let translated = marketName;
   
-  // Translate common words
+  // Translate common phrases first (longer patterns first)
+  translated = translated.replace(/\bnumber of (goals|goller) in match\b/gi, 'Maçtaki Gol Sayısı');
+  translated = translated.replace(/\bfirst goal scorer\b/gi, 'İlk Golü Atan');
+  translated = translated.replace(/\b1st goal scorer\b/gi, 'İlk Golü Atan');
+  translated = translated.replace(/\blast goal scorer\b/gi, 'Son Golü Atan');
+  translated = translated.replace(/\bexact 2nd half (goals|goller)\b/gi, 'Kesin İkinci Yarı Golleri');
+  translated = translated.replace(/\b2nd half (goals|goller)\b/gi, 'İkinci Yarı Golleri');
+  translated = translated.replace(/\bsecond half (goals|goller)\b/gi, 'İkinci Yarı Golleri');
+  translated = translated.replace(/\ba penalty in (the )?match\b/gi, 'Maçta Penaltı');
+  translated = translated.replace(/\bpenalty in (the )?match\b/gi, 'Maçta Penaltı');
+  translated = translated.replace(/\bscore a (penalty|gol penalty)\b/gi, 'Penaltı Golü');
+  translated = translated.replace(/\bgol atma (a )?penalty\b/gi, 'Penaltı Golü');
+  translated = translated.replace(/\b(home|ev sahibi) team score a (goal|gol)\b/gi, 'Ev Sahibi Takım Gol Atar');
+  translated = translated.replace(/\b(away|deplasman) team score a (goal|gol)\b/gi, 'Deplasman Takımı Gol Atar');
+  translated = translated.replace(/\b(home|ev sahibi) team odd\/even (goals|goller)\b/gi, 'Ev Sahibi Takım Tek/Çift Goller');
+  translated = translated.replace(/\bearly (goal|gol)\b/gi, 'Erken Gol');
+  translated = translated.replace(/\blate (goal|gol)\b/gi, 'Geç Gol');
+  translated = translated.replace(/\bfirst goal method\b/gi, 'İlk Gol Metodu');
+  translated = translated.replace(/\b(first |1st )?gol? method\b/gi, 'Gol Metodu');
+  translated = translated.replace(/\bscore in (a )?half\b/gi, 'Yarıda Gol');
+  translated = translated.replace(/\bgol atma in (a )?half\b/gi, 'Yarıda Gol');
+  translated = translated.replace(/\bgoalscorers\b/gi, 'Golcüler');
+  
+  // Translate common words (be careful with order - longer patterns first)
   translated = translated.replace(/\bhalf time\b/gi, 'İlk Yarı');
   translated = translated.replace(/\bfirst half\b/gi, 'İlk Yarı');
   translated = translated.replace(/\bfull time\b/gi, 'Maç');
   translated = translated.replace(/\bcorrect score\b/gi, 'Kesin Skor');
   translated = translated.replace(/\bresult\b/gi, 'Sonuç');
   translated = translated.replace(/\bgoals\b/gi, 'Goller');
+  translated = translated.replace(/\bgoller\b/gi, 'Goller');
   translated = translated.replace(/\bgoal\b/gi, 'Gol');
+  translated = translated.replace(/\bgol\b/gi, 'Gol');
   translated = translated.replace(/\bover\b/gi, 'Üst');
   translated = translated.replace(/\bunder\b/gi, 'Alt');
   translated = translated.replace(/\btotal\b/gi, 'Toplam');
@@ -1489,6 +1642,45 @@ function translateMarketName(marketName) {
   translated = translated.replace(/\bdraw\b/gi, 'Beraberlik');
   translated = translated.replace(/\bhome\b/gi, 'Ev Sahibi');
   translated = translated.replace(/\baway\b/gi, 'Deplasman');
+  translated = translated.replace(/\bteam\b/gi, 'Takım');
+  translated = translated.replace(/\bodd\/even\b/gi, 'Tek/Çift');
+  translated = translated.replace(/\bpenalty\b/gi, 'Penaltı');
+  translated = translated.replace(/\bpenalties\b/gi, 'Penaltılar');
+  translated = translated.replace(/\bmethod\b/gi, 'Metodu');
+  translated = translated.replace(/\bmatch\b/gi, 'Maç');
+  translated = translated.replace(/\bexact\b/gi, 'Kesin');
+  translated = translated.replace(/\bnumber of\b/gi, 'Sayısı');
+  translated = translated.replace(/\bin\b/gi, 'içinde');
+  translated = translated.replace(/\bearly\b/gi, 'Erken');
+  translated = translated.replace(/\blate\b/gi, 'Geç');
+  translated = translated.replace(/\bfirst\b/gi, 'İlk');
+  translated = translated.replace(/\blast\b/gi, 'Son');
+  translated = translated.replace(/\b1st\b/gi, 'İlk');
+  translated = translated.replace(/\b2nd\b/gi, '2.');
+  translated = translated.replace(/\bsecond\b/gi, 'İkinci');
+  translated = translated.replace(/\bshots\b/gi, 'Şutlar');
+  translated = translated.replace(/\bshots on target\b/gi, 'İsabetli Şutlar');
+  translated = translated.replace(/\bassist\b/gi, 'Asist');
+  translated = translated.replace(/\bassists\b/gi, 'Asistler');
+  translated = translated.replace(/\bbooked\b/gi, 'Kart Görür');
+  translated = translated.replace(/\bsent off\b/gi, 'Kırmızı Kart Görür');
+  translated = translated.replace(/\bcorner\b/gi, 'Korner');
+  translated = translated.replace(/\bcorners\b/gi, 'Kornerler');
+  translated = translated.replace(/\bcard\b/gi, 'Kart');
+  translated = translated.replace(/\bcards\b/gi, 'Kartlar');
+  translated = translated.replace(/\breceived\b/gi, 'Alınır');
+  translated = translated.replace(/\bperformances\b/gi, 'Performansları');
+  translated = translated.replace(/\bnil\b/gi, 'Sıfır');
+  translated = translated.replace(/\bhalves\b/gi, 'Yarılar');
+  translated = translated.replace(/\bwinner\b/gi, 'Kazanan');
+  translated = translated.replace(/\bbrackets\b/gi, 'Aralıkları');
+  translated = translated.replace(/\bmulti\b/gi, 'Çoklu');
+  translated = translated.replace(/\beither\b/gi, 'Herhangi Bir');
+  translated = translated.replace(/\byes\b/gi, 'Evet');
+  translated = translated.replace(/\bno\b/gi, 'Hayır');
+  translated = translated.replace(/\band\b/gi, 've');
+  translated = translated.replace(/\bor\b/gi, 'veya');
+  translated = translated.replace(/\b\/\b/g, '/');
   
   return translated;
 }
@@ -1598,5 +1790,230 @@ function getLeagueFlagFromCountry(country) {
   }
   
   return '🏆';
+}
+
+/**
+ * Translate option labels from English to Turkish
+ * @param {string} label - Option label in English
+ * @param {string} marketName - Market name for context
+ * @returns {string} Option label in Turkish
+ */
+export function translateOptionLabel(label, homeTeam = '', awayTeam = '') {
+  if (!label) return label;
+  
+  // Keep score formats as-is (e.g., "0-0", "1-0", "2-1")
+  if (/^\d+-\d+$/.test(label.trim())) {
+    return label.trim();
+  }
+  
+  const labelLower = label.toLowerCase().trim();
+  
+  // Common translations
+  const translations = {
+    'yes': 'Evet',
+    'no': 'Hayır',
+    'over': 'Üstü',
+    'under': 'Altı',
+    'over 2.5': 'Üstü 2.5',
+    'under 2.5': 'Altı 2.5',
+    'over 1.5': 'Üstü 1.5',
+    'under 1.5': 'Altı 1.5',
+    'over 3.5': 'Üstü 3.5',
+    'under 3.5': 'Altı 3.5',
+    'over 4.5': 'Üstü 4.5',
+    'under 4.5': 'Altı 4.5',
+    'draw': 'Beraberlik',
+    'tie': 'Beraberlik',
+    'home': 'Ev Sahibi',
+    'away': 'Deplasman',
+    'odd': 'Tek',
+    'even': 'Çift',
+    'to score a penalty': 'Penaltı Golü Atar',
+    'to score or assist': 'Gol veya Asist',
+    'more 2': '2\'den Fazla',
+    'more 3': '3\'ten Fazla',
+    'more 4': '4\'ten Fazla',
+    'less 2': '2\'den Az',
+    'less 3': '3\'ten Az',
+    'less 4': '4\'ten Az',
+    '1st half': 'İlk Yarı',
+    'first half': 'İlk Yarı',
+    '2nd half': 'İkinci Yarı',
+    'second half': 'İkinci Yarı',
+    'anytime': 'Herhangi Bir Zaman',
+    'first': 'İlk',
+    'last': 'Son',
+    'shot': 'Şut',
+    'header': 'Kafa',
+    'free kick': 'Serbest Vuruş',
+    'own goal': 'Kendi Kalesine Gol',
+    'own gol': 'Kendi Kalesine Gol',
+    'before': 'Önce',
+    'after': 'Sonra',
+  };
+  
+  // Check exact match first
+  if (translations[labelLower]) {
+    return translations[labelLower];
+  }
+  
+  // Handle standalone abbreviations
+  if (labelLower === 'ht' || labelLower === 'h/t') {
+    return 'İlk Yarı';
+  }
+  if (labelLower === 'ft' || labelLower === 'f/t') {
+    return 'Maç Sonucu';
+  }
+  
+  // Handle special patterns first (most specific first)
+  if (labelLower.includes('gol before') || labelLower.includes('goal before')) {
+    const timeMatch = label.match(/(\d+:\d+|\d+)/);
+    if (timeMatch) {
+      const hasHayir = labelLower.includes('hayır') || labelLower.includes('no');
+      return hasHayir ? `${timeMatch[1]}'dan Önce Gol Yok` : `${timeMatch[1]}'dan Önce Gol`;
+    }
+  }
+  if (labelLower.includes('gol after') || labelLower.includes('goal after')) {
+    const timeMatch = label.match(/(\d+:\d+|\d+)/);
+    if (timeMatch) {
+      const hasHayir = labelLower.includes('hayır') || labelLower.includes('no');
+      return hasHayir ? `${timeMatch[1]}'dan Sonra Gol Yok` : `${timeMatch[1]}'dan Sonra Gol`;
+    }
+  }
+  
+  // Check partial matches - handle compound labels first
+  // Handle "o/Yes", "u/No" type labels (o = Over, u = Under)
+  if (labelLower.match(/^[ou]\/(yes|no|evet|hayır)$/i) || labelLower.match(/^(yes|no|evet|hayır)\/[ou]$/i)) {
+    let translated = label;
+    translated = translated.replace(/^o\//i, 'Üst/').replace(/\/o$/i, '/Üst');
+    translated = translated.replace(/^u\//i, 'Alt/').replace(/\/u$/i, '/Alt');
+    translated = translated.replace(/\byes\b/gi, 'Evet').replace(/\bno\b/gi, 'Hayır');
+    return translated;
+  }
+  
+  // Handle "Over/Yes", "Under/No" type labels
+  if (labelLower.includes('over') && (labelLower.includes('/') || labelLower.includes('&'))) {
+    let translated = label.replace(/over/gi, 'Üst');
+    translated = translated.replace(/\byes\b/gi, 'Evet').replace(/\bno\b/gi, 'Hayır');
+    return translated;
+  }
+  if (labelLower.includes('under') && (labelLower.includes('/') || labelLower.includes('&'))) {
+    let translated = label.replace(/under/gi, 'Alt');
+    translated = translated.replace(/\byes\b/gi, 'Evet').replace(/\bno\b/gi, 'Hayır');
+    return translated;
+  }
+  
+  // Handle "Yes/Yes", "No/No", "Yes/No", "No/Yes" type labels (both teams to score combinations)
+  if (labelLower.match(/^(yes|no|evet|hayır)\/(yes|no|evet|hayır)$/i)) {
+    return label.replace(/\byes\b/gi, 'Evet').replace(/\bno\b/gi, 'Hayır');
+  }
+  
+  if (labelLower.includes('draw') && (labelLower.includes('/') || labelLower.includes('&'))) {
+    let translated = label.replace(/draw/gi, 'Beraberlik').replace(/yes/gi, 'Evet').replace(/no/gi, 'Hayır');
+    translated = translated.replace(/\bhome\b/gi, 'Ev Sahibi').replace(/\baway\b/gi, 'Deplasman');
+    return translated;
+  }
+  if ((labelLower.includes('home') || labelLower.includes('away')) && (labelLower.includes('/') || labelLower.includes('&'))) {
+    let translated = label.replace(/\bhome\b/gi, 'Ev Sahibi').replace(/\baway\b/gi, 'Deplasman');
+    translated = translated.replace(/draw/gi, 'Beraberlik');
+    translated = translated.replace(/\byes\b/gi, 'Evet').replace(/\bno\b/gi, 'Hayır');
+    return translated;
+  }
+  if (labelLower.includes('tie')) {
+    return 'Beraberlik';
+  }
+  if (labelLower.includes('before')) {
+    const timeMatch = label.match(/(\d+:\d+|\d+)/);
+    if (timeMatch) {
+      return `${timeMatch[1]}'dan Önce`;
+    }
+  }
+  if (labelLower.includes('after')) {
+    const timeMatch = label.match(/(\d+:\d+|\d+)/);
+    if (timeMatch) {
+      return `${timeMatch[1]}'dan Sonra`;
+    }
+  }
+  if (labelLower.includes('to score a penalty')) {
+    // Extract team name if present
+    const teamMatch = label.match(/^(.+?)\s+to score a penalty/i);
+    if (teamMatch) {
+      return `${teamMatch[1]} Penaltı Golü Atar`;
+    }
+    return 'Penaltı Golü Atar';
+  }
+  if (labelLower.includes('to score or assist')) {
+    return 'Gol veya Asist';
+  }
+  if (labelLower.includes('more')) {
+    const numMatch = label.match(/more\s+(\d+)/i);
+    if (numMatch) {
+      return `${numMatch[1]}'den Fazla`;
+    }
+  }
+  if (labelLower.includes('less')) {
+    const numMatch = label.match(/less\s+(\d+)/i);
+    if (numMatch) {
+      return `${numMatch[1]}'den Az`;
+    }
+  }
+  
+  // Generic word translations (order matters - longer patterns first)
+  let translated = label;
+  
+  // Handle single letter abbreviations first (before word boundaries)
+  // "o" = Over, "u" = Under (only in compound labels like "o/Yes", "u/No")
+  // Match patterns like "o/", "/o", "u/", "/u" in compound labels
+  if (translated.includes('/')) {
+    translated = translated.replace(/\bo\//g, 'Üst/').replace(/\/o\b/g, '/Üst');
+    translated = translated.replace(/\bu\//g, 'Alt/').replace(/\/u\b/g, '/Alt');
+  }
+  
+  // Time periods (must come before other replacements)
+  translated = translated.replace(/\bhalf time\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bhalf-time\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bht\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bfull time\b/gi, 'Maç Sonucu');
+  translated = translated.replace(/\bfull-time\b/gi, 'Maç Sonucu');
+  translated = translated.replace(/\bft\b/gi, 'Maç Sonucu');
+  translated = translated.replace(/\b1st half\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\bfirst half\b/gi, 'İlk Yarı');
+  translated = translated.replace(/\b2nd half\b/gi, 'İkinci Yarı');
+  translated = translated.replace(/\bsecond half\b/gi, 'İkinci Yarı');
+  
+  // Team references (must come before other word replacements)
+  translated = translated.replace(/\bhome\b/gi, 'Ev Sahibi');
+  translated = translated.replace(/\baway\b/gi, 'Deplasman');
+  
+  // Other translations
+  translated = translated.replace(/\bover\b/gi, 'Üstü');
+  translated = translated.replace(/\bunder\b/gi, 'Altı');
+  translated = translated.replace(/\byes\b/gi, 'Evet');
+  translated = translated.replace(/\bno\b/gi, 'Hayır');
+  translated = translated.replace(/\bdraw\b/gi, 'Beraberlik');
+  translated = translated.replace(/\btie\b/gi, 'Beraberlik');
+  translated = translated.replace(/\bodd\b/gi, 'Tek');
+  translated = translated.replace(/\beven\b/gi, 'Çift');
+  translated = translated.replace(/\bmore\b/gi, 'Fazla');
+  translated = translated.replace(/\bless\b/gi, 'Az');
+  translated = translated.replace(/\bto score\b/gi, 'Gol Atar');
+  translated = translated.replace(/\bto assist\b/gi, 'Asist Yapar');
+  translated = translated.replace(/\bpenalty\b/gi, 'Penaltı');
+  translated = translated.replace(/\bgoal\b/gi, 'Gol');
+  translated = translated.replace(/\bgol\b/gi, 'Gol');
+  translated = translated.replace(/\bor\b/gi, 'veya');
+  translated = translated.replace(/\band\b/gi, 've');
+  translated = translated.replace(/\banytime\b/gi, 'Herhangi Bir Zaman');
+  translated = translated.replace(/\bfirst\b/gi, 'İlk');
+  translated = translated.replace(/\blast\b/gi, 'Son');
+  translated = translated.replace(/\bshot\b/gi, 'Şut');
+  translated = translated.replace(/\bheader\b/gi, 'Kafa');
+  translated = translated.replace(/\bfree kick\b/gi, 'Serbest Vuruş');
+  translated = translated.replace(/\bown goal\b/gi, 'Kendi Kalesine Gol');
+  translated = translated.replace(/\bown gol\b/gi, 'Kendi Kalesine Gol');
+  translated = translated.replace(/\bbefore\b/gi, 'Önce');
+  translated = translated.replace(/\bafter\b/gi, 'Sonra');
+  
+  return translated;
 }
 

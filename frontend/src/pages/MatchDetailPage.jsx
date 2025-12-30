@@ -11,10 +11,10 @@ import { useLiveMatchEvents } from '../hooks/useLiveMatchEvents';
 import { useLiveMatchStatistics } from '../hooks/useLiveMatchStatistics';
 import { useOddsTracking } from '../hooks/useOddsTracking';
 import { useMatchLineups } from '../hooks/useMatchLineups';
-import { useInjuriesSuspensions } from '../hooks/useInjuriesSuspensions';
 import { useLeagueStandings } from '../hooks/useLeagueStandings';
 import { matchAPI } from '../services/api';
 import { groupMarketsByCategory, getCategoryOrder, getMarketCategory } from '../utils/marketCategories';
+import { translateMarketName, translateOptionLabel } from '../utils/matchMapper';
 import { getTeamImagePath, getFallbackIcon } from '../utils/imageUtils';
 import { formatMatchDateTime } from '../utils/dateUtils';
 
@@ -336,6 +336,7 @@ const MatchDetailPage = () => {
   const { addSelection, isSelected } = useBetSlip();
   const { match, loading, error } = useMatchDetails(id);
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
+  const [expandedMarkets, setExpandedMarkets] = useState(new Set()); // Track which markets are expanded
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
   const [activeTab, setActiveTab] = useState('markets'); // 'markets', 'events', 'stats', 'lineups', 'injuries'
   
@@ -358,33 +359,219 @@ const MatchDetailPage = () => {
   const { events, loading: eventsLoading, error: eventsError } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
   const { statistics: rawStatistics, loading: statsLoading, error: statsError } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
   
-  // Fetch lineups and injuries
+  // Fetch lineups
   const { lineups, loading: lineupsLoading, error: lineupsError } = useMatchLineups(id, true);
   const homeTeamId = match?.homeTeamId || match?.home_team_id;
   const awayTeamId = match?.awayTeamId || match?.away_team_id;
-  const { injuries: homeInjuries, loading: homeInjuriesLoading, error: homeInjuriesError } = useInjuriesSuspensions(
-    homeTeamId,
-    match?.leagueId || match?.league_id
-  );
-  const { injuries: awayInjuries, loading: awayInjuriesLoading, error: awayInjuriesError } = useInjuriesSuspensions(
-    awayTeamId,
-    match?.leagueId || match?.league_id
-  );
   
-  // Combine injuries from both teams
+  // Extract sidelined (match-specific injuries and suspensions) from match data
+  const { homeInjuries, awayInjuries } = useMemo(() => {
+    const sidelined = match?.sidelined || [];
+    
+    if (!Array.isArray(sidelined) || sidelined.length === 0) {
+      return { homeInjuries: [], awayInjuries: [] };
+    }
+    
+    // Separate by team side and transform to UI format
+    const homeInj = [];
+    const awayInj = [];
+    
+    sidelined.forEach((item) => {
+      if (!item.is_active) return; // Skip inactive items
+      
+      // Translate type to Turkish (backend'den gelmişse zaten çevrilmiş olabilir, yine de kontrol edelim)
+      const typeLower = (item.type || '').toLowerCase();
+      let injuryType = item.type || 'Sakatlık';
+      
+      // Eğer backend'den Türkçe gelmemişse çevir
+      const turkishIndicators = ['sakatlık', 'cezalı', 'milli takıma', 'ameliyatı', 'kırığı'];
+      const isAlreadyTurkish = turkishIndicators.some(indicator => typeLower.includes(indicator));
+      
+      if (!isAlreadyTurkish) {
+        // Common type translations
+        const typeTranslations = {
+          // General
+          'injury': 'Sakatlık',
+          'suspension': 'Cezalı',
+          'called up to national team': 'Milli Takıma Çağrıldı',
+          'national team': 'Milli Takıma Çağrıldı',
+          'virus': 'Hastalık',
+          'ill': 'Hastalık',
+          'illness': 'Hastalık',
+          'sick': 'Hastalık',
+          'disease': 'Hastalık',
+          
+          // Injuries
+          'hamstring injury': 'Hamstring Sakatlığı',
+          'ankle injury': 'Ayak Bileği Sakatlığı',
+          'knee injury': 'Diz Sakatlığı',
+          'shoulder injury': 'Omuz Sakatlığı',
+          'back injury': 'Sırt Sakatlığı',
+          'foot injury': 'Ayak Sakatlığı',
+          'leg injury': 'Bacak Sakatlığı',
+          'thigh injury': 'Uyluk Sakatlığı',
+          'thigh problems': 'Uyluk Sorunu',
+          'groin injury': 'Kasık Sakatlığı',
+          'muscle injury': 'Kas Sakatlığı',
+          'broken collarbone': 'Köprücük Kemiği Kırığı',
+          'broken leg': 'Bacak Kırığı',
+          'cruciate ligament tear': 'Çapraz Bağ Kopması',
+          'acl injury': 'Çapraz Bağ Kopması',
+          'bruised ribs': 'Kaburga Ezilmesi',
+          'rib injury': 'Kaburga Sakatlığı',
+          'ankle surgery': 'Ayak Bileği Ameliyatı',
+          'knee surgery': 'Diz Ameliyatı',
+          'shoulder surgery': 'Omuz Ameliyatı',
+          'concussion': 'Sarsıntı',
+          'head injury': 'Kafa Sakatlığı',
+          'neck injury': 'Boyun Sakatlığı',
+          'wrist injury': 'Bilek Sakatlığı',
+          'elbow injury': 'Dirsek Sakatlığı',
+          'hip injury': 'Kalça Sakatlığı',
+          'calf injury': 'Baldır Sakatlığı',
+          'achilles injury': 'Aşil Tendonu Sakatlığı',
+          'meniscus injury': 'Menisküs Sakatlığı',
+          'torn muscle': 'Kas Yırtığı',
+          'muscle tear': 'Kas Yırtığı',
+          'strain': 'Zorlanma',
+          'sprain': 'Burkulma',
+          'fracture': 'Kırık',
+          'dislocation': 'Çıkık',
+          'tendon injury': 'Tendon Sakatlığı',
+          'ligament injury': 'Bağ Sakatlığı',
+          
+          // Suspensions
+          'yellow card suspension': 'Sarı Kart Cezası',
+          'red card suspension': 'Kırmızı Kart Cezası',
+          'accumulated yellow cards': 'Biriken Sarı Kart Cezası',
+          'red card': 'Kırmızı Kart Cezası',
+          'yellow card': 'Sarı Kart Cezası',
+        };
+        
+        // Try exact match first
+        if (typeLower in typeTranslations) {
+          injuryType = typeTranslations[typeLower];
+        } else {
+          // Try partial matches
+          if (typeLower.includes('injury')) {
+            injuryType = 'Sakatlık';
+          } else if (typeLower.includes('suspension') || typeLower.includes('suspended')) {
+            injuryType = 'Cezalı';
+          } else if (typeLower.includes('national team') || typeLower.includes('called up')) {
+            injuryType = 'Milli Takıma Çağrıldı';
+          } else if (typeLower.includes('yellow card')) {
+            injuryType = 'Sarı Kart Cezası';
+          } else if (typeLower.includes('red card')) {
+            injuryType = 'Kırmızı Kart Cezası';
+          } else if (typeLower.includes('virus') || typeLower.includes('ill') || typeLower.includes('illness') || typeLower.includes('sick')) {
+            injuryType = 'Hastalık';
+          } else if (typeLower.includes('cruciate') || typeLower.includes('acl')) {
+            injuryType = 'Çapraz Bağ Kopması';
+          } else if (typeLower.includes('thigh') && typeLower.includes('problem')) {
+            injuryType = 'Uyluk Sorunu';
+          } else if (typeLower.includes('rib') && (typeLower.includes('bruised') || typeLower.includes('bruise'))) {
+            injuryType = 'Kaburga Ezilmesi';
+          } else if (typeLower.includes('rib')) {
+            injuryType = 'Kaburga Sakatlığı';
+          } else if (typeLower.includes('ligament') && typeLower.includes('tear')) {
+            injuryType = 'Bağ Kopması';
+          } else if (typeLower.includes('muscle') && (typeLower.includes('tear') || typeLower.includes('torn'))) {
+            injuryType = 'Kas Yırtığı';
+          } else if (typeLower.includes('concussion')) {
+            injuryType = 'Sarsıntı';
+          } else if (typeLower.includes('strain')) {
+            injuryType = 'Zorlanma';
+          } else if (typeLower.includes('sprain')) {
+            injuryType = 'Burkulma';
+          } else if (typeLower.includes('fracture')) {
+            injuryType = 'Kırık';
+          } else if (typeLower.includes('dislocation')) {
+            injuryType = 'Çıkık';
+          } else if (typeLower.includes('surgery')) {
+            injuryType = item.type.replace(/Surgery/gi, 'Ameliyatı').replace(/surgery/gi, 'Ameliyatı');
+          } else if (typeLower.includes('injury')) {
+            // General injury pattern - try to translate body parts
+            if (typeLower.includes('head') || typeLower.includes('kafa')) {
+              injuryType = 'Kafa Sakatlığı';
+            } else if (typeLower.includes('neck') || typeLower.includes('boyun')) {
+              injuryType = 'Boyun Sakatlığı';
+            } else if (typeLower.includes('wrist') || typeLower.includes('bilek')) {
+              injuryType = 'Bilek Sakatlığı';
+            } else if (typeLower.includes('elbow') || typeLower.includes('dirsek')) {
+              injuryType = 'Dirsek Sakatlığı';
+            } else if (typeLower.includes('hip') || typeLower.includes('kalça')) {
+              injuryType = 'Kalça Sakatlığı';
+            } else if (typeLower.includes('calf') || typeLower.includes('baldır')) {
+              injuryType = 'Baldır Sakatlığı';
+            } else if (typeLower.includes('achilles') || typeLower.includes('aşil')) {
+              injuryType = 'Aşil Tendonu Sakatlığı';
+            } else if (typeLower.includes('meniscus') || typeLower.includes('menisküs')) {
+              injuryType = 'Menisküs Sakatlığı';
+            } else if (typeLower.includes('tendon')) {
+              injuryType = 'Tendon Sakatlığı';
+            } else if (typeLower.includes('ligament')) {
+              injuryType = 'Bağ Sakatlığı';
+            } else {
+              injuryType = 'Sakatlık';
+            }
+          }
+        }
+      }
+      
+      // Format return date
+      let returnDate = '';
+      if (item.end_date) {
+        try {
+          const date = new Date(item.end_date);
+          if (!isNaN(date.getTime())) {
+            // Format as DD.MM.YYYY
+            returnDate = date.toLocaleDateString('tr-TR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric'
+            });
+          } else {
+            returnDate = item.end_date; // Use as-is if parsing fails
+          }
+        } catch (e) {
+          returnDate = item.end_date; // Use as-is if error
+        }
+      }
+      
+      const injuryItem = {
+        player_name: item.player_name || 'Oyuncu',
+        player_image: item.player_image || null,
+        type: injuryType,
+        description: item.description || '',
+        return_date: returnDate,
+        team: item.team_side === 'home' ? (match?.homeTeam || match?.home_team || 'Ev Sahibi') : (match?.awayTeam || match?.away_team || 'Deplasman'),
+      };
+      
+      if (item.team_side === 'home') {
+        homeInj.push(injuryItem);
+      } else if (item.team_side === 'away') {
+        awayInj.push(injuryItem);
+      }
+    });
+    
+    return { homeInjuries: homeInj, awayInjuries: awayInj };
+  }, [match?.sidelined, match?.homeTeam, match?.home_team, match?.awayTeam, match?.away_team]);
+  
+  // Combine injuries from both teams for backward compatibility
   const injuries = useMemo(() => {
     const allInjuries = [];
     if (homeInjuries && Array.isArray(homeInjuries)) {
-      allInjuries.push(...homeInjuries.map(inj => ({ ...inj, team: match?.homeTeam || 'Ev Sahibi' })));
+      allInjuries.push(...homeInjuries);
     }
     if (awayInjuries && Array.isArray(awayInjuries)) {
-      allInjuries.push(...awayInjuries.map(inj => ({ ...inj, team: match?.awayTeam || 'Deplasman' })));
+      allInjuries.push(...awayInjuries);
     }
     return allInjuries;
-  }, [homeInjuries, awayInjuries, match?.homeTeam, match?.awayTeam]);
+  }, [homeInjuries, awayInjuries]);
   
-  const injuriesLoading = homeInjuriesLoading || awayInjuriesLoading;
-  const injuriesError = homeInjuriesError || awayInjuriesError;
+  // Loading and error states are now tied to match loading
+  const injuriesLoading = loading;
+  const injuriesError = error;
   
   // Fetch league standings
   const leagueId = match?.leagueId || match?.league_id;
@@ -440,7 +627,37 @@ const MatchDetailPage = () => {
     return ['Tümü', ...getCategoryOrder().filter(cat => cats.includes(cat)), ...cats.filter(cat => !getCategoryOrder().includes(cat))];
   }, [marketsByCategory]);
 
-  // Filter and sort markets by selected category
+  // Normalize market name for grouping (remove variations, translate to standard name)
+  const normalizeMarketName = (marketName) => {
+    if (!marketName) return '';
+    const translated = translateMarketName(marketName);
+    const lower = translated.toLowerCase().trim();
+    const originalLower = (marketName || '').toLowerCase().trim();
+    
+    // Normalize common variations - check both translated and original
+    if (lower.includes('maç sonucu') || lower.includes('match result') || originalLower.includes('1x2') || originalLower.includes('match winner') || originalLower.includes('full time result') || originalLower.includes('fulltime result')) {
+      return 'maç_sonucu';
+    }
+    if (lower.includes('toplam gol') || originalLower.includes('total goal') || originalLower.includes('over/under') || originalLower.includes('goal line') || originalLower.includes('total goals')) {
+      return 'toplam_gol';
+    }
+    if (lower.includes('çifte şans') || originalLower.includes('double chance')) {
+      return 'çifte_şans';
+    }
+    if (lower.includes('beraberlik yok') || lower.includes('beraberlikte iade') || originalLower.includes('draw no bet')) {
+      return 'beraberlik_yok';
+    }
+    if (lower.includes('asya handikap') || originalLower.includes('asian handicap')) {
+      return 'asya_handikap';
+    }
+    if (lower.includes('karşılıklı gol') || originalLower.includes('both teams to score') || originalLower.includes('btts')) {
+      return 'karşılıklı_gol';
+    }
+    
+    return translated.toLowerCase().replace(/\s+/g, '_');
+  };
+  
+  // Filter, merge duplicates, translate and sort markets by selected category
   const filteredMarkets = useMemo(() => {
     if (!match?.markets) return [];
     
@@ -451,9 +668,271 @@ const MatchDetailPage = () => {
       markets = marketsByCategory[selectedCategory] || [];
     }
     
+    // Merge markets with same normalized name and translate names
+    const marketMap = new Map();
+    
+    markets.forEach((market) => {
+      // Translate market name to Turkish
+      const translatedName = translateMarketName(market.name);
+      const normalizedKey = normalizeMarketName(market.name);
+      
+      if (marketMap.has(normalizedKey)) {
+        // Merge options from duplicate markets
+        const existingMarket = marketMap.get(normalizedKey);
+        
+        // Normalize option labels for matching (1, X, 2 for match result, otherwise use label as-is)
+        const normalizeOptionLabel = (label) => {
+          if (!label) return '';
+          const labelTrimmed = (label || '').trim();
+          const labelLower = labelTrimmed.toLowerCase();
+          
+          // Keep score formats as-is (e.g., "0-0", "1-0", "2-1")
+          if (/^\d+-\d+$/.test(labelTrimmed)) {
+            return labelTrimmed; // Keep original format (preserves case, but scores are usually numbers)
+          }
+          
+          // For correct score markets, don't normalize - keep original label
+          const isCorrectScore = normalizedKey.includes('kesin_skor') || normalizedKey.includes('correct_score');
+          if (isCorrectScore) {
+            return labelTrimmed;
+          }
+          
+          // For handicap markets, don't normalize 1/X/2 - keep original labels
+          // Handicap markets should only have home/away options with handicap values
+          const isHandicap = normalizedKey.includes('handikap') || normalizedKey.includes('handicap');
+          if (isHandicap) {
+            // For handicap, keep original label (will be "Home 0.5", "Away -0.5", etc.)
+            return labelTrimmed;
+          }
+          
+          // For match result markets only, normalize to 1, X, 2
+          if (normalizedKey === 'maç_sonucu' || normalizedKey.includes('match_result')) {
+            if (labelLower === 'home' || labelLower === 'ev sahibi' || labelLower === '1' || 
+                labelLower === match?.homeTeam?.toLowerCase()) {
+              return '1';
+            }
+            if (labelLower === 'away' || labelLower === 'deplasman' || labelLower === '2' || 
+                labelLower === match?.awayTeam?.toLowerCase()) {
+              return '2';
+            }
+            if (labelLower === 'draw' || labelLower === 'beraberlik' || labelLower === 'x' || labelLower === 'tie') {
+              return 'X';
+            }
+          }
+          
+          // For other markets, use normalized lowercase label
+          return labelLower;
+        };
+        
+        // Helper function to select best odds using the logic:
+        // - If only one option: use it
+        // - If multiple options: use second lowest, unless difference from lowest is > 0.50, then use lowest
+        const selectBestOdds = (options) => {
+          if (options.length === 0) return null;
+          if (options.length === 1) return options[0];
+          
+          // Sort by value (ascending - lowest first)
+          const sorted = [...options].sort((a, b) => {
+            const valA = typeof a.value === 'number' ? a.value : parseFloat(a.value) || 0;
+            const valB = typeof b.value === 'number' ? b.value : parseFloat(b.value) || 0;
+            return valA - valB;
+          });
+          
+          // Get lowest and second lowest
+          const lowest = sorted[0];
+          const secondLowest = sorted[1];
+          
+          const lowestValue = typeof lowest.value === 'number' ? lowest.value : parseFloat(lowest.value) || 0;
+          const secondLowestValue = typeof secondLowest.value === 'number' ? secondLowest.value : parseFloat(secondLowest.value) || 0;
+          
+          const difference = secondLowestValue - lowestValue;
+          
+          if (difference > 0.50) {
+            // Difference > 0.50, use lowest
+            return lowest;
+          } else {
+            // Difference <= 0.50, use second lowest
+            return secondLowest;
+          }
+        };
+        
+        // Process each option from the new market - collect all options first
+        const allOptionsByLabel = new Map();
+        
+        // Add existing options
+        existingMarket.options.forEach(opt => {
+          const normalized = normalizeOptionLabel(opt.label);
+          if (!allOptionsByLabel.has(normalized)) {
+            allOptionsByLabel.set(normalized, []);
+          }
+          allOptionsByLabel.get(normalized).push(opt);
+        });
+        
+        // Add new options from current market
+        market.options.forEach(opt => {
+          const optLabel = (opt.label || '').trim();
+          const optLabelNormalized = normalizeOptionLabel(optLabel);
+          const optValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          
+          // Filter out invalid odds (<= 0) and extremely high odds (> 100)
+          if (optValue <= 0 || optValue > 100) return;
+          
+          if (!allOptionsByLabel.has(optLabelNormalized)) {
+            allOptionsByLabel.set(optLabelNormalized, []);
+          }
+          
+          // Keep normalized label for display if it's 1/X/2 (prevents duplicates)
+          // Otherwise use original label (will be translated later)
+          const displayLabel = ['1', 'X', '2'].includes(optLabelNormalized)
+            ? optLabelNormalized.toUpperCase() 
+            : optLabel;
+          
+          allOptionsByLabel.get(optLabelNormalized).push({
+            label: displayLabel,
+            value: optValue,
+            selectionId: opt.selectionId
+          });
+        });
+        
+        // For each normalized label, apply the selection logic
+        const finalOptions = [];
+        allOptionsByLabel.forEach((opts, normalized) => {
+          const selected = selectBestOdds(opts);
+          if (selected) {
+            finalOptions.push(selected);
+          }
+        });
+        
+        existingMarket.options = finalOptions;
+      } else {
+        // Create new market entry with translated name
+        // Normalize option labels for matching - apply to all markets
+        const normalizeOptionLabel = (label) => {
+          if (!label) return '';
+          const labelTrimmed = (label || '').trim();
+          const labelLower = labelTrimmed.toLowerCase();
+          
+          // Keep score formats as-is (e.g., "0-0", "1-0", "2-1")
+          if (/^\d+-\d+$/.test(labelTrimmed)) {
+            return labelTrimmed; // Keep original format
+          }
+          
+          // For correct score markets, don't normalize - keep original label
+          const isCorrectScore = normalizedKey.includes('kesin_skor') || normalizedKey.includes('correct_score');
+          if (isCorrectScore) {
+            return labelTrimmed;
+          }
+          
+          // For handicap markets, don't normalize 1/X/2 - keep original labels
+          // Handicap markets should only have home/away options, not 1/X/2
+          const isHandicap = normalizedKey.includes('handikap') || normalizedKey.includes('handicap');
+          if (isHandicap) {
+            // For handicap, keep original label (will be "Home 0.5", "Away -0.5", etc.)
+            return labelTrimmed;
+          }
+          
+          // For match result markets only, normalize to 1/X/2
+          if (normalizedKey === 'maç_sonucu' || normalizedKey.includes('match_result')) {
+            if (labelLower === 'home' || labelLower === 'ev sahibi' || labelLower === '1' || 
+                labelLower === match?.homeTeam?.toLowerCase()) {
+              return '1';
+            }
+            if (labelLower === 'away' || labelLower === 'deplasman' || labelLower === '2' || 
+                labelLower === match?.awayTeam?.toLowerCase()) {
+              return '2';
+            }
+            if (labelLower === 'draw' || labelLower === 'beraberlik' || labelLower === 'x' || labelLower === 'tie') {
+              return 'X';
+            }
+          }
+          
+          // For other markets, use normalized lowercase label
+          return labelLower;
+        };
+        
+        // Helper function to select best odds using the logic:
+        // - If only one option: use it
+        // - If multiple options: use second lowest, unless difference from lowest is > 0.50, then use lowest
+        const selectBestOdds = (options) => {
+          if (options.length === 0) return null;
+          if (options.length === 1) return options[0];
+          
+          // Sort by value (ascending - lowest first)
+          const sorted = [...options].sort((a, b) => {
+            const valA = typeof a.value === 'number' ? a.value : parseFloat(a.value) || 0;
+            const valB = typeof b.value === 'number' ? b.value : parseFloat(b.value) || 0;
+            return valA - valB;
+          });
+          
+          // Get lowest and second lowest
+          const lowest = sorted[0];
+          const secondLowest = sorted[1];
+          
+          const lowestValue = typeof lowest.value === 'number' ? lowest.value : parseFloat(lowest.value) || 0;
+          const secondLowestValue = typeof secondLowest.value === 'number' ? secondLowest.value : parseFloat(secondLowest.value) || 0;
+          
+          const difference = secondLowestValue - lowestValue;
+          
+          if (difference > 0.50) {
+            // Difference > 0.50, use lowest
+            return lowest;
+          } else {
+            // Difference <= 0.50, use second lowest
+            return secondLowest;
+          }
+        };
+        
+        // Group options by normalized label
+        const optionsByLabel = new Map();
+        market.options.forEach(opt => {
+          const optValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+          // Filter out invalid odds (<= 0) and extremely high odds (> 100)
+          if (optValue <= 0 || optValue > 100) return;
+          
+          const normalized = normalizeOptionLabel(opt.label);
+          if (!optionsByLabel.has(normalized)) {
+            optionsByLabel.set(normalized, []);
+          }
+          
+          // Keep normalized label for display if it's 1/X/2 (prevents duplicates)
+          // Otherwise use original label (will be translated later)
+          const displayLabel = ['1', 'X', '2'].includes(normalized)
+            ? normalized.toUpperCase() 
+            : (opt.label || '').trim();
+          
+          optionsByLabel.get(normalized).push({
+            label: displayLabel,
+            value: optValue,
+            selectionId: opt.selectionId
+          });
+        });
+        
+        // For each normalized label, apply the selection logic
+        const validOptions = [];
+        optionsByLabel.forEach((opts) => {
+          const selected = selectBestOdds(opts);
+          if (selected) {
+            validOptions.push(selected);
+          }
+        });
+        
+        if (validOptions.length > 0) {
+          marketMap.set(normalizedKey, {
+            ...market,
+            name: translatedName,
+            options: validOptions,
+            originalName: market.name,
+          });
+        }
+      }
+    });
+    
+    // Convert map back to array
+    const mergedMarkets = Array.from(marketMap.values());
+    
     // Sort markets by importance (use category order)
     const categoryOrder = getCategoryOrder();
-    return markets.sort((a, b) => {
+    return mergedMarkets.sort((a, b) => {
       const categoryA = getMarketCategory(a.name);
       const categoryB = getMarketCategory(b.name);
       const indexA = categoryOrder.indexOf(categoryA);
@@ -471,6 +950,152 @@ const MatchDetailPage = () => {
       return indexA - indexB;
     });
   }, [match?.markets, selectedCategory, marketsByCategory]);
+  
+  // Check if a market is Over/Under type (for table display)
+  const isOverUnderMarket = useMemo(() => {
+    return (marketName) => {
+      const name = (marketName || '').toLowerCase();
+      return (
+        name.includes('toplam gol') ||
+        name.includes('total goal') ||
+        (name.includes('over') && name.includes('under')) ||
+        (name.includes('alt') && name.includes('üst')) ||
+        (name.includes('gol') && (name.includes('2.5') || name.includes('1.5') || name.includes('3.5') || name.includes('4.5')))
+      );
+    };
+  }, []);
+  
+  // Check if a market is Handicap type (for table display)
+  const isHandicapMarket = useMemo(() => {
+    return (marketName) => {
+      const name = (marketName || '').toLowerCase();
+      return (
+        name.includes('handikap') ||
+        name.includes('handicap') ||
+        name.includes('asian handicap') ||
+        name.includes('asya handikap')
+      );
+    };
+  }, []);
+  
+  // Group handicap options by handicap value
+  const groupHandicapOptions = useMemo(() => {
+    return (options, homeTeam, awayTeam) => {
+      const groups = new Map();
+      
+      options.forEach(opt => {
+        const label = (opt.label || '').trim();
+        const value = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+        
+        // Filter out invalid odds (<= 0) and extremely high odds (> 100)
+        if (value <= 0 || value > 100) return;
+        
+        // Extract handicap value from label (e.g., "0.5", "-0.5", "1", "-1.25")
+        // Handicap labels can be: "0.5", "-0.5", "Home 0.5", "Away -0.5", etc.
+        let handicapValue = null;
+        const handicapMatch = label.match(/([+-]?\d+\.?\d*)/);
+        if (handicapMatch) {
+          handicapValue = handicapMatch[1];
+        } else {
+          // Try to extract from translated label
+          const translatedLabel = translateOptionLabel(label);
+          const translatedMatch = translatedLabel.match(/([+-]?\d+\.?\d*)/);
+          if (translatedMatch) {
+            handicapValue = translatedMatch[1];
+          }
+        }
+        
+        if (!handicapValue) return;
+        
+        // Determine if this is for home or away team
+        const labelLower = label.toLowerCase();
+        const handicapNum = parseFloat(handicapValue);
+        const isHome = labelLower.includes('home') || labelLower.includes('ev sahibi') || 
+                       (handicapNum >= 0 && !labelLower.includes('away') && !labelLower.includes('deplasman'));
+        const isAway = labelLower.includes('away') || labelLower.includes('deplasman') || 
+                       (handicapNum < 0 && !labelLower.includes('home') && !labelLower.includes('ev sahibi'));
+        
+        // Normalize handicap value (remove sign for grouping)
+        const absHandicap = Math.abs(handicapNum);
+        const handicapKey = absHandicap.toString();
+        
+        if (!groups.has(handicapKey)) {
+          groups.set(handicapKey, { 
+            handicap: handicapKey, 
+            home: null, 
+            away: null,
+            homeHandicap: null,
+            awayHandicap: null
+          });
+        }
+        
+        const group = groups.get(handicapKey);
+        
+        // For positive handicaps, usually home team; for negative, away team
+        // But also check label for explicit team references
+        if (isHome || (handicapNum >= 0 && !isAway)) {
+          if (!group.home || group.home.value > value) {
+            group.home = { label, value, original: opt };
+            group.homeHandicap = handicapValue.startsWith('-') ? handicapValue.replace('-', '') : handicapValue;
+          }
+        } else if (isAway || handicapNum < 0) {
+          if (!group.away || group.away.value > value) {
+            group.away = { label, value, original: opt };
+            // Away handicap is negative, but we display it with minus sign
+            group.awayHandicap = handicapValue.startsWith('-') ? handicapValue : `-${handicapValue}`;
+          }
+        }
+      });
+      
+      // Convert to array and sort by handicap value
+      return Array.from(groups.values()).sort((a, b) => {
+        const numA = parseFloat(a.handicap) || 0;
+        const numB = parseFloat(b.handicap) || 0;
+        return numA - numB;
+      });
+    };
+  }, []);
+  
+  // Group Over/Under options by line (e.g., 2.5, 3.5)
+  const groupOverUnderOptions = useMemo(() => {
+    return (options) => {
+      const groups = new Map();
+      
+      options.forEach(opt => {
+        const label = (opt.label || '').trim();
+        const value = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+        
+        // Filter out invalid odds (<= 0) and extremely high odds (> 100)
+        if (value <= 0 || value > 100) return;
+        
+        // Extract line number from label (e.g., "2.5 üstü" -> "2.5", "Over 3.5" -> "3.5")
+        const lineMatch = label.match(/(\d+\.?\d*)/);
+        if (!lineMatch) return;
+        
+        const lineKey = lineMatch[1];
+        
+        if (!groups.has(lineKey)) {
+          groups.set(lineKey, { line: lineKey, over: null, under: null });
+        }
+        
+        const group = groups.get(lineKey);
+        const labelLower = label.toLowerCase();
+        
+        if (labelLower.includes('üst') || labelLower.includes('over') || labelLower.includes('üstü')) {
+          group.over = { label, value, original: opt };
+        } else if (labelLower.includes('alt') || labelLower.includes('under') || labelLower.includes('altı')) {
+          group.under = { label, value, original: opt };
+        }
+      });
+      
+      // Convert to array and sort by line number
+      return Array.from(groups.values()).sort((a, b) => {
+        const numA = parseFloat(a.line) || 0;
+        const numB = parseFloat(b.line) || 0;
+        return numA - numB;
+      });
+    };
+  }, []);
 
   // Reset logo errors when match changes
   useEffect(() => {
@@ -700,57 +1325,109 @@ const MatchDetailPage = () => {
                 </div>
               )}
 
-              {/* Markets List - All markets displayed without dropdowns */}
-              <div className="space-y-6">
+              {/* Markets List - Table view for Over/Under and Handicap, dropdown for others */}
+              <div className="space-y-4">
                 {filteredMarkets.length > 0 ? (
                   filteredMarkets.map((market, idx) => {
-                    const marketKey = `${selectedCategory}-${idx}-${market.name}`;
+                    const marketKey = `${selectedCategory}-${idx}-${market.name}-${market.marketId || ''}`;
+                    const validOptions = market.options || [];
+                    const isExpanded = expandedMarkets.has(marketKey);
+                    
+                    if (validOptions.length === 0) return null;
+                    
+                    // Render all markets as dropdown/collapsible (same format for all)
+                    const sortedOptions = sortMarketOptions(validOptions, market.name);
+                    const isMarketExpanded = expandedMarkets.has(marketKey);
+                    
                     return (
-                      <div key={marketKey} className="bg-[#0a0e14] border border-[#1e2736] rounded-xl p-3">
-                        <h3 className="text-white font-semibold text-sm mb-3">{market.name}</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {sortMarketOptions(
-                            market.options.filter(opt => {
-                              const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-                              return oddsValue > 0;
-                            }),
-                            market.name
-                          ).map((opt, optIdx) => {
-                              const selected = isSelected(match.id, market.name, opt.label);
-                              const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-                              
-                              // Get odds change indicator
-                              const oddsChange = getOddsChange(market.name, opt.label);
-                              
-                              return (
-                                <button
-                                  key={`${market.name}-${opt.label}-${optIdx}`}
-                                  onClick={() => addSelection(match, market.name, opt.label, oddsValue)}
-                                  className={`min-w-[80px] flex-1 max-w-[140px] py-2 px-3 rounded-lg text-center transition-all ${
-                                    selected
-                                      ? 'bg-amber-500 text-black shadow-md shadow-amber-500/50'
-                                      : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white hover:border-amber-500/50 border border-transparent'
-                                  }`}
-                                >
-                                  <span className="text-xs text-gray-300 block mb-1">{opt.label}</span>
-                                  <span className="font-bold text-base flex items-center justify-center gap-1">
-                                    {oddsChange && oddsChange.direction === 'up' && (
-                                      <ArrowUp size={14} className="text-green-500" />
-                                    )}
-                                    {oddsChange && oddsChange.direction === 'down' && (
-                                      <ArrowDown size={14} className="text-red-500" />
-                                    )}
-                                    {oddsValue.toFixed(2)}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                      <div key={marketKey} className="bg-[#0a0e14] border border-[#1e2736] rounded-xl overflow-hidden">
+                        <div 
+                          className="p-4 border-b border-[#1e2736] bg-[#0d1117] flex items-center justify-between cursor-pointer hover:bg-[#1a2332] transition-colors"
+                          onClick={() => {
+                            const newExpanded = new Set(expandedMarkets);
+                            if (newExpanded.has(marketKey)) {
+                              newExpanded.delete(marketKey);
+                            } else {
+                              newExpanded.add(marketKey);
+                            }
+                            setExpandedMarkets(newExpanded);
+                          }}
+                        >
+                          <h3 className="text-white font-semibold text-sm">{market.name}</h3>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">{sortedOptions.length} seçenek</span>
+                            <svg 
+                              className={`w-4 h-4 text-gray-400 transition-transform ${isMarketExpanded ? 'rotate-180' : ''}`}
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
                         </div>
+                        {isMarketExpanded && (
+                          <div className="p-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {sortedOptions.map((opt, optIdx) => {
+                                const selected = isSelected(match.id, market.originalName || market.name, opt.label);
+                                const oddsValue = opt.value;
+                                
+                                // Get odds change indicator
+                                const oddsChange = getOddsChange(market.originalName || market.name, opt.label);
+                                
+                                // Translate option labels - opt.label is already normalized (1, X, 2 or original)
+                                let displayLabel = opt.label;
+                                // If it's already 1/X/2, keep it
+                                if (opt.label === '1' || opt.label === 'X' || opt.label === '2') {
+                                  displayLabel = opt.label;
+                                } else {
+                                  // For player goalscorer markets, check if label is just "Home" or "Away"
+                                  const marketNameLower = (market.name || '').toLowerCase();
+                                  const labelLower = (opt.label || '').toLowerCase().trim();
+                                  
+                                  if ((marketNameLower.includes('ilk golü atan') || marketNameLower.includes('first goalscorer') || 
+                                       marketNameLower.includes('oyuncu gol')) && 
+                                      (labelLower === 'home' || labelLower === 'away')) {
+                                    // For player markets, "Home" or "Away" should be translated to team names or "Ev Sahibi"/"Deplasman"
+                                    displayLabel = labelLower === 'home' ? 'Ev Sahibi' : 'Deplasman';
+                                  } else {
+                                    // Otherwise translate to Turkish
+                                    displayLabel = translateOptionLabel(opt.label, match?.homeTeam, match?.awayTeam);
+                                  }
+                                }
+                                
+                                return (
+                                  <button
+                                    key={`${market.name}-${opt.label}-${optIdx}`}
+                                    onClick={() => addSelection(match, market.originalName || market.name, opt.label, oddsValue)}
+                                    className={`py-3 px-4 rounded-lg text-center transition-all ${
+                                      selected
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 font-semibold'
+                                        : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white border border-transparent hover:border-amber-500/30'
+                                    }`}
+                                  >
+                                    <div className="text-xs text-gray-400 mb-1.5 font-medium">{displayLabel}</div>
+                                    <div className="font-bold text-lg flex items-center justify-center gap-1.5">
+                                      {oddsChange && oddsChange.direction === 'up' && (
+                                        <ArrowUp size={16} className="text-green-500" />
+                                      )}
+                                      {oddsChange && oddsChange.direction === 'down' && (
+                                        <ArrowDown size={16} className="text-red-500" />
+                                      )}
+                                      {oddsValue.toFixed(2)}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-12 text-gray-500">
                     {match.markets && match.markets.length > 0 
                       ? 'Bu kategoride bahis bulunamadı'
                       : 'Bu maç için bahis oranları henüz mevcut değil'}
@@ -1346,23 +2023,52 @@ const MatchDetailPage = () => {
                   {/* Home Team Injuries */}
                   {homeInjuries && homeInjuries.length > 0 && (
                     <div>
-                      <h3 className="text-white font-semibold mb-3 text-lg">{match?.homeTeam || 'Ev Sahibi'}</h3>
+                      <h3 className="text-white font-semibold mb-3 text-lg">{match?.homeTeam || match?.home_team || 'Ev Sahibi'}</h3>
                       <div className="space-y-3">
                         {homeInjuries.map((injury, idx) => {
-                          const playerName = injury.player_name || injury.player?.name || injury.player || 'Oyuncu';
-                          const injuryType = injury.type || injury.reason || injury.injury_type || injury.injury || 'Sakatlık';
-                          const returnDate = injury.return_date || injury.expected_return || injury.expected_return_date || '';
+                          const playerName = injury.player_name || 'Oyuncu';
+                          const playerImage = injury.player_image;
+                          const injuryType = injury.type || 'Sakatlık';
+                          const description = injury.description || '';
+                          const returnDate = injury.return_date || '';
                           
                           return (
                             <div key={idx} className="bg-[#0a0e14] border border-[#1e2736] rounded-lg p-4 hover:border-[#2a3a4d] transition-colors">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-white font-medium">{playerName}</span>
-                                <span className="text-xs text-red-400 bg-red-500/20 px-3 py-1.5 rounded-full border border-red-500/30">
-                                  {injuryType}
-                                </span>
+                              <div className="flex items-center gap-3 mb-2">
+                                {/* Player Image */}
+                                {playerImage ? (
+                                  <img 
+                                    src={playerImage} 
+                                    alt={playerName}
+                                    className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-[#2a3a4d]"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      e.target.nextSibling.style.display = 'flex';
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={`w-12 h-12 rounded-full bg-[#1a2332] border border-[#2a3a4d] flex items-center justify-center flex-shrink-0 ${playerImage ? 'hidden' : 'flex'}`}>
+                                  <span className="text-gray-400 text-sm font-medium">
+                                    {playerName.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                {/* Player Name and Type */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-white font-medium truncate">{playerName}</span>
+                                    <span className="text-xs text-red-400 bg-red-500/20 px-3 py-1.5 rounded-full border border-red-500/30 flex-shrink-0">
+                                      {injuryType}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
+                              {description && (
+                                <p className="text-sm text-gray-400 mt-2 ml-[60px]">
+                                  {description}
+                                </p>
+                              )}
                               {returnDate && (
-                                <p className="text-sm text-gray-400 mt-2">
+                                <p className="text-sm text-gray-400 mt-2 ml-[60px]">
                                   <span className="text-gray-500">Tahmini Dönüş:</span> {returnDate}
                                 </p>
                               )}
@@ -1376,23 +2082,52 @@ const MatchDetailPage = () => {
                   {/* Away Team Injuries */}
                   {awayInjuries && awayInjuries.length > 0 && (
                     <div>
-                      <h3 className="text-white font-semibold mb-3 text-lg">{match?.awayTeam || 'Deplasman'}</h3>
+                      <h3 className="text-white font-semibold mb-3 text-lg">{match?.awayTeam || match?.away_team || 'Deplasman'}</h3>
                       <div className="space-y-3">
                         {awayInjuries.map((injury, idx) => {
-                          const playerName = injury.player_name || injury.player?.name || injury.player || 'Oyuncu';
-                          const injuryType = injury.type || injury.reason || injury.injury_type || injury.injury || 'Sakatlık';
-                          const returnDate = injury.return_date || injury.expected_return || injury.expected_return_date || '';
+                          const playerName = injury.player_name || 'Oyuncu';
+                          const playerImage = injury.player_image;
+                          const injuryType = injury.type || 'Sakatlık';
+                          const description = injury.description || '';
+                          const returnDate = injury.return_date || '';
                           
                           return (
                             <div key={idx} className="bg-[#0a0e14] border border-[#1e2736] rounded-lg p-4 hover:border-[#2a3a4d] transition-colors">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-white font-medium">{playerName}</span>
-                                <span className="text-xs text-red-400 bg-red-500/20 px-3 py-1.5 rounded-full border border-red-500/30">
-                                  {injuryType}
-                                </span>
+                              <div className="flex items-center gap-3 mb-2">
+                                {/* Player Image */}
+                                {playerImage ? (
+                                  <img 
+                                    src={playerImage} 
+                                    alt={playerName}
+                                    className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-[#2a3a4d]"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      e.target.nextSibling.style.display = 'flex';
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={`w-12 h-12 rounded-full bg-[#1a2332] border border-[#2a3a4d] flex items-center justify-center flex-shrink-0 ${playerImage ? 'hidden' : 'flex'}`}>
+                                  <span className="text-gray-400 text-sm font-medium">
+                                    {playerName.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                {/* Player Name and Type */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-white font-medium truncate">{playerName}</span>
+                                    <span className="text-xs text-red-400 bg-red-500/20 px-3 py-1.5 rounded-full border border-red-500/30 flex-shrink-0">
+                                      {injuryType}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
+                              {description && (
+                                <p className="text-sm text-gray-400 mt-2 ml-[60px]">
+                                  {description}
+                                </p>
+                              )}
                               {returnDate && (
-                                <p className="text-sm text-gray-400 mt-2">
+                                <p className="text-sm text-gray-400 mt-2 ml-[60px]">
                                   <span className="text-gray-500">Tahmini Dönüş:</span> {returnDate}
                                 </p>
                               )}

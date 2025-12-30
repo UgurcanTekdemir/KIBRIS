@@ -66,14 +66,30 @@ export function getMarketCategory(marketName) {
     return 'Yarı Sonuçları';
   }
 
+  // Oyuncu Golleri - Player Goals (more specific category)
+  if (
+    name.includes('oyuncu gol') ||
+    name.includes('player goal') ||
+    name.includes('goalscorer') ||
+    name.includes('ilk golü atan') ||
+    name.includes('first goalscorer') ||
+    name.includes('anytime goalscorer') ||
+    name.includes('son golü atan') ||
+    name.includes('last goalscorer') ||
+    name.includes('oyuncu asist') ||
+    name.includes('player assist') ||
+    (name.includes('oyuncu') && (name.includes('gol') || name.includes('goal') || name.includes('scorer'))) ||
+    (name.includes('player') && (name.includes('goal') || name.includes('scorer')))
+  ) {
+    return 'Oyuncu Golleri';
+  }
+
   // Gol Bahisleri - Goal Markets
   if (
     name.includes('ilk gol') ||
     name.includes('first goal') ||
     name.includes('son gol') ||
     name.includes('last goal') ||
-    name.includes('oyuncu') ||
-    name.includes('player') ||
     name.includes('golcü') ||
     name.includes('scorer')
   ) {
@@ -160,6 +176,7 @@ export function getCategoryOrder() {
     'Çift Şans',
     'Yarı Sonuçları',
     'Gol Bahisleri',
+    'Oyuncu Golleri',
     'Kornerler',
     'Kartlar',
     'İstatistikler',
