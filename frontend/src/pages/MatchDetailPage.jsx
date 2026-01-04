@@ -596,7 +596,11 @@ const MatchDetailPage = () => {
                     <div className="text-xs text-gray-500 font-medium">Maç Bitti</div>
                   )}
                   {match.isLive && match.minute && (
-                    <div className="text-xs text-red-500 font-medium">{match.minute}'</div>
+                    <div className="text-xs text-red-500 font-medium">
+                      {match.minute >= 45 && match.minute < 50 ? '45+' : 
+                       match.minute >= 90 && match.minute < 95 ? '90+' : 
+                       `${match.minute}'`}
+                    </div>
                   )}
                 </div>
               ) : (
@@ -705,6 +709,221 @@ const MatchDetailPage = () => {
                 {filteredMarkets.length > 0 ? (
                   filteredMarkets.map((market, idx) => {
                     const marketKey = `${selectedCategory}-${idx}-${market.name}`;
+                    const marketNameLower = (market.name || '').toLowerCase();
+                    
+                    // Check if this is a line market (Over/Under or Handicap)
+                    const isOverUnderMarket = marketNameLower.includes('alt') || 
+                                             marketNameLower.includes('üst') || 
+                                             marketNameLower.includes('over') || 
+                                             marketNameLower.includes('under') ||
+                                             marketNameLower.includes('toplam gol');
+                    
+                    const isHandicapMarket = marketNameLower.includes('handikap') || 
+                                            marketNameLower.includes('handicap');
+                    
+                    const isLineMarket = isOverUnderMarket || isHandicapMarket;
+                    
+                    // Group options by line for Over/Under markets
+                    if (isOverUnderMarket && market.options && market.options.length > 0) {
+                      const lineGroups = {};
+                      market.options.forEach(opt => {
+                        if (opt.line != null) {
+                          const lineKey = opt.line.toString();
+                          if (!lineGroups[lineKey]) {
+                            lineGroups[lineKey] = { line: opt.line, over: null, under: null };
+                          }
+                          if (opt.direction === 'over') {
+                            lineGroups[lineKey].over = opt;
+                          } else if (opt.direction === 'under') {
+                            lineGroups[lineKey].under = opt;
+                          }
+                        }
+                      });
+                      
+                      const sortedLines = Object.keys(lineGroups)
+                        .map(k => parseFloat(k))
+                        .sort((a, b) => a - b);
+                      
+                      return (
+                        <div key={marketKey} className="bg-[#0a0e14] border border-[#1e2736] rounded-xl p-3">
+                          <h3 className="text-white font-semibold text-sm mb-3">{market.name}</h3>
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="border-b border-[#1e2736]">
+                                  <th className="text-left p-2 text-xs text-gray-400 font-medium">Line</th>
+                                  <th className="text-center p-2 text-xs text-gray-400 font-medium">Alt</th>
+                                  <th className="text-center p-2 text-xs text-gray-400 font-medium">Üst</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sortedLines.map(line => {
+                                  const group = lineGroups[line.toString()];
+                                  return (
+                                    <tr key={line} className="border-b border-[#1e2736]/50">
+                                      <td className="p-2 text-white text-sm font-medium">{line}</td>
+                                      <td className="p-2 text-center">
+                                        {group.under ? (
+                                          <button
+                                            onClick={() => {
+                                              const oddsValue = typeof group.under.value === 'number' 
+                                                ? group.under.value 
+                                                : parseFloat(group.under.value) || 0;
+                                              addSelection(match, market.name, group.under.label, oddsValue);
+                                            }}
+                                            className={`w-full py-2 px-3 rounded-lg transition-all ${
+                                              isSelected(match.id, market.name, group.under.label)
+                                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/50'
+                                                : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white hover:border-amber-500/50 border border-transparent'
+                                            }`}
+                                          >
+                                            <span className="font-bold text-sm">
+                                              {typeof group.under.value === 'number' 
+                                                ? group.under.value.toFixed(2) 
+                                                : parseFloat(group.under.value || 0).toFixed(2)}
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-gray-600 text-sm">-</span>
+                                        )}
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        {group.over ? (
+                                          <button
+                                            onClick={() => {
+                                              const oddsValue = typeof group.over.value === 'number' 
+                                                ? group.over.value 
+                                                : parseFloat(group.over.value) || 0;
+                                              addSelection(match, market.name, group.over.label, oddsValue);
+                                            }}
+                                            className={`w-full py-2 px-3 rounded-lg transition-all ${
+                                              isSelected(match.id, market.name, group.over.label)
+                                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/50'
+                                                : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white hover:border-amber-500/50 border border-transparent'
+                                            }`}
+                                          >
+                                            <span className="font-bold text-sm">
+                                              {typeof group.over.value === 'number' 
+                                                ? group.over.value.toFixed(2) 
+                                                : parseFloat(group.over.value || 0).toFixed(2)}
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-gray-600 text-sm">-</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    }
+                    
+                    // Group by line and participant for Handicap markets
+                    if (isHandicapMarket && market.options && market.options.length > 0) {
+                      const handicapGroups = {};
+                      market.options.forEach(opt => {
+                        if (opt.line != null) {
+                          const absLine = Math.abs(opt.line);
+                          const lineKey = absLine.toString();
+                          if (!handicapGroups[lineKey]) {
+                            handicapGroups[lineKey] = { line: absLine, home: null, away: null };
+                          }
+                          // Determine if it's home or away based on participant_id or line sign
+                          if (opt.participant_id === match.homeTeamId || (opt.line < 0 && !opt.participant_id)) {
+                            handicapGroups[lineKey].home = opt;
+                          } else if (opt.participant_id === match.awayTeamId || (opt.line > 0 && !opt.participant_id)) {
+                            handicapGroups[lineKey].away = opt;
+                          }
+                        }
+                      });
+                      
+                      const sortedLines = Object.keys(handicapGroups)
+                        .map(k => parseFloat(k))
+                        .sort((a, b) => a - b);
+                      
+                      return (
+                        <div key={marketKey} className="bg-[#0a0e14] border border-[#1e2736] rounded-xl p-3">
+                          <h3 className="text-white font-semibold text-sm mb-3">{market.name}</h3>
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="border-b border-[#1e2736]">
+                                  <th className="text-left p-2 text-xs text-gray-400 font-medium">Line</th>
+                                  <th className="text-center p-2 text-xs text-gray-400 font-medium">{match.homeTeam || 'Ev Sahibi'}</th>
+                                  <th className="text-center p-2 text-xs text-gray-400 font-medium">{match.awayTeam || 'Deplasman'}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sortedLines.map(line => {
+                                  const group = handicapGroups[line.toString()];
+                                  return (
+                                    <tr key={line} className="border-b border-[#1e2736]/50">
+                                      <td className="p-2 text-white text-sm font-medium">{line}</td>
+                                      <td className="p-2 text-center">
+                                        {group.home ? (
+                                          <button
+                                            onClick={() => {
+                                              const oddsValue = typeof group.home.value === 'number' 
+                                                ? group.home.value 
+                                                : parseFloat(group.home.value) || 0;
+                                              addSelection(match, market.name, group.home.label, oddsValue);
+                                            }}
+                                            className={`w-full py-2 px-3 rounded-lg transition-all ${
+                                              isSelected(match.id, market.name, group.home.label)
+                                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/50'
+                                                : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white hover:border-amber-500/50 border border-transparent'
+                                            }`}
+                                          >
+                                            <span className="font-bold text-sm">
+                                              {typeof group.home.value === 'number' 
+                                                ? group.home.value.toFixed(2) 
+                                                : parseFloat(group.home.value || 0).toFixed(2)}
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-gray-600 text-sm">-</span>
+                                        )}
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        {group.away ? (
+                                          <button
+                                            onClick={() => {
+                                              const oddsValue = typeof group.away.value === 'number' 
+                                                ? group.away.value 
+                                                : parseFloat(group.away.value) || 0;
+                                              addSelection(match, market.name, group.away.label, oddsValue);
+                                            }}
+                                            className={`w-full py-2 px-3 rounded-lg transition-all ${
+                                              isSelected(match.id, market.name, group.away.label)
+                                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/50'
+                                                : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white hover:border-amber-500/50 border border-transparent'
+                                            }`}
+                                          >
+                                            <span className="font-bold text-sm">
+                                              {typeof group.away.value === 'number' 
+                                                ? group.away.value.toFixed(2) 
+                                                : parseFloat(group.away.value || 0).toFixed(2)}
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-gray-600 text-sm">-</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    }
+                    
+                    // Default: Simple market (1X2, BTTS, etc.) - show as buttons
                     return (
                       <div key={marketKey} className="bg-[#0a0e14] border border-[#1e2736] rounded-xl p-3">
                         <h3 className="text-white font-semibold text-sm mb-3">{market.name}</h3>

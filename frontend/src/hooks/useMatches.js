@@ -64,28 +64,20 @@ export function useLiveMatches(matchType = 1) {
       // Ensure it's an array
       const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
       const mappedMatches = mapApiMatchesToInternal(matchesArray);
-      // Filter only live matches that are NOT finished
-      // Also include matches with scores/events even if isLive is not explicitly true
+      // Filter live matches and half-time matches that are NOT finished
+      // Backend already filters correctly, so we only need to check isLive/isFinished and status
       return mappedMatches.filter(m => {
-        // Explicitly live and not finished
-        if (m.isLive === true && m.isFinished !== true) return true;
-        // Has scores (indicates match has started)
-        if ((m.homeScore !== null && m.homeScore !== undefined) || 
-            (m.awayScore !== null && m.awayScore !== undefined)) {
-          // Not finished
-          if (m.isFinished !== true) return true;
-        }
-        // Has events (indicates match activity)
-        if (m.events && Array.isArray(m.events) && m.events.length > 0) {
-          // Not finished
-          if (m.isFinished !== true) return true;
-        }
-        return false;
+        // Include matches that are:
+        // 1. Live (isLive === true) and not finished, OR
+        // 2. In half-time break (HT status) and not finished
+        const status = (m.status || '').toUpperCase();
+        const isHT = status === 'HT' || status === 'HALF_TIME';
+        return (m.isLive === true || isHT) && m.isFinished !== true;
       });
     },
-    staleTime: 15000, // Live matches are fresh for 15 seconds (optimized for live data)
-    cacheTime: 60000, // Cache live matches for 1 minute
-    refetchInterval: 20000, // Auto-refetch every 20 seconds for live matches (optimized from 30s for better real-time updates)
+    staleTime: 0, // Live matches are never stale - always refetch
+    cacheTime: 10000, // Cache live matches for only 10 seconds
+    refetchInterval: 10000, // Auto-refetch every 10 seconds for live matches (faster updates for minute changes)
   });
 
   return {

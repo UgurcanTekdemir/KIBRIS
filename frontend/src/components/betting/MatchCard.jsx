@@ -110,7 +110,13 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             ) : match.isLive ? (
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="text-red-500 text-[10px] sm:text-xs font-bold">{match.minute}'</span>
+                <span className="text-red-500 text-[10px] sm:text-xs font-bold">
+                  {match.minute !== null && match.minute !== undefined 
+                    ? (match.minute >= 45 && match.minute < 50 ? '45+' : 
+                       match.minute >= 90 && match.minute < 95 ? '90+' : 
+                       `${match.minute}'`)
+                    : ''}
+                </span>
               </div>
             ) : (
               <div className="flex items-center gap-0.5 sm:gap-1 text-gray-400">
@@ -254,7 +260,13 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           ) : match.isLive ? (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              <span className="text-red-500 text-xs font-bold">{match.minute}'</span>
+              <span className="text-red-500 text-xs font-bold">
+                {match.minute !== null && match.minute !== undefined 
+                  ? (match.minute >= 45 && match.minute < 50 ? '45+' : 
+                     match.minute >= 90 && match.minute < 95 ? '90+' : 
+                     `${match.minute}'`)
+                  : ''}
+              </span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-gray-400">

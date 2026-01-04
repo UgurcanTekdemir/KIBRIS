@@ -349,37 +349,50 @@ function mapBackendMatchToInternal(backendMatch) {
         };
       }
       
-      // Group options by label
+      // Group options by selection_key instead of label
       const label = odd.label || odd.name || '';
       if (!label) return;
       
       const value = odd.value || odd.odd || odd.price || 0;
       if (value <= 0) return;
       
+      // Use selection_key from backend, or create fallback
+      const selectionKey = odd.selection_key || 
+        `${odd.market_id || ''}|${odd.line || ''}|${odd.direction || ''}|${odd.participant_id || ''}|${label}`;
+      
       // Check if this is a correct score market
       const marketNameLower = marketName.toLowerCase();
       const isCorrectScoreMarket = marketNameLower.includes('correct score');
       
-      const existingValue = oddsByMarket[marketKey].options[label];
+      const existingOption = oddsByMarket[marketKey].options[selectionKey];
       
-      if (!existingValue) {
-        oddsByMarket[marketKey].options[label] = value;
+      if (!existingOption) {
+        // Create new option with all metadata
+        oddsByMarket[marketKey].options[selectionKey] = {
+          label: label,
+          value: value,
+          line: odd.line,
+          direction: odd.direction,
+          participant_id: odd.participant_id,
+          participant_name: odd.participant_name,
+          selection_key: selectionKey
+        };
       } else {
         // For correct score markets, prefer lower (more reasonable) odds
         // For other markets, prefer higher odds (better for user)
         if (isCorrectScoreMarket) {
           // Use the lower (more reasonable) odds for correct score
           // But exclude very low odds (< 1.5) as they might be errors
-          if (value < existingValue && value >= 1.5) {
-            oddsByMarket[marketKey].options[label] = value;
-          } else if (existingValue < 1.5 && value >= 1.5) {
+          if (value < existingOption.value && value >= 1.5) {
+            existingOption.value = value;
+          } else if (existingOption.value < 1.5 && value >= 1.5) {
             // If existing is too low, use the new one if it's reasonable
-            oddsByMarket[marketKey].options[label] = value;
+            existingOption.value = value;
           }
         } else {
           // Update if new value is better (higher odds for user)
-          if (value > existingValue) {
-            oddsByMarket[marketKey].options[label] = value;
+          if (value > existingOption.value) {
+            existingOption.value = value;
           }
         }
       }
@@ -387,18 +400,24 @@ function mapBackendMatchToInternal(backendMatch) {
     
     // Convert to markets array
     Object.values(oddsByMarket).forEach(market => {
-      const options = Object.entries(market.options).map(([label, value]) => {
+      // Convert options object to array (options are now objects with metadata, not just values)
+      const options = Object.values(market.options).map(option => {
         // Translate label to Turkish for common markets
-        let translatedLabel = label;
+        let translatedLabel = option.label;
         if (market.marketId === 1 || market.name.toLowerCase().includes('match winner') || market.name.toLowerCase().includes('fulltime result')) {
-          const labelLower = label.toLowerCase();
-          if (labelLower === 'home' || label === '1') translatedLabel = '1';
-          else if (labelLower === 'away' || label === '2') translatedLabel = '2';
-          else if (labelLower === 'draw' || label === 'x' || label === 'X') translatedLabel = 'X';
+          const labelLower = option.label.toLowerCase();
+          if (labelLower === 'home' || option.label === '1') translatedLabel = '1';
+          else if (labelLower === 'away' || option.label === '2') translatedLabel = '2';
+          else if (labelLower === 'draw' || option.label === 'x' || option.label === 'X') translatedLabel = 'X';
         }
         return {
           label: translatedLabel,
-          value
+          value: option.value,
+          line: option.line,
+          direction: option.direction,
+          participant_id: option.participant_id,
+          participant_name: option.participant_name,
+          selection_key: option.selection_key
         };
       });
       
@@ -431,6 +450,9 @@ function mapBackendMatchToInternal(backendMatch) {
     country: backendMatch.country || '',
     status: backendMatch.status || '',
     minute: backendMatch.minute,
+    second: backendMatch.second,
+    extraMinute: backendMatch.extra_minute,
+    injuryTime: backendMatch.injury_time,
     isLive: backendMatch.is_live || false,
     isFinished: backendMatch.is_finished || false,
     isPostponed: backendMatch.is_postponed || false,
@@ -1245,6 +1267,33 @@ function formatTime(time) {
  * @param {string} date - Date string from API
  * @returns {string} Formatted date (YYYY-MM-DD)
  */
+/**
+ * Format minute for display: 45-50 -> "45+", 90-95 -> "90+", otherwise show as is
+ * @param {number|null} minute - Minute value
+ * @param {number|null} extraMinute - Extra minute (injury time)
+ * @param {number|null} injuryTime - Injury time
+ * @returns {string|null} Formatted minute string or null
+ */
+export function formatMinute(minute, extraMinute = null, injuryTime = null) {
+  if (minute === null || minute === undefined) return null;
+  
+  const minuteInt = parseInt(minute, 10);
+  if (isNaN(minuteInt)) return null;
+  
+  // 45-50 range: show as "45+"
+  if (minuteInt >= 45 && minuteInt < 50) {
+    return '45+';
+  }
+  
+  // 90-95 range: show as "90+"
+  if (minuteInt >= 90 && minuteInt < 95) {
+    return '90+';
+  }
+  
+  // Otherwise show as is
+  return `${minuteInt}'`;
+}
+
 function formatDate(date) {
   if (!date) return '';
   // Handle YYYY-MM-DD format, return as is
@@ -1396,6 +1445,157 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
  */
 function translateMarketName(marketName) {
   if (!marketName) return marketName;
+  
+  // Developer name mapping (SportMonks API developer_name'leri)
+  const developerNameMap = {
+    'FULLTIME_RESULT': 'Maç Sonucu',
+    'DOUBLE_CHANCE': 'Çifte Şans',
+    'X_GOAL': 'X Gol',
+    'MATCH_GOALS': 'Maç Golleri',
+    'ALTERNATIVE_MATCH_GOALS': 'Alternatif Maç Golleri',
+    'ASIAN_HANDICAP': 'Asya Handikapı',
+    'GOAL_LINE': 'Gol Hattı',
+    'FINAL_SCORE': 'Kesin Skor',
+    '3_WAY_HANDICAP': '3 Yönlü Handikap',
+    'DRAW_NO_BET': 'Beraberlik Yok',
+    'LAST_TEAM_TO_SCORE': 'Son Golü Atan',
+    'GOALS_ODD_EVEN': 'Gol Tek/Çift',
+    'RESULT_BOTH_TEAMS_TO_SCORE': 'Maç Sonucu + Karşılıklı Gol',
+    'BOTH_TEAMS_TO_SCORE': 'Karşılıklı Gol',
+    'BOTH_TEAMS_TO_SCORE_IN_1ST_HALF': 'İlk Yarı Karşılıklı Gol',
+    'BOTH_TEAMS_TO_SCORE_IN_2ND_HALF': 'İkinci Yarı Karşılıklı Gol',
+    'TEAM_CLEAN_SHEET': 'Takım Sıfırı',
+    'HOME_TEAM_EXACT_GOALS': 'Ev Sahibi Kesin Gol',
+    'AWAY_TEAM_EXACT_GOALS': 'Deplasman Kesin Gol',
+    'HOME_TEAM_GOALS': 'Ev Sahibi Golleri',
+    'AWAY_TEAM_GOALS': 'Deplasman Golleri',
+    'TO_WIN_2ND_HALF': '2. Yarıyı Kazanma',
+    'TEAM_TO_SCORE_IN_2ND_HALF': '2. Yarıda Gol Atan',
+    '1ST_HALF_ASIAN_HANDICAP': 'İlk Yarı Asya Handikapı',
+    '1ST_HALF_GOAL_LINE': 'İlk Yarı Gol Hattı',
+    '1ST_HALF_GOALS': 'İlk Yarı Golleri',
+    'HALF_TIME_FULL_TIME': 'İlk Yarı/Maç Sonucu',
+    'HALF_TIME_CORRECT_SCORE': 'İlk Yarı Kesin Skor',
+    'HALF_TIME_RESULT': 'İlk Yarı Sonucu',
+    '1ST_HALF_HANDICAP': 'İlk Yarı Handikap',
+    'FIRST_HALF_EXACT_GOALS': 'İlk Yarı Kesin Gol',
+    'FIRST_10_MIN_WINNER': 'İlk 10 Dakika Kazanan',
+    'RESULT_TOTAL_GOALS': 'Maç Sonucu + Toplam Gol',
+    'SECOND_HALF_EXACT_GOALS': 'İkinci Yarı Kesin Gol',
+    'TO_WIN_BOTH_HALVES': 'Her İki Yarıyı Kazanma',
+    'HOME_ODD_EVEN': 'Ev Sahibi Tek/Çift',
+    'AWAY_ODD_EVEN': 'Deplasman Tek/Çift',
+    'ODD_EVEN': 'Tek/Çift',
+    'ODD_EVEN_1ST_HALF': 'İlk Yarı Tek/Çift',
+    'WIN_TO_NIL': 'Sıfırla Kazanma',
+    'DOUBLE_CHANGE_1ST_HALF': 'İlk Yarı Çifte Şans',
+    'CLEAN_SHEET_HOME': 'Ev Sahibi Sıfırı',
+    'CLEAN_SHEET_AWAY': 'Deplasman Sıfırı',
+    '2ND_HALF_GOALS': 'İkinci Yarı Golleri',
+    'HANDICAP_RESULT': 'Handikap Sonucu',
+    'CORRECT_SCORE': 'Kesin Skor',
+    '2_WAY_CORNERS': '2 Yönlü Kornerler',
+    'ASIAN_TOTAL_CORNERS': 'Asya Toplam Korner',
+    'ASIAN_HANDICAP_CORNERS': 'Asya Handikap Korner',
+    '1ST_HALF_ASIAN_CORNERS': 'İlk Yarı Asya Korner',
+    'PLAYER_TO_BE_BOOKED': 'Kart Görecek Oyuncu',
+    '1ST_PLAYER_BOOKED': 'İlk Kart Gören',
+    'PLAYER_TO_BE_SENT_OFF': 'Kırmızı Kart Görecek',
+    'CORNER_MARKET': 'Korner Pazarı',
+    'TOTAL_CORNERS': 'Toplam Korner',
+    'ALTERNATIVE_CORNERS': 'Alternatif Korner',
+    'FIRST_HALF_CORNERS': 'İlk Yarı Korner',
+    'CORNER_MATCH_BET': 'Korner Maç Bahsi',
+    'CORNER_HANDICAP': 'Korner Handikap',
+    'TIME_OF_FIRST_CORNER': 'İlk Korner Zamanı',
+    'TEAM_CORNERS': 'Takım Kornerleri',
+    'CORNERS_RACE': 'Korner Yarışı',
+    '1ST_MATCH_CORNER': 'İlk Maç Korneri',
+    'LAST_MATCH_CORNER': 'Son Maç Korneri',
+    'MULTICORNERS': 'Çoklu Korner',
+    'GOALS_OVER_UNDER': 'Gol Alt/Üst',
+    'ALTERNATIVE_TOTAL_GOALS': 'Alternatif Toplam Gol',
+    'TOTAL_GOALS_BOTH_TEAMS_TO_SCORE': 'Toplam Gol + Karşılıklı Gol',
+    'NUMBER_OF_GOALS_IN_MATCH': 'Maçtaki Gol Sayısı',
+    'EARLY_GOAL': 'Erken Gol',
+    'LATE_GOAL': 'Geç Gol',
+    'TEAM_TOTAL_GOALS': 'Takım Toplam Golleri',
+    'TO_SCORE_IN_HALF': 'Yarıda Gol Atma',
+    'FULL_TIME_RESULT_ENHANCHED_PRICES': 'Maç Sonucu Gelişmiş Fiyatlar',
+    'GOALSCORERS': 'Golcüler',
+    'TEN_MINUTE_RESULT': '10 Dakika Sonucu',
+    'TEAM_GOALSCORER': 'Takım Golcüsü',
+    'EXACT_TOTAL_GOALS': 'Kesin Toplam Gol',
+    'ALTERNATIVE_HANDICAP_RESULT': 'Alternatif Handikap Sonucu',
+    '1ST_HALF_GOALS_ODD_EVEN': 'İlk Yarı Gol Tek/Çift',
+    'ALTERNATIVE_1ST_HALF_HANDICAP_RESULT': 'Alternatif İlk Yarı Handikap',
+    '2ND_HALF_RESULT': 'İkinci Yarı Sonucu',
+    'TEAMS_TO_SCORE': 'Gol Atacak Takımlar',
+    'TIME_OF_1ST_TEAM_GOAL': 'İlk Takım Gol Zamanı',
+    'MULTI_SCORERS': 'Çoklu Golcü',
+    'HALF_WITH_MOST_GOALS': 'En Çok Gol Olan Yarı',
+    'TIME_OF_FIRST_GOAL_BRACKETS': 'İlk Gol Zaman Aralığı',
+    'TOTAL_GOAL_MINUTES': 'Toplam Gol Dakikaları',
+    'ALTERNATIVE_ASIAN_HANDICAP': 'Alternatif Asya Handikap',
+    'ALTERNATIVE_GOAL_LINE': 'Alternatif Gol Hattı',
+    'ALTERNATIVE_1ST_HALF_ASIAN_HANDICAP': 'Alternatif İlk Yarı Asya Handikap',
+    'ALTERNATIVE_1ST_HALF_GOAL_LINE': 'Alternatif İlk Yarı Gol Hattı',
+    'HOME_TEAM_HIGHEST_SCORING_HALF': 'Ev Sahibi En Çok Gol Atan Yarı',
+    'AWAY_TEAM_HIGHEST_SCORING_HALF': 'Deplasman En Çok Gol Atan Yarı',
+    'HALF_TIME_RESULT_BOTH_TEAM_TO_SCORE': 'İlk Yarı Sonucu + Karşılıklı Gol',
+    'HALF_TIME_RESULT_TOTAL_GOALS': 'İlk Yarı Sonucu + Toplam Gol',
+    '2ND_HALF_GOALS_ODD_EVEN': 'İkinci Yarı Gol Tek/Çift',
+    'BOTH_TEAM_TO_SCORE_1ST_HALF_2ND_HALF': 'Her İki Yarıda Karşılıklı Gol',
+    'WINNING_MARGIN': 'Kazanma Farkı',
+    'SPECIALS': 'Özel Bahisler',
+    'OWN_GOAL': 'Kendi Kalesine',
+    'FIRST_TEAM_TO_SCORE': 'İlk Golü Atan Takım',
+    'TEAM_TO_SCORE_IN_BOTH_HALVES': 'Her İki Yarıda Gol Atan',
+    'FIRST_GOAL_METHOD': 'İlk Gol Yöntemi',
+    'NUMBER_OF_CARDS': 'Kart Sayısı',
+    'TEAM_TO_QUALIFY': 'Tur Atlayacak Takım',
+    'MOST_CORNERS': 'En Çok Korner',
+    'SECOND_HALF_CORNERS': 'İkinci Yarı Korner',
+    'TO_WIN_EITHER_HALF': 'Herhangi Bir Yarıyı Kazanma',
+    'PLAYER_TOTAL_SHOTS_ON_TARGET': 'Oyuncu İsabetli Şut',
+    'PLAYER_TOTAL_SHOTS': 'Oyuncu Toplam Şut',
+    'TO_SCORE_A_PENALTY': 'Penaltı Atma',
+    'TO_MISS_A_PENALTY': 'Penaltı Kaçırma',
+    'ASIAN_TOTAL_CARDS': 'Asya Toplam Kart',
+    'ASIAN_HANDICAP_CARDS': 'Asya Handikap Kart',
+    'BOTH_TEAMS_TO_RECEIVE_A_CARD': 'Her İki Takım Kart Görecek',
+    'TEAM_PERFORMANCES': 'Takım Performansları',
+    'BOTH_TEAMS_TO_RECEIVE_MORE_THAN_TWO_CARDS': 'Her İki Takım 2+ Kart',
+    'HANDICAP_CARDS': 'Handikap Kart',
+    'ALTERNATIVE_HANDICAP_CARDS': 'Alternatif Handikap Kart',
+    'FIRST_CARD_RECEIVED': 'İlk Kart',
+    'TIME_OF_FIRST_CARD': 'İlk Kart Zamanı',
+    'TEAM_CARDS': 'Takım Kartları',
+    'RED_CARD_IN_MATCH': 'Maçta Kırmızı Kart',
+    'PENALTY_IN_MATCH': 'Maçta Penaltı',
+    'TEAM_SHOTS_ON_TARGET': 'Takım İsabetli Şut',
+    'TEAM_SHOTS': 'Takım Şutları',
+    'TEAM_OFFSIDES': 'Takım Ofsaytları',
+    'PLAYER_TOTAL_TACKLES': 'Oyuncu Toplam Müdahale',
+    'PLAYER_TOTAL_PASSES': 'Oyuncu Toplam Pas',
+    'MATCH_SHOTS_ON_TARGET': 'Maç İsabetli Şut',
+    'MATCH_SHOTS': 'Maç Şutları',
+    'MATCH_TACKLES': 'Maç Müdahaleleri',
+    'MATCH_OFFSIDES': 'Maç Ofsaytları',
+    'GAME_DECIDED_AFTER_PENALTIES': 'Penaltılarla Karar',
+    'GAME_DECIDED_IN_EXTRA_TIME': 'Uzatmalarda Karar',
+    'METHOD_OF_VICTORY': 'Kazanma Yöntemi',
+    'TEAM_TACKLES': 'Takım Müdahaleleri',
+    'PLAYER_TO_SCORE': 'Gol Atacak Oyuncu',
+    'PLAYER_TO_ASSIST': 'Asist Yapacak Oyuncu',
+    'PLAYER_TO_SCORE_OR_ASSIST': 'Gol veya Asist Yapacak',
+  };
+  
+  // Check developer_name first (uppercase)
+  const upperName = marketName.toUpperCase().trim();
+  if (developerNameMap[upperName]) {
+    return developerNameMap[upperName];
+  }
   
   const translations = {
     '1x2': 'Maç Sonucu',

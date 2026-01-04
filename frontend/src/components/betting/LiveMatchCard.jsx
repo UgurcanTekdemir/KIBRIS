@@ -307,10 +307,10 @@ const LiveMatchCard = ({ match }) => {
     });
   };
   
-  // Get current minute directly from match.minute (API provides accurate data)
+  // Get current minute and second directly from match (API provides accurate data)
   // Don't show minute if match is finished or in half-time break
-  const currentMinute = useMemo(() => {
-    // If match is finished, don't show minute
+  const currentTime = useMemo(() => {
+    // If match is finished, don't show time
     if (match.isFinished) {
       return null;
     }
@@ -318,18 +318,39 @@ const LiveMatchCard = ({ match }) => {
     // Check if match is in half-time break (HT/HALF_TIME status)
     const status = (match.status || '').toUpperCase();
     if (status === 'HT' || status === 'HALF_TIME') {
-      return null; // Don't show minute during half-time break
+      return null; // Don't show time during half-time break
     }
     
-    // Only show minute if match is live
+    // Only show time if match is live
     if (!match.isLive) {
       return null;
     }
     
-    // Use match.minute directly from API (most accurate)
+    // Use match.minute and match.second directly from API (most accurate)
     const matchMinute = match.minute ? parseInt(match.minute, 10) : null;
-    return matchMinute;
-  }, [match.minute, match.isFinished, match.isLive, match.status]);
+    const matchSecond = match.second !== null && match.second !== undefined ? parseInt(match.second, 10) : null;
+    
+    // Format minute: 45-50 -> "45+", 90-95 -> "90+"
+    if (matchMinute !== null) {
+      let minuteStr = '';
+      if (matchMinute >= 45 && matchMinute < 50) {
+        minuteStr = '45+';
+      } else if (matchMinute >= 90 && matchMinute < 95) {
+        minuteStr = '90+';
+      } else {
+        minuteStr = `${matchMinute}'`;
+      }
+      
+      // Add second if available
+      if (matchSecond !== null && matchSecond >= 0 && matchSecond <= 59) {
+        return `${minuteStr} ${matchSecond}"`;
+      }
+      
+      return minuteStr;
+    }
+    
+    return null;
+  }, [match.minute, match.second, match.isFinished, match.isLive, match.status]);
 
   // Check if betting should be locked due to dangerous situations
   const lockStatus = useMemo(() => {
@@ -463,8 +484,8 @@ const LiveMatchCard = ({ match }) => {
             <>
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
               <span className="text-red-500 text-xs sm:text-sm font-bold">CANLI</span>
-              {currentMinute && (
-                <span className="text-white text-xs sm:text-sm font-bold ml-2">{currentMinute}'</span>
+              {currentTime && (
+                <span className="text-white text-xs sm:text-sm font-bold ml-2">{currentTime}</span>
               )}
             </>
           )}

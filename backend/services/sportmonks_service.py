@@ -1014,6 +1014,51 @@ class SportmonksService:
                 if not value_name or value_odd is None:
                     continue
                 
+                # Extract line (for Over/Under and Handicap markets)
+                line = value_item.get("line")
+                if line is not None:
+                    try:
+                        line = float(line)
+                    except (ValueError, TypeError):
+                        line = None
+                
+                # Extract participant (for Handicap and Team Total markets)
+                participant = value_item.get("participant")
+                participant_id = None
+                participant_name = None
+                if participant:
+                    if isinstance(participant, dict):
+                        if "data" in participant:
+                            participant = participant["data"]
+                        participant_id = participant.get("id")
+                        participant_name = participant.get("name")
+                    elif isinstance(participant, (int, str)):
+                        participant_id = participant
+                
+                # Extract direction from label (Over/Under markets)
+                direction = None
+                label_lower = value_name.lower()
+                if "over" in label_lower or "üst" in label_lower:
+                    direction = "over"
+                elif "under" in label_lower or "alt" in label_lower:
+                    direction = "under"
+                
+                # Get market_id for selection_key
+                market_id = market.get("id") if isinstance(market, dict) else odd_item.get("market_id")
+                
+                # Build selection_key
+                selection_key_parts = [str(market_id) if market_id else ""]
+                if line is not None:
+                    selection_key_parts.append(str(line))
+                if direction:
+                    selection_key_parts.append(direction)
+                if participant_id:
+                    selection_key_parts.append(str(participant_id))
+                elif not line and not direction:  # Simple market
+                    selection_key_parts.append(value_name)
+                
+                selection_key = "|".join(selection_key_parts)
+                
                 # Try to convert to float
                 try:
                     # Handle string values that might be fractional (e.g., "500/1")
@@ -1046,7 +1091,7 @@ class SportmonksService:
                 normalized_odd = {
                     "bookmaker_id": bookmaker.get("id") if isinstance(bookmaker, dict) else None,
                     "bookmaker_name": bookmaker.get("name") if isinstance(bookmaker, dict) else None,
-                    "market_id": market.get("id") if isinstance(market, dict) else odd_item.get("market_id"),
+                    "market_id": market_id,
                     "market_name": market.get("name") if isinstance(market, dict) else odd_item.get("market_description"),
                     "market_description": market.get("description") if isinstance(market, dict) else odd_item.get("market_description"),
                     "label": value_name,
@@ -1055,6 +1100,11 @@ class SportmonksService:
                     "odd": value_odd_float,
                     "price": value_odd_float,
                     "stopped": odd_item.get("stopped", False),
+                    "line": line,
+                    "participant_id": participant_id,
+                    "participant_name": participant_name,
+                    "direction": direction,
+                    "selection_key": selection_key,
                 }
                 
                 normalized_odds.append(normalized_odd)
@@ -1077,7 +1127,32 @@ class SportmonksService:
         status = time_data.get("status", "")
         if status:
             status = status.upper()
-        minute = time_data.get("minute")
+        
+        # Extract minute and ensure it's an integer (handle string, float, or None)
+        minute_raw = time_data.get("minute")
+        minute = None
+        if minute_raw is not None:
+            try:
+                # Convert to int (handles string "45", float 45.0, etc.)
+                minute = int(float(str(minute_raw)))
+                # Validate minute is reasonable (0-120 for soccer)
+                if minute < 0 or minute > 120:
+                    minute = None
+            except (ValueError, TypeError):
+                minute = None
+        
+        # Extract second and ensure it's an integer (handle string, float, or None)
+        second_raw = time_data.get("second")
+        second = None
+        if second_raw is not None:
+            try:
+                # Convert to int (handles string "30", float 30.0, etc.)
+                second = int(float(str(second_raw)))
+                # Validate second is reasonable (0-59)
+                if second < 0 or second > 59:
+                    second = None
+            except (ValueError, TypeError):
+                second = None
         
         # If time_data is empty, check if we can infer from other fields
         # Sportmonks V3 might not always provide time object for livescores
@@ -1096,14 +1171,23 @@ class SportmonksService:
             is_finished = status in ["FT", "AET", "FT_PEN", "FINISHED", "AWARDED"]
             is_postponed = status in ["POSTP", "CANCL", "CANCELED", "CANCELLED"]
         
-        # If match is finished, don't show minute (set to None)
-        # This prevents showing stale minute values (e.g., 78) for finished matches
+        # Smart minute-based status detection for 45+ and 90+
+        if minute is not None:
+            if minute >= 45 and minute < 50 and status == "LIVE":
+                status = "45+"
+            elif minute >= 90 and minute < 95 and status == "LIVE":
+                status = "90+"
+        
+        # If match is finished, don't show minute/second (set to None)
+        # This prevents showing stale minute/second values (e.g., 78) for finished matches
         if is_finished:
             minute = None
+            second = None
         
         return {
             "status": status,
             "minute": minute,
+            "second": second,
             "is_live": is_live,
             "is_finished": is_finished,
             "is_postponed": is_postponed
@@ -1153,6 +1237,25 @@ class SportmonksService:
             time_data = time_data["data"]
         if not isinstance(time_data, dict):
             time_data = {}
+        
+        # Extract state_id for status determination
+        state_id = livescore.get("state_id")
+        
+        # Determine status from state_id if time_data is empty or doesn't have status
+        # Sportmonks state_id: 1=Not Started, 2=Live, 3=Period Break, 4=Finished, 5=Finished, 6=Postponed, 7=Cancelled, 8=Interrupted, 9=Abandoned, 10=Suspended, 11=Awaiting
+        if not time_data.get("status") and state_id:
+            if state_id == 1:
+                time_data["status"] = "NS"  # Not Started
+            elif state_id == 2:
+                time_data["status"] = "LIVE"
+            elif state_id in [3, 8, 10]:
+                time_data["status"] = "HT"  # Half Time / Break
+            elif state_id in [4, 5]:
+                time_data["status"] = "FT"  # Full Time
+            elif state_id == 6:
+                time_data["status"] = "POSTP"  # Postponed
+            elif state_id == 7:
+                time_data["status"] = "CANCL"  # Cancelled
         
         # Check starting_at first to determine if match has started and convert to Turkey timezone
         starting_at = livescore.get("starting_at")
@@ -1233,6 +1336,18 @@ class SportmonksService:
         
         time_status = self._format_time_status(time_data)
         
+        # Override is_live for Period Break (state_id == 3) - match is not live during break
+        if state_id == 3:
+            time_status["is_live"] = False
+            time_status["status"] = "HT"  # Ensure status is HT for half-time
+            time_status["is_finished"] = False  # HT is not finished
+        
+        # State ID 4 and 5 are Finished states
+        if state_id in [4, 5]:
+            time_status["is_finished"] = True
+            time_status["is_live"] = False  # Ensure it's not live if finished
+            time_status["status"] = "FT"  # Ensure status is FT
+        
         # Double-check: if match is finished, ensure is_live is False
         if time_status.get("is_finished", False):
             time_status["is_live"] = False
@@ -1269,6 +1384,7 @@ class SportmonksService:
             "country": league_data.get("country", {}).get("name", "") if isinstance(league_data, dict) and isinstance(league_data.get("country"), dict) else "",
             "status": time_status.get("status", ""),
             "minute": final_minute,
+            "second": time_status.get("second"),
             "is_live": time_status.get("is_live", False),
             "is_finished": time_status.get("is_finished", False),
             "is_postponed": time_status.get("is_postponed", False),
