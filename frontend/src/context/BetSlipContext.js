@@ -13,6 +13,21 @@ export const BetSlipProvider = ({ children }) => {
       return;
     }
 
+    // Check if the odds are stopped or suspended
+    // Find the market and option to check their status
+    const market = match.markets?.find(m => m.name === marketName);
+    if (market) {
+      const optionData = market.options?.find(opt => opt.label === option);
+      if (optionData) {
+        // Reject if stopped, suspended, or unavailable
+        if (optionData.stopped === true || optionData.suspended === true || optionData.is_unavailable === true) {
+          console.warn('Bu seçenek şu anda askıya alındı (ASKIDA) ve kuponlamaya eklenemez');
+          // Could show a toast notification here
+          return;
+        }
+      }
+    }
+
     // Extract fixtureId and selectionId from match or parameters
     const finalFixtureId = fixtureId || match.fixtureId || match.sportmonksData?.fixtureId || match.id;
     const finalSelectionId = selectionId || (match.markets?.[0]?.options?.find(opt => opt.label === option)?.selectionId);
@@ -43,6 +58,7 @@ export const BetSlipProvider = ({ children }) => {
       marketName,
       option,
       odds,
+      snapshotOdds: odds, // Store snapshot odds when added (for comparison later)
       isLive: match.isLive || false,
       isLocked: false, // New selection is not locked
       fixtureId: finalFixtureId, // Sportmonks fixture ID

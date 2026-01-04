@@ -21,8 +21,7 @@ const LeaguesPage = () => {
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const { matches: allMatches, loading: matchesLoading, error: matchesError } = useMatches({
     date_from: today,
-    date_to: sevenDaysLater,
-    matchType: 1
+    date_to: sevenDaysLater
   });
 
   // Group matches by league_id to count matches per league

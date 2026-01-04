@@ -5,13 +5,13 @@ import { matchAPI } from '../services/api';
  * Custom hook for fetching and updating live match statistics
  * Auto-refreshes every 30 seconds for live matches
  */
-export function useLiveMatchStatistics(matchId, isLive = true, refreshInterval = 30000) {
+export function useLiveMatchStatistics(matchId, shouldFetch = true, refreshInterval = 30000) {
   const [statistics, setStatistics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!matchId || !isLive) {
+    if (!matchId || !shouldFetch) {
       setLoading(false);
       return;
     }
@@ -39,8 +39,8 @@ export function useLiveMatchStatistics(matchId, isLive = true, refreshInterval =
     // Initial fetch
     fetchStatistics();
 
-    // Set up auto-refresh if match is live
-    if (isLive) {
+    // Set up auto-refresh if match is live or in half-time
+    if (shouldFetch) {
       intervalId = setInterval(() => {
         if (!cancelled) {
           fetchStatistics();
@@ -54,7 +54,7 @@ export function useLiveMatchStatistics(matchId, isLive = true, refreshInterval =
         clearInterval(intervalId);
       }
     };
-  }, [matchId, isLive, refreshInterval]);
+  }, [matchId, shouldFetch, refreshInterval]);
 
   return { statistics, loading, error, refetch: () => {
     setLoading(true);

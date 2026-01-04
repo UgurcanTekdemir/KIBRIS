@@ -7,15 +7,14 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { useMatches } from '../hooks/useMatches';
 import { matchAPI } from '../services/api';
+import { getDateFromToday, normalizeDateForComparison, getMatchDate, isMatchFinished, isMatchPostponed } from '../utils/dateHelpers';
+import { sortMatchesByDateTime } from '../utils/matchHelpers';
 
 const LeaguePage = () => {
   const { id } = useParams();
   const leagueId = parseInt(id, 10);
   const [leagueInfo, setLeagueInfo] = useState(null);
   const [loadingLeague, setLoadingLeague] = useState(true);
-  const today = new Date().toISOString().split('T')[0];
-  // Calculate 7 days (1 week) from today
-  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Fetch league info from backend
   useEffect(() => {
@@ -87,8 +86,16 @@ const LeaguePage = () => {
     return flagMap[country] || '🏆';
   }
 
-  // Fetch all matches and filter by league
-  const { matches: allMatches, loading, error, refetch } = useMatches({ matchType: 1 });
+  // Fetch matches filtered by league_id from backend (2 days past to 5 days future)
+  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const twoDaysAgo = useMemo(() => getDateFromToday(-2), []);
+  const fiveDaysLater = useMemo(() => getDateFromToday(5), []);
+  
+  const { matches: allMatches, loading, error, refetch } = useMatches({
+    date_from: twoDaysAgo,
+    date_to: fiveDaysLater,
+    league_id: leagueId
+  });
 
   // Check if matches have loaded with odds (markets)
   const hasMatchesWithOdds = useMemo(() => {
@@ -111,105 +118,55 @@ const LeaguePage = () => {
   // (matches can be shown even without odds)
   const isLoading = loadingLeague || loading;
 
-  // Filter matches by league_id and date (only show upcoming matches within 7 days, exclude finished)
+  // Filter and sort matches (backend already filters by league_id, optimized with helpers)
   const leagueMatches = useMemo(() => {
-    if (!leagueInfo || !allMatches) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('LeaguePage: No leagueInfo or allMatches', {
-          hasLeagueInfo: !!leagueInfo,
-          hasAllMatches: !!allMatches,
-          allMatchesCount: allMatches?.length || 0
-        });
-      }
+    if (!allMatches || allMatches.length === 0) {
       return [];
     }
     
-    // Normalize date format for comparison (DD.MM.YYYY to YYYY-MM-DD)
-    const normalizeDate = (dateStr) => {
-      if (!dateStr) return '';
-      // If already in YYYY-MM-DD format, return as is
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return dateStr;
-      }
-      // If in DD.MM.YYYY format, convert to YYYY-MM-DD
-      if (dateStr.match(/^\d{2}\.\d{2}\.\d{4}/)) {
-        const [day, month, year] = dateStr.split('.');
-        return `${year}-${month}-${day}`;
-      }
-      return dateStr;
-    };
-    
-    const filtered = allMatches
-      .filter(match => {
-        // Match by league_id first (most accurate) - handle both string and number
-        const matchLeagueId = match.leagueId;
+    // Backend already filters by league_id, but we verify and filter out past/finished matches
+    const filtered = allMatches.filter(match => {
+      // Verify league_id match (backend should have filtered, but double-check)
+      if (leagueInfo) {
+        const matchLeagueId = match.leagueId || match.league_id || match.league?.id;
         const leagueIdNum = parseInt(leagueInfo.id, 10);
         const matchesLeagueId = matchLeagueId === leagueInfo.id || 
                                 matchLeagueId === leagueIdNum ||
                                 String(matchLeagueId) === String(leagueInfo.id);
         
-        // Match by league name (case-insensitive) as fallback
-        const matchLeague = (match.league || '').toLowerCase();
-        const leagueNameLower = (leagueInfo.name || '').toLowerCase();
-        const matchesLeagueName = leagueNameLower && (
-          matchLeague === leagueNameLower || 
-          matchLeague.includes(leagueNameLower) ||
-          leagueNameLower.includes(matchLeague)
-        );
-        
-        if (!matchesLeagueId && !matchesLeagueName) {
-          return false;
+        if (!matchesLeagueId) {
+          // Also check by league name as fallback
+          const matchLeague = (match.league || '').toLowerCase();
+          const leagueNameLower = (leagueInfo.name || '').toLowerCase();
+          const matchesLeagueName = leagueNameLower && (
+            matchLeague === leagueNameLower || 
+            matchLeague.includes(leagueNameLower) ||
+            leagueNameLower.includes(matchLeague)
+          );
+          
+          if (!matchesLeagueName) {
+            return false;
+          }
         }
-        
-        // Exclude finished matches
-        const status = (match.status || '').toUpperCase();
-        const isFinished = match.isFinished || 
-                          status === 'FT' || 
-                          status === 'FINISHED' || 
-                          status === 'CANCELED' || 
-                          status === 'CANCELLED';
-        if (isFinished) return false;
-        
-        // Exclude postponed matches
-        if (match.isPostponed || status === 'POSTPONED') return false;
-        
-        // Only show matches within 7 days (1 week) from today
-        // Normalize date format for comparison
-        const matchDate = normalizeDate(match.date || '');
-        const isWithin7Days = matchDate && matchDate >= today && matchDate <= sevenDaysLater;
-        
-        return isWithin7Days;
-      })
-      .sort((a, b) => {
-        // Sort by date, then by time
-        const dateA = normalizeDate(a.date || '');
-        const dateB = normalizeDate(b.date || '');
-        if (dateA !== dateB) {
-          return dateA.localeCompare(dateB);
-        }
-        return (a.time || '').localeCompare(b.time || '');
-      });
+      }
+      
+      // Exclude finished/postponed matches using helpers
+      if (isMatchFinished(match) || isMatchPostponed(match)) return false;
+      
+      // Exclude matches outside the date range (2 days ago to 5 days later)
+      const matchDate = normalizeDateForComparison(getMatchDate(match));
+      if (matchDate && (matchDate < twoDaysAgo || matchDate > fiveDaysLater)) {
+        return false;
+      }
+      
+      return true;
+    });
     
-    // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('LeaguePage: Filtering matches', {
-        leagueInfo: {
-          id: leagueInfo.id,
-          name: leagueInfo.name
-        },
-        allMatchesCount: allMatches.length,
-        filteredCount: filtered.length,
-        sampleMatch: allMatches[0] ? {
-          leagueId: allMatches[0].leagueId,
-          league: allMatches[0].league,
-          date: allMatches[0].date,
-          status: allMatches[0].status
-        } : null
-      });
-    }
+    // Sort using helper function
+    return sortMatchesByDateTime(filtered);
     
     return filtered;
-  }, [allMatches, leagueInfo, today, sevenDaysLater]);
+  }, [allMatches, leagueInfo, twoDaysAgo, fiveDaysLater]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (

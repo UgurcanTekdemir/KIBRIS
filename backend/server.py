@@ -25,6 +25,10 @@ api_router = APIRouter()
 
 # Import sportmonks service
 from services.sportmonks_service import sportmonks_service
+from services.cache import get_cached, set_cached, cache_key
+
+# Bookmaker ID constants
+BOOKMAKER_BET365_ID = 2  # Bet365 bookmaker ID in Sportmonks API
 
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
@@ -52,6 +56,7 @@ async def get_matches(
     Get matches (fixtures) for a date range.
     If no dates provided, returns 1 week ago to 7 days ahead (Turkey timezone).
     Categories: live, upcoming, finished, all
+    Cached for 60-120 seconds to handle high traffic.
     """
     try:
         from datetime import timezone, timedelta
@@ -66,15 +71,30 @@ async def get_matches(
         if not date_to:
             date_to = (now_turkey + timedelta(days=7)).strftime("%Y-%m-%d")
         
-        # Include odds (simpler format to avoid API errors)
+        # Generate cache key
+        cache_key_str = cache_key("matches", date_from, date_to, league_id, category)
+        
+        # Try to get from cache (TTL: 60-120 seconds for fixtures list)
+        cached_result = await get_cached(cache_key_str)
+        if cached_result is not None:
+            logger.debug(f"Cache HIT for matches: {cache_key_str}")
+            return cached_result
+        
+        logger.debug(f"Cache MISS for matches: {cache_key_str}")
+        
+        # Include basic match data first (without complex odds to avoid API errors)
         # Include event types and players for proper event icon detection
+        # Note: time object is included by default in fixtures, no need to add it to include
         include = "participants;scores;events.type;events.player;league;odds"
+        # Don't filter by bookmaker for list endpoint to avoid API errors
+        filters = None
         
         fixtures = await sportmonks_service.get_fixtures(
             date_from=date_from,
             date_to=date_to,
             league_id=league_id,
-            include=include
+            include=include,
+            filters=filters
         )
         
         # Transform fixtures to match format with Turkey timezone
@@ -109,7 +129,7 @@ async def get_matches(
             matches = finished_matches
         # else "all" or None - return all matches
         
-        return {
+        result = {
             "success": True,
             "data": matches,
             "count": len(matches),
@@ -120,19 +140,61 @@ async def get_matches(
                 "total": len(matches)
             }
         }
+        
+        # Cache result (TTL: 60-120 seconds for fixtures list, use 90 seconds as average)
+        await set_cached(cache_key_str, result, ttl_seconds=90)
+        
+        return result
     except Exception as e:
         logger.error(f"Error fetching matches: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/matches/live")
-async def get_live_matches():
-    """Get all live matches (excludes finished matches)"""
+async def get_live_matches(
+    league_ids: Optional[List[int]] = Query(None, description="Filter by league IDs (comma-separated). Defaults to popular leagues.")
+):
+    """
+    Get all live matches (excludes finished matches).
+    Cached for 5-10 seconds (in-play data updates frequently).
+    
+    Args:
+        league_ids: Optional list of league IDs to filter by. If not provided, uses popular leagues.
+    """
     try:
-        # Include odds (simpler format to avoid API errors)
-        # Include event types and players for proper event icon detection
-        include = "participants;scores;events.type;events.player;league;odds"
+        # Use popular leagues as default if no league_ids provided
+        from services.sportmonks_service import POPULAR_LEAGUE_IDS
+        final_league_ids = league_ids if league_ids else POPULAR_LEAGUE_IDS
         
-        livescores = await sportmonks_service.get_livescores(include=include)
+        # Generate cache key including league_ids for proper caching
+        cache_key_str = cache_key(f"matches:live:{','.join(map(str, sorted(final_league_ids)))}")
+        
+        # Try to get from cache (TTL: 5-10 seconds for live matches)
+        cached_result = await get_cached(cache_key_str)
+        if cached_result is not None:
+            logger.debug(f"Cache HIT for live matches")
+            return cached_result
+        
+        logger.debug(f"Cache MISS for live matches")
+        
+        # Include basic match data with periods and state for accurate live minutes
+        # periods include provides minutes, seconds, ticking, time_added, has_timer
+        # state include provides match phase information
+        # Include inplayOdds for live matches (more accurate than prematch odds)
+        # Include event types and players for proper event icon detection
+        # Note: time object is included by default in livescores, no need to add it to include
+        include = "participants;scores;events.type;events.player;league;inplayOdds;periods;state"
+        
+        # Add filters for bookmakers:2 and markets:1 (1X2 only) for list view to reduce payload
+        # Format: "bookmakers:2;markets:1"
+        filters = "bookmakers:2;markets:1"
+        
+        # Use inplay endpoint for better accuracy with league filtering
+        livescores = await sportmonks_service.get_livescores(
+            include=include, 
+            filters=filters, 
+            use_inplay=True,
+            league_ids=final_league_ids
+        )
         
         # Transform livescores to match format and filter out finished matches
         matches = []
@@ -149,11 +211,16 @@ async def get_live_matches():
             if not is_finished and (is_live or is_ht):
                 matches.append(transformed)
         
-        return {
+        result = {
             "success": True,
             "data": matches,
             "count": len(matches)
         }
+        
+        # Cache result (TTL: 5-10 seconds for live matches, use 7 seconds as average)
+        await set_cached(cache_key_str, result, ttl_seconds=7)
+        
+        return result
     except Exception as e:
         logger.error(f"Error fetching live matches: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -163,19 +230,30 @@ async def get_match_details(match_id: int):
     """
     Get detailed match information including odds, statistics, lineups, events.
     If odds are not included in fixture response, fetch them separately.
+    Cached based on match status: 5-10 seconds for in-play, 60-120 seconds for pre-match.
     """
     try:
-        # Include all relevant data with nested odds structure
-        # Note: Using simpler odds format to avoid API errors
+        # Generate cache key
+        cache_key_str = cache_key("match:details", match_id)
+        
+        # Try to get from cache first (we'll determine TTL after fetching match status)
+        cached_result = await get_cached(cache_key_str)
+        if cached_result is not None:
+            logger.debug(f"Cache HIT for match details: {match_id}")
+            return cached_result
+        
+        logger.debug(f"Cache MISS for match details: {match_id}")
+        # First, fetch basic match data (without odds to avoid API errors with long include strings)
         # Include event types and players for proper event icon detection
         # Include league with nested structure
         # Include sidelined for match-specific injuries and suspensions
-        # Include nested player and type data for sidelined items
-        include = "participants;scores;statistics;lineups;events.type;events.player;odds;venue;season;league;sidelined.player;sidelined.type"
+        # Include statistics.type to get developer_name and other type information
+        include_basic = "participants;scores;statistics.type;lineups.player;lineups.position;lineups.type;events.type;events.player;venue;season;league;sidelined.player;sidelined.type;periods;state"
         
         fixture = await sportmonks_service.get_fixture(
             fixture_id=match_id,
-            include=include
+            include=include_basic,
+            filters=None  # Don't filter for basic data
         )
         
         if not fixture:
@@ -184,29 +262,93 @@ async def get_match_details(match_id: int):
         # Transform fixture to match format with Turkey timezone
         match = sportmonks_service._transform_fixture_to_match(fixture, timezone_offset=3)
         
-        # If odds are empty, try to fetch them separately
-        if not match.get("odds") or len(match.get("odds", [])) == 0:
-            logger.info(f"Odds not found in fixture response for match {match_id}, fetching separately...")
-            try:
-                # Fetch odds separately - include participants for player-specific odds
-                odds_include = "participants;odds.bookmaker;odds.market;odds.values;odds.participants"
-                odds_fixture = await sportmonks_service.get_fixture(
-                    fixture_id=match_id,
-                    include=odds_include
-                )
-                if odds_fixture:
-                    raw_odds_data = odds_fixture.get("odds", {})
-                    odds_data = sportmonks_service._extract_and_normalize_odds(raw_odds_data)
-                    if odds_data:
-                        match["odds"] = odds_data
-                        logger.info(f"Fetched {len(odds_data)} odds separately for match {match_id}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch odds separately for match {match_id}: {e}")
+        # Now fetch odds separately with all market data from bet365
+        logger.info(f"Fetching odds separately for match {match_id} from bookmaker {BOOKMAKER_BET365_ID} (Bet365)...")
+        try:
+            # Get all odds data - try simple format first
+            # If simple doesn't work, we'll try nested format
+            odds_include = "odds"
+            odds_filters = None  # Get all bookmakers first, filter in code
+            odds_fixture = await sportmonks_service.get_fixture(
+                fixture_id=match_id,
+                include=odds_include,
+                filters=odds_filters
+            )
+            
+            raw_odds_data = None
+            if odds_fixture:
+                raw_odds_data = odds_fixture.get("odds", {})
+                logger.info(f"Fetched odds fixture for match {match_id}, raw_odds_data type: {type(raw_odds_data)}")
+            else:
+                logger.warning(f"Failed to fetch odds fixture for match {match_id}")
+            
+            if odds_fixture and raw_odds_data:
+                logger.info(f"Raw odds data type for match {match_id}: {type(raw_odds_data)}, is dict: {isinstance(raw_odds_data, dict)}, is list: {isinstance(raw_odds_data, list)}")
+                if isinstance(raw_odds_data, dict):
+                    if "data" in raw_odds_data:
+                        data_len = len(raw_odds_data.get("data", [])) if isinstance(raw_odds_data.get("data"), list) else 'not a list'
+                        logger.info(f"Odds data has 'data' key, length: {data_len}")
+                    else:
+                        logger.info(f"Odds data dict keys: {list(raw_odds_data.keys())[:10]}")
+                elif isinstance(raw_odds_data, list):
+                    logger.info(f"Odds data is list, length: {len(raw_odds_data)}")
+                
+                # Extract odds and filter by bookmaker 1
+                # Temporarily check all bookmakers to see if cards markets exist
+                odds_data_all = sportmonks_service._extract_and_normalize_odds(raw_odds_data, bookmaker_id_filter=None)
+                
+                # Check for cards markets with various patterns
+                cards_all = [o for o in odds_data_all if any(
+                    keyword in (o.get('market_name','') or '').lower() 
+                    for keyword in ['card', 'booking', 'yellow', 'red', 'kart', 'sending']
+                )]
+                
+                if cards_all:
+                    logger.info(f"Found {len(cards_all)} cards markets from ALL bookmakers for match {match_id}")
+                    logger.info(f"Cards markets: {[c.get('market_name') for c in cards_all[:10]]}")
+                    logger.info(f"Cards bookmakers: {set([c.get('bookmaker_id') for c in cards_all])}")
+                else:
+                    # Log all unique market names to see what we're getting
+                    all_markets = set([o.get('market_name') for o in odds_data_all if o.get('market_name')])
+                    logger.info(f"No cards markets found for match {match_id}. Total unique markets: {len(all_markets)}")
+                    # Log first 20 market names for debugging
+                    logger.info(f"Sample market names: {sorted(list(all_markets))[:20]}")
+                
+                # Now filter by bet365
+                odds_data = sportmonks_service._extract_and_normalize_odds(raw_odds_data, bookmaker_id_filter=BOOKMAKER_BET365_ID)
+                if odds_data:
+                    match["odds"] = odds_data
+                    logger.info(f"Fetched {len(odds_data)} odds separately for match {match_id}")
+                else:
+                    logger.warning(f"No odds data extracted for match {match_id} after normalization")
+                    logger.warning(f"Raw odds data sample: {str(raw_odds_data)[:500]}")
+            else:
+                logger.warning(f"Failed to fetch odds fixture for match {match_id} - odds_fixture: {bool(odds_fixture)}, raw_odds_data: {bool(raw_odds_data)}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch odds separately for match {match_id}: {e}")
         
-        return {
+        result = {
             "success": True,
             "data": match
         }
+        
+        # Determine cache TTL based on match status
+        # In-play matches: 5-10 seconds (odds update frequently)
+        # Pre-match matches: 60-120 seconds (odds update less frequently)
+        is_live = match.get("is_live", False)
+        is_finished = match.get("is_finished", False)
+        
+        if is_live and not is_finished:
+            # In-play match: cache for 7 seconds (average of 5-10)
+            cache_ttl = 7
+        else:
+            # Pre-match or finished: cache for 90 seconds (average of 60-120)
+            cache_ttl = 90
+        
+        # Cache result
+        await set_cached(cache_key_str, result, ttl_seconds=cache_ttl)
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -216,30 +358,40 @@ async def get_match_details(match_id: int):
 @api_router.get("/matches/{match_id}/odds")
 async def get_match_odds(match_id: int):
     """
-    Get odds for a specific match.
+    Get odds for a specific match using fixture-specific endpoint.
+    This is the most stable endpoint for match detail pages (71 markets).
+    Uses: GET /odds/inplay/fixtures/{fixture_id}/bookmakers/2
     Returns normalized odds data.
     """
     try:
-        # Include odds with nested structure
-        include = "participants;odds"
+        # Generate cache key
+        cache_key_str = cache_key("match:odds", match_id)
         
-        fixture = await sportmonks_service.get_fixture(
-            fixture_id=match_id,
-            include=include
-        )
+        # Try to get from cache
+        cached_result = await get_cached(cache_key_str)
+        if cached_result is not None:
+            logger.debug(f"Cache HIT for match odds: {match_id}")
+            return cached_result
         
-        if not fixture:
-            raise HTTPException(status_code=404, detail="Match not found")
+        logger.debug(f"Cache MISS for match odds: {match_id}")
         
-        # Extract and normalize odds
-        raw_odds_data = fixture.get("odds", {})
-        odds_data = sportmonks_service._extract_and_normalize_odds(raw_odds_data)
+        # Use fixture-specific odds endpoint (most stable for 71 markets)
+        # This endpoint directly connects fixture + bookmaker, reducing mismatch risk
+        odds_data = await sportmonks_service.get_inplay_odds_by_fixture(match_id, bookmaker_id=2)
         
-        return {
+        # Normalize odds
+        normalized_odds = sportmonks_service._extract_and_normalize_odds(odds_data, bookmaker_id_filter=2)
+        
+        result = {
             "success": True,
-            "data": odds_data,
-            "count": len(odds_data)
+            "data": normalized_odds,
+            "count": len(normalized_odds)
         }
+        
+        # Cache result (TTL: 5-10 seconds for live matches, 60 seconds for pre-match)
+        await set_cached(cache_key_str, result, ttl_seconds=7)
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -253,8 +405,8 @@ async def get_match_lineups(match_id: int):
     Returns lineups data from match details.
     """
     try:
-        # Get match details which includes lineups
-        include = "participants;lineups.player;lineups.position"
+        # Get match details which includes lineups with type information
+        include = "participants;lineups.player;lineups.position;lineups.type"
         
         fixture = await sportmonks_service.get_fixture(
             fixture_id=match_id,
@@ -307,12 +459,27 @@ async def get_match_lineups(match_id: int):
                     type_name = str(type_name).lower()
                 
                 # Determine if starting XI or substitute
+                # Type ID 12 = Starting XI, Type ID 13 = Substitutes (according to Sportmonks API)
+                # Log for debugging
+                player_name = lineup_item.get("player_name") or lineup_item.get("player", {}).get("name", "Unknown")
+                logger.info(f"Lineup item: type_id={type_id}, type_name='{type_name}', player='{player_name}', team_id={team_id}")
+                
+                # Check if it's a substitute (type_id 13 = substitute, or keywords in type_name)
+                is_substitute = (
+                    type_id == 13 or
+                    "substitute" in type_name or
+                    "bench" in type_name or
+                    "reserve" in type_name
+                )
+                # Check if it's starting XI (type_id 12 = starting XI, or keywords in type_name)
                 is_starting = (
                     type_id == 12 or 
                     "starting" in type_name or 
                     "xi" in type_name or
                     "lineup" in type_name
                 )
+                
+                logger.info(f"  -> is_substitute={is_substitute}, is_starting={is_starting}")
                 
                 player_data = {
                     "id": lineup_item.get("player_id"),
@@ -322,16 +489,25 @@ async def get_match_lineups(match_id: int):
                     "image": lineup_item.get("player", {}).get("image_path", "") if isinstance(lineup_item.get("player"), dict) else ""
                 }
                 
+                # Add to appropriate list - prioritize substitute check over starting
                 if team_id == home_team_id:
-                    if is_starting:
-                        transformed_lineups["home"]["startingXI"].append(player_data)
-                    else:
+                    if is_substitute:
                         transformed_lineups["home"]["substitutes"].append(player_data)
-                elif team_id == away_team_id:
-                    if is_starting:
-                        transformed_lineups["away"]["startingXI"].append(player_data)
+                        logger.info(f"  -> Added to home substitutes: {player_name}")
+                    elif is_starting:
+                        transformed_lineups["home"]["startingXI"].append(player_data)
+                        logger.info(f"  -> Added to home startingXI: {player_name}")
                     else:
+                        logger.warning(f"  -> Player not classified: {player_name} (type_id={type_id}, type_name='{type_name}')")
+                elif team_id == away_team_id:
+                    if is_substitute:
                         transformed_lineups["away"]["substitutes"].append(player_data)
+                        logger.info(f"  -> Added to away substitutes: {player_name}")
+                    elif is_starting:
+                        transformed_lineups["away"]["startingXI"].append(player_data)
+                        logger.info(f"  -> Added to away startingXI: {player_name}")
+                    else:
+                        logger.warning(f"  -> Player not classified: {player_name} (type_id={type_id}, type_name='{type_name}')")
         
         return {
             "success": True,
@@ -435,11 +611,15 @@ async def get_stats():
         seven_days_later = (now_turkey + timedelta(days=7)).strftime("%Y-%m-%d")
         
         # Get matches for the next 7 days
-        include = "participants;scores;events.type;events.player;league;odds"
+        # Include all odds data: bookmaker, market, values for all markets from bookmaker 1
+        include = "participants;scores;events.type;events.player;league;odds;odds.bookmaker;odds.market;odds.values;odds.participants"
+        # Use bet365 for all odds
+        filters = f"bookmakers:{BOOKMAKER_BET365_ID}"
         fixtures = await sportmonks_service.get_fixtures(
             date_from=today,
             date_to=seven_days_later,
-            include=include
+            include=include,
+            filters=filters
         )
         
         # Transform fixtures to match format
@@ -535,5 +715,28 @@ app.add_middleware(
 
 # Include the router in the main app (after CORS middleware) with /api prefix
 app.include_router(api_router, prefix="/api")
+
+# Startup and shutdown events for background worker
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on application startup."""
+    try:
+        from services.odds_worker import start_odds_worker
+        await start_odds_worker()
+        logger.info("Application startup completed - odds worker started")
+    except Exception as e:
+        logger.error(f"Error starting odds worker: {e}")
+        # Don't fail startup if worker fails - app should still be usable
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background tasks on application shutdown."""
+    try:
+        from services.odds_worker import stop_odds_worker
+        await stop_odds_worker()
+        logger.info("Application shutdown completed - odds worker stopped")
+    except Exception as e:
+        logger.error(f"Error stopping odds worker: {e}")
 
 # Logging already configured above

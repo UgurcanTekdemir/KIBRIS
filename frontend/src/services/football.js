@@ -87,8 +87,15 @@ async function fetchBackendAPI(endpoint, options = {}) {
  * Get all livescores
  * @returns {Promise<Array>}
  */
-export async function getLivescores() {
-  return fetchBackendAPI('/matches/live');
+export async function getLivescores(leagueIds = null) {
+  const queryParams = new URLSearchParams();
+  if (leagueIds && Array.isArray(leagueIds) && leagueIds.length > 0) {
+    // Add league_ids as comma-separated query parameter
+    queryParams.append('league_ids', leagueIds.join(','));
+  }
+  const queryString = queryParams.toString();
+  const url = queryString ? `/matches/live?${queryString}` : '/matches/live';
+  return fetchBackendAPI(url);
 }
 
 /**
@@ -135,6 +142,15 @@ export async function getFixtureById(fixtureId) {
 }
 
 /**
+ * Get odds for a specific match using fixture-specific endpoint (71 markets)
+ * @param {number} matchId - Match/Fixture ID
+ * @returns {Promise<Array>}
+ */
+export async function getMatchOdds(matchId) {
+  return fetchBackendAPI(`/matches/${matchId}/odds`);
+}
+
+/**
  * Get all leagues
  * @returns {Promise<Array>}
  */
@@ -149,6 +165,7 @@ export default {
   getUpcomingFixtures,
   getUpcomingFixturesByMarketId,
   getFixtureById,
+  getMatchOdds,
   getLeagues,
 };
 

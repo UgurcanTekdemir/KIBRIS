@@ -25,6 +25,17 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
       return;
     }
     
+    // Find the option to check if it's stopped or suspended
+    const optionData = market.options?.find(opt => opt.label === option);
+    if (optionData) {
+      // Don't allow betting on stopped or suspended odds
+      if (optionData.stopped === true || optionData.suspended === true || optionData.is_unavailable === true) {
+        // Show error message (could use a toast notification here)
+        console.warn('Bu seçenek şu anda askıya alındı (SUSPENDED/STOPPED)');
+        return;
+      }
+    }
+    
     // Extract fixtureId and selectionId from match data
     const fixtureId = match.fixtureId || match.sportmonksData?.fixtureId || match.id;
     const finalSelectionId = selectionId || (market.options?.find(opt => opt.label === option)?.selectionId);
@@ -193,35 +204,56 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
               {sortOptions(mainMarket.options).map((opt, optIdx) => {
                 const selected = isSelected(match.id, mainMarket.name, opt.label);
                 const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-                // Only show if odds value is valid (> 0)
-                if (oddsValue <= 0) return null;
+                // Check if this option is suspended (stopped or suspended)
+                const isStopped = opt.stopped === true;
+                const isSuspended = opt.suspended === true;
+                const isUnavailable = opt.is_unavailable === true || isStopped || isSuspended;
+                // Only show if odds value is valid (> 0) or unavailable (to show SUSPENDED message)
+                if (oddsValue <= 0 && !isUnavailable) return null;
                 
                 // Get odds change indicator
                 const oddsChange = getOddsChange(mainMarket.name, opt.label);
+                const isDisabled = isFinished || isUnavailable;
                 
                 return (
                   <button
                     key={`${mainMarket.name}-${opt.label}-${optIdx}`}
-                    onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
-                    disabled={isFinished}
-                    className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all ${
-                      isFinished
+                    onClick={(e) => {
+                      if (!isUnavailable) {
+                        handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId);
+                      }
+                    }}
+                    disabled={isDisabled}
+                    className={`flex-1 py-1 sm:py-1.5 px-1 sm:px-2 rounded-lg text-center transition-all relative ${
+                      isDisabled
                         ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-60'
                         : selected
                         ? 'bg-amber-500 text-black'
                         : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                     }`}
-                    title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
+                    title={
+                      isFinished 
+                        ? 'Geçmiş maçlar için kupon yapılamaz' 
+                        : isUnavailable 
+                        ? 'Bu seçenek şu anda askıya alındı (ASKIDA)' 
+                        : ''
+                    }
                   >
                     <span className="text-[9px] sm:text-[10px] text-gray-400 block leading-tight">{translateOddsLabel(opt.label)}</span>
                     <span className="font-bold text-xs sm:text-sm flex items-center justify-center gap-0.5">
-                      {oddsChange && oddsChange.direction === 'up' && (
-                        <ArrowUp size={10} className="text-green-500" />
+                      {isUnavailable ? (
+                        <span className="text-red-500 text-[10px]">ASKIDA</span>
+                      ) : (
+                        <>
+                          {oddsChange && oddsChange.direction === 'up' && (
+                            <ArrowUp size={10} className="text-green-500" />
+                          )}
+                          {oddsChange && oddsChange.direction === 'down' && (
+                            <ArrowDown size={10} className="text-red-500" />
+                          )}
+                          {oddsValue.toFixed(2)}
+                        </>
                       )}
-                      {oddsChange && oddsChange.direction === 'down' && (
-                        <ArrowDown size={10} className="text-red-500" />
-                      )}
-                      {oddsValue.toFixed(2)}
                     </span>
                   </button>
                 );
@@ -337,35 +369,56 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             {sortOptions(mainMarket.options).map((opt, optIdx) => {
               const selected = isSelected(match.id, mainMarket.name, opt.label);
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-              // Only show if odds value is valid (> 0)
-              if (oddsValue <= 0) return null;
+              // Check if this option is unavailable (stopped or suspended)
+              const isStopped = opt.stopped === true;
+              const isSuspended = opt.suspended === true;
+              const isUnavailable = opt.is_unavailable === true || isStopped || isSuspended;
+              // Only show if odds value is valid (> 0) or unavailable (to show ASKIDA message)
+              if (oddsValue <= 0 && !isUnavailable) return null;
               
               // Get odds change indicator
               const oddsChange = getOddsChange(mainMarket.name, opt.label);
+              const isDisabled = isFinished || isUnavailable;
               
               return (
                 <button
                   key={`${mainMarket.name}-${opt.label}-${optIdx}`}
-                  onClick={(e) => handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId)}
-                  disabled={isFinished}
+                  onClick={(e) => {
+                    if (!isUnavailable) {
+                      handleOddsClick(e, mainMarket, opt.label, oddsValue, opt.selectionId);
+                    }
+                  }}
+                  disabled={isDisabled}
                   className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
-                    isFinished
+                    isDisabled
                       ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-60'
                       : selected
                       ? 'bg-amber-500 text-black'
                       : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                   }`}
-                  title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
+                  title={
+                    isFinished 
+                      ? 'Geçmiş maçlar için kupon yapılamaz' 
+                      : isUnavailable 
+                      ? 'Bu seçenek şu anda askıya alındı (ASKIDA)' 
+                      : ''
+                  }
                 >
                   <span className="text-xs text-gray-400 block mb-0.5">{translateOddsLabel(opt.label)}</span>
                   <span className="font-bold flex items-center justify-center gap-1">
-                    {oddsChange && oddsChange.direction === 'up' && (
-                      <ArrowUp size={14} className="text-green-500" />
+                    {isUnavailable ? (
+                      <span className="text-red-500 text-xs">ASKIDA</span>
+                    ) : (
+                      <>
+                        {oddsChange && oddsChange.direction === 'up' && (
+                          <ArrowUp size={14} className="text-green-500" />
+                        )}
+                        {oddsChange && oddsChange.direction === 'down' && (
+                          <ArrowDown size={14} className="text-red-500" />
+                        )}
+                        {oddsValue.toFixed(2)}
+                      </>
                     )}
-                    {oddsChange && oddsChange.direction === 'down' && (
-                      <ArrowDown size={14} className="text-red-500" />
-                    )}
-                    {oddsValue.toFixed(2)}
                   </span>
                 </button>
               );
@@ -378,10 +431,13 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
       {showFullMarkets && match.markets?.length > 1 && (
         <div className="px-3 sm:px-4 pb-3 sm:pb-4 space-y-3 border-t border-[#1e2736] pt-3">
           {match.markets.slice(1).map((market, idx) => {
-            // Filter out markets with no valid odds
+            // Filter out markets with no valid odds (but include unavailable ones)
             const validOptions = market.options?.filter(opt => {
               const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-              return oddsValue > 0;
+              const isStopped = opt.stopped === true;
+              const isSuspended = opt.suspended === true;
+              const isUnavailable = opt.is_unavailable === true || isStopped || isSuspended;
+              return oddsValue > 0 || isUnavailable;
             }) || [];
             
             if (validOptions.length === 0) return null;
@@ -393,32 +449,54 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
                   {validOptions.map((opt, optIdx) => {
                     const selected = isSelected(match.id, market.name, opt.label);
                     const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
+                    // Check if this option is unavailable (stopped or suspended)
+                    const isStopped = opt.stopped === true;
+                    const isSuspended = opt.suspended === true;
+                    const isUnavailable = opt.is_unavailable === true || isStopped || isSuspended;
                     
                     // Get odds change indicator
                     const oddsChange = getOddsChange(market.name, opt.label);
+                    const isDisabled = isFinished || isUnavailable;
                     
                     return (
                       <button
                         key={`${market.name}-${opt.label}-${optIdx}`}
-                        onClick={(e) => handleOddsClick(e, market, opt.label, oddsValue)}
-                        disabled={isFinished}
-                        className={isFinished ? 'opacity-60 cursor-not-allowed' : ''}
-                        title={isFinished ? 'Geçmiş maçlar için kupon yapılamaz' : ''}
+                        onClick={(e) => {
+                          if (!isUnavailable) {
+                            handleOddsClick(e, market, opt.label, oddsValue, opt.selectionId);
+                          }
+                        }}
+                        disabled={isDisabled}
+                        title={
+                          isFinished 
+                            ? 'Geçmiş maçlar için kupon yapılamaz' 
+                            : isUnavailable 
+                            ? 'Bu seçenek şu anda askıya alındı (ASKIDA)' 
+                            : ''
+                        }
                         className={`flex-1 py-2 px-3 rounded-lg text-center transition-all ${
-                          selected
+                          isDisabled
+                            ? 'bg-[#0d1117] text-gray-600 cursor-not-allowed opacity-60'
+                            : selected
                             ? 'bg-amber-500 text-black'
                             : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white'
                         }`}
                       >
                         <span className="text-xs text-gray-400 block mb-0.5">{translateOddsLabel(opt.label)}</span>
                         <span className="font-bold text-sm flex items-center justify-center gap-1">
-                          {oddsChange && oddsChange.direction === 'up' && (
-                            <ArrowUp size={12} className="text-green-500" />
+                          {isUnavailable ? (
+                            <span className="text-red-500 text-xs">ASKIDA</span>
+                          ) : (
+                            <>
+                              {oddsChange && oddsChange.direction === 'up' && (
+                                <ArrowUp size={12} className="text-green-500" />
+                              )}
+                              {oddsChange && oddsChange.direction === 'down' && (
+                                <ArrowDown size={12} className="text-red-500" />
+                              )}
+                              {oddsValue.toFixed(2)}
+                            </>
                           )}
-                          {oddsChange && oddsChange.direction === 'down' && (
-                            <ArrowDown size={12} className="text-red-500" />
-                          )}
-                          {oddsValue.toFixed(2)}
                         </span>
                       </button>
                     );

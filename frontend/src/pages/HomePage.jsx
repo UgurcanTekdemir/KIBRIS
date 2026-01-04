@@ -11,6 +11,23 @@ import { useMatches } from '../hooks/useMatches';
 import { useLeagues } from '../hooks/useLeagues';
 import { matchAPI } from '../services/api';
 import SetRoleHelper from '../components/SetRoleHelper';
+import { 
+  getToday, 
+  getDateFromToday,
+  getMatchDate,
+  getMatchDateTime,
+  parseMatchDateTime,
+  normalizeDateForComparison,
+  isMatchFinished,
+  isMatchLive,
+  isMatchHalfTime,
+  isMatchPostponed
+} from '../utils/dateHelpers';
+import { 
+  filterTodayMatchesWithinWindow,
+  filterUpcomingMatches,
+  sortMatchesByDateTime
+} from '../utils/matchHelpers';
 
 // Popular Leagues Component
 function PopularLeagues({ allMatches }) {
@@ -194,10 +211,16 @@ const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [stats, setStats] = useState({ today: 0, upcoming: 0, total: 0, leagues: 0 });
   const [statsLoading, setStatsLoading] = useState(true);
-  const today = new Date().toISOString().split('T')[0];
   
-  // Fetch matches from API
-  const { matches: allMatches, loading, error } = useMatches({ matchType: 1 });
+  // Memoize date calculations (only recalculate once per day)
+  const today = useMemo(() => getToday(), []);
+  const sevenDaysLater = useMemo(() => getDateFromToday(7), []);
+  
+  // Fetch matches from API - get matches for next 7 days
+  const { matches: allMatches, loading, error } = useMatches({ 
+    date_from: today,
+    date_to: sevenDaysLater
+  });
   
   // Fetch stats from API
   useEffect(() => {
@@ -216,76 +239,59 @@ const HomePage = () => {
     fetchStats();
   }, []);
   
-  // Check if matches have loaded with odds (markets)
-  const hasMatchesWithOdds = useMemo(() => {
-    if (loading) return false;
-    if (!allMatches || allMatches.length === 0) return false;
-    // Check if at least one match has markets with valid odds
-    return allMatches.some(match => {
-      if (!match.markets || !Array.isArray(match.markets)) return false;
-      return match.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-    });
-  }, [allMatches, loading]);
-  
-  // Show loading until matches with odds are loaded
-  const isLoading = loading || !hasMatchesWithOdds;
+  // Show loading only when data is actually loading
+  const isLoading = loading;
 
-  // Filter matches by today and upcoming
-  // Exclude past/finished matches explicitly
+  // Filter matches by today and upcoming - optimized with helper functions
   const todayMatches = useMemo(() => {
-    // Show matches from today onwards (including today)
-    // Exclude finished matches (status: FT, FINISHED, etc.)
-    const filtered = allMatches.filter(m => {
-      // Check date
-      if (m.date < today) return false;
-      
-      // Exclude finished matches (but not postponed - they should be shown)
-      const status = (m.status || '').toUpperCase();
-      if (status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED') {
-        return false;
-      }
-      // POSTPONED matches are excluded from homepage
-      if (status === 'POSTPONED') {
-        return false;
-      }
-      
-      // Exclude live matches (they're handled separately)
-      // Actually, we can show live matches too, so keep them
-      
-      return true;
-    });
+    if (!allMatches || allMatches.length === 0) return [];
     
-    return filtered.slice(0, 4);
-  }, [allMatches, today]);
+    // Try 1-hour window first
+    const matches1Hour = filterTodayMatchesWithinWindow(allMatches, 1);
+    if (matches1Hour.length > 0) {
+      return sortMatchesByDateTime(matches1Hour).slice(0, 4);
+    }
+    
+    // Fallback: 4-hour window
+    const matches4Hour = filterTodayMatchesWithinWindow(allMatches, 4);
+    return sortMatchesByDateTime(matches4Hour).slice(0, 4);
+  }, [allMatches]);
 
   const upcomingMatches = useMemo(() => {
-    // Show next 8 upcoming matches (excluding the ones shown in todayMatches)
+    if (!allMatches || allMatches.length === 0) return [];
+    
+    const now = new Date();
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+    const normalizedToday = normalizeDateForComparison(today);
+    const normalizedSevenDaysLater = normalizeDateForComparison(sevenDaysLater);
+    
+    // Filter upcoming matches (more than 1 hour from now, within 7 days)
+    // Don't exclude live matches - they can appear in upcoming section
     const filtered = allMatches.filter(m => {
-      // Check date
-      if (m.date < today) return false;
+      // Exclude finished/postponed
+      if (isMatchFinished(m) || isMatchPostponed(m)) return false;
       
-      // Exclude finished matches (but not postponed - they should be shown)
-      const status = (m.status || '').toUpperCase();
-      if (status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED') {
-        return false;
-      }
-      // POSTPONED matches are excluded from homepage
-      if (status === 'POSTPONED') {
-        return false;
-      }
+      // Check date range
+      const matchDate = normalizeDateForComparison(getMatchDate(m));
+      if (!matchDate) return false;
+      if (matchDate < normalizedToday || matchDate > normalizedSevenDaysLater) return false;
+      
+      // Exclude past matches (by datetime)
+      const matchDateTime = parseMatchDateTime(getMatchDateTime(m));
+      if (matchDateTime && matchDateTime < now) return false;
+      
+      // Exclude matches within 1 hour (those are in todayMatches)
+      if (matchDateTime && matchDateTime <= oneHourLater) return false;
       
       return true;
     });
     
-    const todayCount = todayMatches.length;
-    return filtered.slice(todayCount, todayCount + 8);
-  }, [allMatches, today, todayMatches.length]);
+    // Sort and get unique matches (exclude todayMatches)
+    const todayMatchIds = new Set(todayMatches.map(m => m.id));
+    const uniqueUpcoming = filtered.filter(m => !todayMatchIds.has(m.id));
+    
+    return sortMatchesByDateTime(uniqueUpcoming).slice(0, 8);
+  }, [allMatches, today, sevenDaysLater, todayMatches]);
 
   const filteredTodayMatches = useMemo(() => {
     if (!searchQuery.trim()) return todayMatches;
@@ -456,13 +462,17 @@ const HomePage = () => {
         
         {/* Mobile: Stack, Desktop: Grid */}
         <div className="grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-2">
-          {filteredUpcomingMatches.length > 0 ? (
+          {isLoading ? (
+            <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm col-span-1 sm:col-span-2">
+              Yükleniyor...
+            </div>
+          ) : filteredUpcomingMatches.length > 0 ? (
             filteredUpcomingMatches.slice(0, 4).map((match, idx) => (
               <MatchCard key={match.id || `home-upcoming-${idx}-${match.homeTeam}-${match.awayTeam}`} match={match} compact={true} />
             ))
           ) : (
             <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm col-span-1 sm:col-span-2">
-              Arama kriterlerinize uygun yakın maç bulunamadı.
+              {searchQuery ? 'Arama kriterlerinize uygun yakın maç bulunamadı.' : 'Yakın zamanda maç bulunamadı.'}
             </div>
           )}
         </div>

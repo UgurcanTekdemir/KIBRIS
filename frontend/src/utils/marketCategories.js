@@ -103,7 +103,14 @@ export function getMarketCategory(marketName) {
     name.includes('sarı kart') ||
     name.includes('kırmızı kart') ||
     name.includes('yellow') ||
-    name.includes('red')
+    name.includes('red') ||
+    name.includes('total cards') ||
+    name.includes('team cards') ||
+    name.includes('player cards') ||
+    name.includes('bookings') ||
+    name.includes('booking') ||
+    name.includes('sendings off') ||
+    name.includes('dismissal')
   ) {
     return 'Kartlar';
   }

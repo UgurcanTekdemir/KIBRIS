@@ -1,45 +1,60 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import * as footballService from '../services/football';
 import { mapApiMatchesToInternal } from '../utils/matchMapper';
+import { getToday, getDateFromToday } from '../utils/dateHelpers';
 
 /**
  * Custom hook for fetching matches with React Query caching
  * Uses Sportmonks V3 API via backend proxy
- * Fetches all matches (upcoming, live, finished) for a date range
+ * Optimized with memoized date calculations
  * @param {Object} filters - Filter options (date_from, date_to, league_id, matchType)
  * @param {Object} options - Query options (enabled, staleTime, etc.)
  */
 export function useMatches(filters = {}, options = {}) {
-  // Calculate default date range (today to 7 days ahead)
-  const today = new Date().toISOString().split('T')[0];
-  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Memoize default date range (only recalculate once per day)
+  const defaultToday = useMemo(() => getToday(), []);
+  const defaultSevenDaysLater = useMemo(() => getDateFromToday(7), []);
   
-  // Build filters with defaults
-  const queryFilters = {
-    date_from: filters.date_from || today,
-    date_to: filters.date_to || sevenDaysLater,
+  // Build filters with defaults (memoized)
+  const queryFilters = useMemo(() => ({
+    date_from: filters.date_from || defaultToday,
+    date_to: filters.date_to || defaultSevenDaysLater,
     league_id: filters.league_id || null,
     ...filters
-  };
+  }), [filters.date_from, filters.date_to, filters.league_id, defaultToday, defaultSevenDaysLater]);
   
   // Create a stable query key from filters
-  const queryKey = ['matches', queryFilters.date_from, queryFilters.date_to, queryFilters.league_id];
+  const queryKey = useMemo(() => [
+    'matches', 
+    queryFilters.date_from, 
+    queryFilters.date_to, 
+    queryFilters.league_id
+  ], [queryFilters.date_from, queryFilters.date_to, queryFilters.league_id]);
   
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      // Use Backend API to get matches with filters
-      const apiMatches = await footballService.getUpcomingFixtures(queryFilters);
-      // Ensure it's an array
-      const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
-      return mapApiMatchesToInternal(matchesArray);
+      try {
+        // Use Backend API to get matches with filters
+        const apiMatches = await footballService.getUpcomingFixtures(queryFilters);
+        // Ensure it's an array
+        const matchesArray = Array.isArray(apiMatches) 
+          ? apiMatches 
+          : [apiMatches].filter(Boolean);
+        const mapped = mapApiMatchesToInternal(matchesArray);
+        return mapped;
+      } catch (error) {
+        console.error('Error fetching matches:', error);
+        throw error;
+      }
     },
-    enabled: options.enabled !== undefined ? options.enabled : true, // Allow conditional fetching
-    staleTime: options.staleTime || 60000, // Data is fresh for 60 seconds (optimized from 30s)
-    cacheTime: options.cacheTime || 300000, // Cache unused data for 5 minutes (optimized from 3min)
-    refetchOnWindowFocus: false, // Don't refetch on window focus
-    refetchOnMount: false, // Use cache if available
-    refetchInterval: options.refetchInterval !== undefined ? options.refetchInterval : 60000, // Auto-refetch every 60 seconds for general matches (optimized from 45s)
+    enabled: options.enabled !== undefined ? options.enabled : true,
+    staleTime: options.staleTime !== undefined ? options.staleTime : 0,
+    cacheTime: options.cacheTime || 300000, // 5 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    refetchInterval: options.refetchInterval !== undefined ? options.refetchInterval : 90000, // 90 seconds
   });
 
   return {
@@ -55,12 +70,12 @@ export function useMatches(filters = {}, options = {}) {
  * Uses Sportmonks V3 API via backend proxy
  * Auto-refreshes every 30 seconds for live data
  */
-export function useLiveMatches(matchType = 1) {
+export function useLiveMatches(matchType = 1, leagueIds = null) {
   const query = useQuery({
-    queryKey: ['liveMatches', matchType],
+    queryKey: ['liveMatches', matchType, leagueIds],
     queryFn: async () => {
       // Use Sportmonks V3 API to get live scores
-      const apiMatches = await footballService.getLivescores();
+      const apiMatches = await footballService.getLivescores(leagueIds);
       // Ensure it's an array
       const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
       const mappedMatches = mapApiMatchesToInternal(matchesArray);
@@ -83,9 +98,9 @@ export function useLiveMatches(matchType = 1) {
         return false;
       });
     },
-    staleTime: 15000, // Live matches are fresh for 15 seconds (optimized for live data)
+    staleTime: 5000, // Live matches are fresh for 5 seconds (in-play data updates frequently)
     cacheTime: 60000, // Cache live matches for 1 minute
-    refetchInterval: 20000, // Auto-refetch every 20 seconds for live matches (optimized from 30s for better real-time updates)
+    refetchInterval: 5000, // Auto-refetch every 5 seconds for live matches (in-play odds update every 2-10 seconds)
   });
 
   return {
@@ -122,17 +137,18 @@ export function useMatchDetails(matchId) {
       throw new Error('Maç bulunamadı');
     },
     enabled: !!matchId, // Only run query if matchId exists
-    staleTime: 20000, // Data is fresh for 20 seconds (optimized from 30s)
+    staleTime: 7000, // Data is fresh for 7 seconds (in-play cache 5-10s, pre-match 60-120s)
     cacheTime: 300000, // Cache unused data for 5 minutes
     // Dynamic refetch interval based on match status
     refetchInterval: (query) => {
       const match = query.state.data;
-      if (match?.isLive) {
-        return 20000; // 20 seconds for live matches (optimized from 30s for better real-time updates)
-      } else if (match?.isFinished) {
-        return 60000; // 60 seconds for finished matches
+      const isHalfTime = match?.status === 'HT' || match?.status === 'HALF_TIME';
+      if (match?.isLive && !match?.isFinished) {
+        return 5000; // 5 seconds for live matches (in-play odds update every 2-10 seconds)
+      } else if (isHalfTime || match?.isFinished) {
+        return 90000; // 90 seconds for half-time and finished matches (pre-match cache)
       }
-      return false; // No auto-refresh for upcoming matches
+      return 90000; // 90 seconds for upcoming matches (pre-match cache 60-120s)
     },
   });
 

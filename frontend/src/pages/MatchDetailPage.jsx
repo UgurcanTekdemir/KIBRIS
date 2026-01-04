@@ -13,8 +13,10 @@ import { useOddsTracking } from '../hooks/useOddsTracking';
 import { useMatchLineups } from '../hooks/useMatchLineups';
 import { useLeagueStandings } from '../hooks/useLeagueStandings';
 import { matchAPI } from '../services/api';
+import * as footballService from '../services/football';
+import { useQuery } from '@tanstack/react-query';
 import { groupMarketsByCategory, getCategoryOrder, getMarketCategory } from '../utils/marketCategories';
-import { translateMarketName, translateOptionLabel } from '../utils/matchMapper';
+import { translateMarketName, translateOptionLabel, mapApiMatchToInternal } from '../utils/matchMapper';
 import { getTeamImagePath, getFallbackIcon } from '../utils/imageUtils';
 import { formatMatchDateTime } from '../utils/dateUtils';
 
@@ -195,7 +197,61 @@ function transformSportmonksStatistics(statsArray, homeTeamId, awayTeamId) {
   const homeStats = {};
   const awayStats = {};
   
-  // Common Sportmonks type_id to stat name mapping
+  // Developer name to stat name mapping (from Sportmonks API)
+  const developerNameToStatName = {
+    // Possession
+    'BALL_POSSESSION': 'ball possession',
+    // Shots
+    'SHOTS_TOTAL': 'total shots',
+    'SHOTS_ON_TARGET': 'shots on target',
+    'SHOTS_ON_GOAL': 'shots on goal',
+    'SHOTS_OFF_TARGET': 'shots off goal',
+    'SHOTS_INSIDEBOX': 'shots insidebox',
+    'SHOTS_OUTSIDEBOX': 'shots outsidebox',
+    'SHOTS_BLOCKED': 'shots blocked',
+    'GOAL_ATTEMPTS': 'goal attempts',
+    'HIT_WOODWORK': 'hit woodwork',
+    // Corners
+    'CORNER_KICKS': 'corner kicks',
+    // Attacks
+    'ATTACKS': 'attacks',
+    'DANGEROUS_ATTACKS': 'dangerous attacks',
+    'COUNTER_ATTACKS': 'counter attacks',
+    // Cards
+    'YELLOWCARDS': 'yellow cards',
+    'YELLOWCARDS_OVERTIME': 'yellow cards',
+    'REDCARDS': 'red cards',
+    // Offsides
+    'OFFSIDES': 'offsides',
+    'OFFSIDES_OVERTIME': 'offsides',
+    // Fouls
+    'FOULS': 'fouls',
+    'FREE_KICKS': 'free kicks',
+    // Saves
+    'SAVES': 'saves',
+    // Passes
+    'PASSES': 'passes',
+    'SUCCESSFUL_PASSES': 'successful passes',
+    'SUCCESSFUL_PASSES_PERCENTAGE': 'pass accuracy',
+    'LONG_BALLS': 'long balls',
+    'BACKWARD_PASSES': 'backward passes',
+    'PASSES_IN_FINAL_THIRD': 'passes in final third',
+    // Other
+    'TACKLES': 'tackles',
+    'INTERCEPTIONS': 'interceptions',
+    'CLEARANCES': 'clearances',
+    'HEADERS': 'headers',
+    'SUCCESSFUL_HEADERS': 'successful headers',
+    'DUELS_WON': 'duels won',
+    'CHALLENGES': 'challenges',
+    'THROWINS': 'throwins',
+    'GOAL_KICKS': 'goal kicks',
+    'BEATS': 'beats',
+    'TREATMENTS': 'treatments',
+    'INJURIES': 'injuries',
+  };
+  
+  // Common Sportmonks type_id to stat name mapping (fallback)
   const typeIdToName = {
     45: 'ball possession', // Possession
     47: 'shots on target', // Shots on Target
@@ -213,20 +269,33 @@ function transformSportmonksStatistics(statsArray, homeTeamId, awayTeamId) {
     44: 'shots off goal', // Shots off Goal
   };
   
+  // Track which stats we've already processed to avoid duplicates
+  const processedHomeStats = new Set();
+  const processedAwayStats = new Set();
+  
   for (const stat of statsArray) {
     const participantId = stat.participant_id;
     // Handle different statistic formats
     let statType = '';
     let value = 0;
     
-    // Format 1: stat.type.name or stat.type_name
-    if (stat.type?.name) {
+    // Format 1: Use developer_name first (most reliable)
+    if (stat.developer_name && developerNameToStatName[stat.developer_name]) {
+      statType = developerNameToStatName[stat.developer_name];
+    }
+    // Format 2: stat.type.name or stat.type_name
+    else if (stat.type?.name) {
       statType = stat.type.name;
     } else if (stat.type_name) {
       statType = stat.type_name;
     } else if (stat.type_id) {
-      // Format 2: type_id with data.value (Sportmonks V3 format)
+      // Format 3: type_id with data.value (Sportmonks V3 format)
       statType = typeIdToName[stat.type_id] || `type_${stat.type_id}`;
+    }
+    
+    // Skip if no stat type identified
+    if (!statType) {
+      continue;
     }
     
     // Extract value - can be direct or in data.value
@@ -236,24 +305,44 @@ function transformSportmonksStatistics(statsArray, homeTeamId, awayTeamId) {
       value = parseFloat(stat.data.value) || 0;
     }
     
-    if (value <= 0 && statType !== 'ball possession') {
-      continue; // Skip zero values except for possession
-    }
+    // Normalize stat type to lowercase for consistent comparison
+    const statTypeLower = statType.toLowerCase();
     
     // Map location-based stats (home/away) to stat types
     if (stat.location && (stat.location === 'home' || stat.location === 'away')) {
       // Location-based format (Sportmonks V3)
+      const statKey = `${statTypeLower}_${stat.location}`;
       if (stat.location === 'home') {
-        homeStats[statType.toLowerCase()] = value;
+        // Only add if we haven't processed this stat type for home team yet
+        // Or if the new value is higher (for cards, take the maximum)
+        if (!processedHomeStats.has(statTypeLower) || value > (homeStats[statTypeLower] || 0)) {
+          homeStats[statTypeLower] = value;
+          processedHomeStats.add(statTypeLower);
+        }
       } else if (stat.location === 'away') {
-        awayStats[statType.toLowerCase()] = value;
+        // Only add if we haven't processed this stat type for away team yet
+        // Or if the new value is higher (for cards, take the maximum)
+        if (!processedAwayStats.has(statTypeLower) || value > (awayStats[statTypeLower] || 0)) {
+          awayStats[statTypeLower] = value;
+          processedAwayStats.add(statTypeLower);
+        }
       }
     } else if (participantId) {
       // Participant-based format
-    if (participantId === homeTeamId) {
-      homeStats[statType.toLowerCase()] = value;
-    } else if (participantId === awayTeamId) {
-      awayStats[statType.toLowerCase()] = value;
+      if (participantId === homeTeamId) {
+        // Only add if we haven't processed this stat type for home team yet
+        // Or if the new value is higher (for cards, take the maximum)
+        if (!processedHomeStats.has(statTypeLower) || value > (homeStats[statTypeLower] || 0)) {
+          homeStats[statTypeLower] = value;
+          processedHomeStats.add(statTypeLower);
+        }
+      } else if (participantId === awayTeamId) {
+        // Only add if we haven't processed this stat type for away team yet
+        // Or if the new value is higher (for cards, take the maximum)
+        if (!processedAwayStats.has(statTypeLower) || value > (awayStats[statTypeLower] || 0)) {
+          awayStats[statTypeLower] = value;
+          processedAwayStats.add(statTypeLower);
+        }
       }
     }
   }
@@ -340,10 +429,49 @@ const MatchDetailPage = () => {
   const [logoErrors, setLogoErrors] = useState({ home: false, away: false });
   const [activeTab, setActiveTab] = useState('markets'); // 'markets', 'events', 'stats', 'lineups', 'injuries'
   
+  // Fetch odds from fixture-specific endpoint (71 markets) for detail page
+  const { data: oddsData, isLoading: oddsLoading } = useQuery({
+    queryKey: ['matchOdds', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const odds = await footballService.getMatchOdds(parseInt(id, 10));
+      return odds?.data || odds || [];
+    },
+    enabled: !!id && !!match, // Only fetch if match ID exists and match is loaded
+    staleTime: 7000, // Data is fresh for 7 seconds
+    cacheTime: 300000, // Cache for 5 minutes
+    refetchInterval: match?.isLive ? 5000 : false, // Poll every 5 seconds for live matches
+  });
+  
+  // Merge odds from dedicated endpoint with match data
+  const matchWithOdds = useMemo(() => {
+    if (!match) return null;
+    if (!oddsData || oddsData.length === 0) return match;
+    
+    // Convert normalized odds array to markets format
+    // Odds endpoint returns normalized odds: [{ market_id, market_name, label, value, stopped, suspended, ... }]
+    // Use the existing mapping function that handles normalized odds
+    // Create a backend-style match object with odds
+    const matchWithOddsData = {
+      ...match,
+      home_team: match.homeTeam,
+      away_team: match.awayTeam,
+      odds: oddsData
+    };
+    const mapped = mapApiMatchToInternal(matchWithOddsData);
+    
+    // Use markets from odds endpoint if available, otherwise use match markets
+    return {
+      ...match,
+      markets: mapped?.markets && mapped.markets.length > 0 ? mapped.markets : (match.markets || [])
+    };
+  }, [match, oddsData]);
+  
   // Debug logs removed for production optimization
   
-  // Fetch events and statistics only for live or finished matches
-  const shouldFetchEvents = match?.isLive || match?.isFinished;
+  // Fetch events and statistics for live, half-time, or finished matches
+  const isHalfTime = match?.status === 'HT' || match?.status === 'HALF_TIME';
+  const shouldFetchEvents = match?.isLive || isHalfTime || match?.isFinished;
   
   // Update active tab if match is finished and current tab is markets
   useEffect(() => {
@@ -356,8 +484,11 @@ const MatchDetailPage = () => {
       }
     }
   }, [match?.isFinished, activeTab, shouldFetchEvents]);
-  const { events, loading: eventsLoading, error: eventsError } = useLiveMatchEvents(id, shouldFetchEvents, match?.isLive ? 12000 : 60000);
-  const { statistics: rawStatistics, loading: statsLoading, error: statsError } = useLiveMatchStatistics(id, shouldFetchEvents, match?.isLive ? 30000 : 60000);
+  // Refresh intervals: live matches refresh faster, half-time and finished matches refresh slower
+  const refreshIntervalEvents = match?.isLive ? 12000 : (isHalfTime || match?.isFinished ? 60000 : false);
+  const refreshIntervalStats = match?.isLive ? 30000 : (isHalfTime || match?.isFinished ? 60000 : false);
+  const { events, loading: eventsLoading, error: eventsError } = useLiveMatchEvents(id, shouldFetchEvents, refreshIntervalEvents);
+  const { statistics: rawStatistics, loading: statsLoading, error: statsError } = useLiveMatchStatistics(id, shouldFetchEvents, refreshIntervalStats);
   
   // Fetch lineups
   const { lineups, loading: lineupsLoading, error: lineupsError } = useMatchLineups(id, true);
@@ -617,9 +748,10 @@ const MatchDetailPage = () => {
 
   // Group markets by category
   const marketsByCategory = useMemo(() => {
-    if (!match?.markets) return {};
-    return groupMarketsByCategory(match.markets);
-  }, [match?.markets]);
+    const marketsToUse = matchWithOdds?.markets || match?.markets;
+    if (!marketsToUse) return {};
+    return groupMarketsByCategory(marketsToUse);
+  }, [matchWithOdds?.markets, match?.markets]);
 
   // Get available categories
   const categories = useMemo(() => {
@@ -659,11 +791,12 @@ const MatchDetailPage = () => {
   
   // Filter, merge duplicates, translate and sort markets by selected category
   const filteredMarkets = useMemo(() => {
-    if (!match?.markets) return [];
+    const marketsToUse = matchWithOdds?.markets || match?.markets;
+    if (!marketsToUse) return [];
     
     let markets = [];
     if (selectedCategory === 'Tümü') {
-      markets = match.markets;
+      markets = marketsToUse;
     } else {
       markets = marketsByCategory[selectedCategory] || [];
     }
@@ -1210,7 +1343,7 @@ const MatchDetailPage = () => {
 
             {/* Score or Date/Time */}
             <div className="text-center">
-              {(match.isLive || match.isFinished) && 
+              {(match.isLive || isHalfTime || match.isFinished) && 
                (match.homeScore !== null && match.homeScore !== undefined) && 
                (match.awayScore !== null && match.awayScore !== undefined) ? (
                 <div>
@@ -1219,6 +1352,9 @@ const MatchDetailPage = () => {
                   </div>
                   {match.isFinished && (
                     <div className="text-xs text-gray-500 font-medium">Maç Bitti</div>
+                  )}
+                  {isHalfTime && (
+                    <div className="text-xs text-yellow-500 font-medium">DEVRE ARASI</div>
                   )}
                   {match.isLive && match.minute && (
                     <div className="text-xs text-red-500 font-medium">{match.minute}'</div>
@@ -1266,7 +1402,7 @@ const MatchDetailPage = () => {
       <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl overflow-hidden mb-6">
         <div className="flex border-b border-[#1e2736] overflow-x-auto scrollbar-hide">
           {[
-            { id: 'markets', label: 'Bahis Oranları', icon: TrendingUp, show: !match?.isFinished },
+            { id: 'markets', label: 'Bahis Oranları', icon: TrendingUp, show: true }, // Show markets for all matches including half-time and finished
             { id: 'events', label: 'Olaylar', icon: Target, show: shouldFetchEvents },
             { id: 'stats', label: 'İstatistikler', icon: Activity, show: shouldFetchEvents },
             { id: 'lineups', label: 'Kadrolar', icon: Users, show: true },
@@ -1294,7 +1430,7 @@ const MatchDetailPage = () => {
         {/* Tab Content */}
         <div className="p-6">
           {/* Markets Tab */}
-          {activeTab === 'markets' && !match?.isFinished && (
+          {activeTab === 'markets' && (
             <div className="space-y-4">
               {/* Category Filter */}
               {categories.length > 1 && (
@@ -1372,8 +1508,8 @@ const MatchDetailPage = () => {
                               {sortedOptions.map((opt, optIdx) => {
                                 const selected = isSelected(match.id, market.originalName || market.name, opt.label);
                                 const oddsValue = opt.value;
-                                
-                                // Get odds change indicator
+                              
+                              // Get odds change indicator
                                 const oddsChange = getOddsChange(market.originalName || market.name, opt.label);
                                 
                                 // Translate option labels - opt.label is already normalized (1, X, 2 or original)
@@ -1396,31 +1532,31 @@ const MatchDetailPage = () => {
                                     displayLabel = translateOptionLabel(opt.label, match?.homeTeam, match?.awayTeam);
                                   }
                                 }
-                                
-                                return (
-                                  <button
-                                    key={`${market.name}-${opt.label}-${optIdx}`}
+                              
+                              return (
+                                <button
+                                  key={`${market.name}-${opt.label}-${optIdx}`}
                                     onClick={() => addSelection(match, market.originalName || market.name, opt.label, oddsValue)}
                                     className={`py-3 px-4 rounded-lg text-center transition-all ${
-                                      selected
+                                    selected
                                         ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 font-semibold'
                                         : 'bg-[#1a2332] hover:bg-[#2a3a4d] text-white border border-transparent hover:border-amber-500/30'
-                                    }`}
-                                  >
+                                  }`}
+                                >
                                     <div className="text-xs text-gray-400 mb-1.5 font-medium">{displayLabel}</div>
                                     <div className="font-bold text-lg flex items-center justify-center gap-1.5">
-                                      {oddsChange && oddsChange.direction === 'up' && (
+                                    {oddsChange && oddsChange.direction === 'up' && (
                                         <ArrowUp size={16} className="text-green-500" />
-                                      )}
-                                      {oddsChange && oddsChange.direction === 'down' && (
+                                    )}
+                                    {oddsChange && oddsChange.direction === 'down' && (
                                         <ArrowDown size={16} className="text-red-500" />
-                                      )}
-                                      {oddsValue.toFixed(2)}
+                                    )}
+                                    {oddsValue.toFixed(2)}
                                     </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
+                                </button>
+                              );
+                            })}
+                        </div>
                           </div>
                         )}
                       </div>
@@ -1428,7 +1564,7 @@ const MatchDetailPage = () => {
                   })
                 ) : (
                   <div className="text-center py-12 text-gray-500">
-                    {match.markets && match.markets.length > 0 
+                    {(matchWithOdds?.markets || match?.markets) && (matchWithOdds?.markets || match?.markets).length > 0 
                       ? 'Bu kategoride bahis bulunamadı'
                       : 'Bu maç için bahis oranları henüz mevcut değil'}
                   </div>
@@ -1772,7 +1908,7 @@ const MatchDetailPage = () => {
                 <div className="text-center py-8">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
                   <p className="text-gray-500 mt-2">Kadrolar yükleniyor...</p>
-                </div>
+        </div>
               ) : lineupsError ? (
                 <div className="text-center py-8">
                   <AlertCircle size={32} className="mx-auto text-red-500 mb-2" />

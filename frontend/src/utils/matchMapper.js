@@ -331,10 +331,15 @@ function mapBackendMatchToInternal(backendMatch) {
   if (backendMatch.odds && Array.isArray(backendMatch.odds) && backendMatch.odds.length > 0) {
     // Group odds by market_id first (to handle multiple bookmakers for same market)
     // If no market_id, group by market_name
+    // Filter to only use Bookmaker ID 8 (Bet365) if bookmaker_id is available
     const oddsByMarket = {};
     backendMatch.odds.forEach(odd => {
-      // Skip stopped odds
-      if (odd && odd.stopped === true) return;
+      // Don't skip stopped odds - we'll show them as SUSPENDED
+      
+      // Only use odds from Bookmaker ID 2 (Bet365) if bookmaker_id is available
+      if (odd.bookmaker_id !== undefined && odd.bookmaker_id !== null && odd.bookmaker_id !== 2) {
+        return; // Skip odds from other bookmakers
+      }
       
       const marketId = odd.market_id || null;
       // Try multiple fields to get market name, avoid 'Unknown'
@@ -375,33 +380,99 @@ function mapBackendMatchToInternal(backendMatch) {
       const label = odd.label || odd.name || '';
       if (!label) return;
       
+      // Check if this option is stopped or suspended
+      const isStopped = odd.stopped === true || odd.stopped === 'true';
+      const isSuspended = odd.suspended === true || odd.suspended === 'true';
+      const isUnavailable = isStopped || isSuspended || odd.is_unavailable === true;
+      
       const value = odd.value || odd.odd || odd.price || 0;
-      if (value <= 0) return;
+      // Don't skip unavailable odds - show them as ASKIDA
+      // Only skip if value is invalid AND not unavailable (unavailable odds can have value 0)
+      if (value <= 0 && !isUnavailable) return;
       
       // Check if this is a correct score market
       const marketNameLower = marketName.toLowerCase();
       const isCorrectScoreMarket = marketNameLower.includes('correct score');
       
-      const existingValue = oddsByMarket[marketKey].options[label];
+      const existingOption = oddsByMarket[marketKey].options[label];
       
-      if (!existingValue) {
-        oddsByMarket[marketKey].options[label] = value;
+      // Extract timestamp for update comparison
+      const latestBookmakerUpdate = odd.latest_bookmaker_update || odd.updated_at;
+      
+      // Store option as object with value, stopped, suspended, and timestamp
+      if (!existingOption) {
+        oddsByMarket[marketKey].options[label] = {
+          value: value || 0,
+          stopped: isStopped,
+          suspended: isSuspended,
+          is_unavailable: isUnavailable,
+          latest_bookmaker_update: latestBookmakerUpdate,
+          selectionId: odd.selection_id || odd.selectionId || null
+        };
       } else {
-        // For correct score markets, prefer lower (more reasonable) odds
-        // For other markets, prefer higher odds (better for user)
-        if (isCorrectScoreMarket) {
-          // Use the lower (more reasonable) odds for correct score
-          // But exclude very low odds (< 1.5) as they might be errors
-          if (value < existingValue && value >= 1.5) {
-            oddsByMarket[marketKey].options[label] = value;
-          } else if (existingValue < 1.5 && value >= 1.5) {
-            // If existing is too low, use the new one if it's reasonable
-            oddsByMarket[marketKey].options[label] = value;
-          }
-        } else {
-          // Update if new value is better (higher odds for user)
-          if (value > existingValue) {
-            oddsByMarket[marketKey].options[label] = value;
+        // Check timestamp to avoid overwriting newer data with older data
+        const existingTimestamp = existingOption.latest_bookmaker_update;
+        const shouldUpdate = !latestBookmakerUpdate || !existingTimestamp || 
+                            new Date(latestBookmakerUpdate) >= new Date(existingTimestamp);
+        
+        // If existing option is unavailable and new one is not, update it
+        if (existingOption.is_unavailable && !isUnavailable && shouldUpdate) {
+          oddsByMarket[marketKey].options[label] = {
+            value: value || 0,
+            stopped: false,
+            suspended: false,
+            is_unavailable: false,
+            latest_bookmaker_update: latestBookmakerUpdate,
+            selectionId: odd.selection_id || odd.selectionId || existingOption.selectionId
+          };
+        } else if (!existingOption.is_unavailable && isUnavailable) {
+          // If existing is not unavailable but new one is, mark as unavailable (but keep value)
+          oddsByMarket[marketKey].options[label] = {
+            ...existingOption,
+            stopped: isStopped,
+            suspended: isSuspended,
+            is_unavailable: true,
+            latest_bookmaker_update: latestBookmakerUpdate
+          };
+        } else if (!isUnavailable && shouldUpdate) {
+          // Both are not stopped, update value if better
+          // For correct score markets, prefer lower (more reasonable) odds
+          // For other markets, prefer higher odds (better for user)
+          if (isCorrectScoreMarket) {
+            // Use the lower (more reasonable) odds for correct score
+            // But exclude very low odds (< 1.5) as they might be errors
+            if (value < existingOption.value && value >= 1.5) {
+              oddsByMarket[marketKey].options[label] = {
+                value,
+                stopped: false,
+                suspended: false,
+                is_unavailable: false,
+                latest_bookmaker_update: latestBookmakerUpdate,
+                selectionId: odd.selection_id || odd.selectionId || existingOption.selectionId
+              };
+            } else if (existingOption.value < 1.5 && value >= 1.5) {
+              // If existing is too low, use the new one if it's reasonable
+              oddsByMarket[marketKey].options[label] = {
+                value,
+                stopped: false,
+                suspended: false,
+                is_unavailable: false,
+                latest_bookmaker_update: latestBookmakerUpdate,
+                selectionId: odd.selection_id || odd.selectionId || existingOption.selectionId
+              };
+            }
+          } else {
+            // Update if new value is better (higher odds for user)
+            if (value > existingOption.value) {
+              oddsByMarket[marketKey].options[label] = {
+                value,
+                stopped: false,
+                suspended: false,
+                is_unavailable: false,
+                latest_bookmaker_update: latestBookmakerUpdate,
+                selectionId: odd.selection_id || odd.selectionId || existingOption.selectionId
+              };
+            }
           }
         }
       }
@@ -409,7 +480,15 @@ function mapBackendMatchToInternal(backendMatch) {
     
     // Convert to markets array
     Object.values(oddsByMarket).forEach(market => {
-      const options = Object.entries(market.options).map(([label, value]) => {
+      const options = Object.entries(market.options).map(([label, optionData]) => {
+        // Handle both old format (just value) and new format (object with value, stopped, suspended, selectionId, timestamp)
+        const value = typeof optionData === 'number' ? optionData : optionData.value;
+        const stopped = typeof optionData === 'object' ? (optionData.stopped === true) : false;
+        const suspended = typeof optionData === 'object' ? (optionData.suspended === true) : false;
+        const isUnavailable = typeof optionData === 'object' ? (optionData.is_unavailable === true || stopped || suspended) : false;
+        const latestBookmakerUpdate = typeof optionData === 'object' ? optionData.latest_bookmaker_update : null;
+        const selectionId = typeof optionData === 'object' ? optionData.selectionId : null;
+        
         // Translate label to Turkish for common markets
         let translatedLabel = label;
         if (market.marketId === 1 || market.name.toLowerCase().includes('match winner') || market.name.toLowerCase().includes('fulltime result')) {
@@ -420,7 +499,12 @@ function mapBackendMatchToInternal(backendMatch) {
         }
         return {
           label: translatedLabel,
-          value
+          value,
+          stopped,
+          suspended,
+          is_unavailable: isUnavailable,
+          latest_bookmaker_update: latestBookmakerUpdate,
+          selectionId
         };
       });
       
@@ -464,6 +548,12 @@ function mapBackendMatchToInternal(backendMatch) {
     country: backendMatch.country || '',
     status: backendMatch.status || '',
     minute: backendMatch.minute,
+    seconds: backendMatch.seconds,  // Seconds from currentPeriod
+    time_added: backendMatch.time_added,  // Injury time for "45+X" format
+    ticking: backendMatch.ticking,  // Whether timer is ticking
+    has_timer: backendMatch.has_timer,  // Whether timer is available
+    currentPeriod: backendMatch.currentPeriod,  // Current period data
+    periods: backendMatch.periods,  // All periods data
     isLive: backendMatch.is_live || false,
     isFinished: backendMatch.is_finished || false,
     isPostponed: backendMatch.is_postponed || false,
@@ -1308,8 +1398,13 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
   // Backend now sends normalized odds format with: market_name, market_description, label, value, odd, price
   for (const odd of oddsArray) {
     try {
-      // Skip stopped odds
-      if (odd && odd.stopped === true) continue;
+      // Don't skip stopped/suspended odds - we'll show them as ASKIDA in the UI
+      // Only skip if value is invalid AND not unavailable
+      const isStopped = odd && odd.stopped === true;
+      const isSuspended = odd && odd.suspended === true;
+      const isUnavailable = isStopped || isSuspended || (odd && odd.is_unavailable === true);
+      const value = odd.value || odd.odd || odd.price || 0;
+      if (value <= 0 && !isUnavailable) continue;
       
       // Get market name/description (backend normalizes this)
       const marketName = odd.market_name || odd.market_description || '';
@@ -1318,9 +1413,9 @@ function extractMarketsFromSportmonksOdds(oddsArray, homeTeam, awayTeam) {
       // Get market_id to group by (use market_id if available, otherwise use market name)
       const marketId = odd.market_id || marketName;
       
-      // Get label and value - backend normalizes these
+      // Get label - backend normalizes these
+      // value is already extracted above (line 1400)
       let label = odd.label || odd.name || '';
-      let value = odd.value || odd.odd || odd.price;
       
       // Convert value to number
       const numericValue = typeof value === 'string' ? parseFloat(value) : (typeof value === 'number' ? value : null);

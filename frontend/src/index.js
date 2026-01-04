@@ -3,6 +3,35 @@ import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
 
+// Suppress ResizeObserver errors (common with Radix UI components like Select)
+// These errors are harmless and occur when ResizeObserver callbacks are queued
+// but the component unmounts before they can be processed
+const originalError = console.error;
+console.error = (...args) => {
+  if (
+    typeof args[0] === 'string' &&
+    args[0].includes('ResizeObserver loop completed with undelivered notifications')
+  ) {
+    return; // Suppress this specific error
+  }
+  originalError.apply(console, args);
+};
+
+// Also suppress ResizeObserver errors in window.onerror
+const originalOnError = window.onerror;
+window.onerror = (message, source, lineno, colno, error) => {
+  if (
+    typeof message === 'string' &&
+    message.includes('ResizeObserver loop completed with undelivered notifications')
+  ) {
+    return true; // Suppress this error
+  }
+  if (originalOnError) {
+    return originalOnError(message, source, lineno, colno, error);
+  }
+  return false;
+};
+
 // Remove Emergent badge if it exists
 const removeEmergentBadge = () => {
   const badge = document.getElementById("emergent-badge");

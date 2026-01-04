@@ -5,6 +5,8 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Input } from '../ui/input';
 import { useMatches } from '../../hooks/useMatches';
 import { useLeagues } from '../../hooks/useLeagues';
+import { getToday, getDateFromToday } from '../../utils/dateHelpers';
+import { groupMatchesByLeague, filterValidMatches } from '../../utils/matchHelpers';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
@@ -15,73 +17,34 @@ const Sidebar = ({ isOpen, onClose }) => {
   const suggestionsRef = useRef(null);
 
   // Fetch matches for search suggestions and popular leagues
-  const today = new Date().toISOString().split('T')[0];
-  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const today = useMemo(() => getToday(), []);
+  const sevenDaysLater = useMemo(() => getDateFromToday(7), []);
   const { matches: allMatches } = useMatches({
     date_from: today,
     date_to: sevenDaysLater,
-    matchType: 1
   });
 
   // Fetch leagues using React Query hook (cached)
   const { leagues: apiLeagues, loading: leaguesLoading } = useLeagues();
 
-  // Group matches by league_id
+  // Group matches by league_id - optimized
   const matchesByLeague = useMemo(() => {
-    if (!allMatches || !Array.isArray(allMatches)) {
-      return new Map();
-    }
-    
-    const grouped = new Map();
-    
-    allMatches.forEach(match => {
-      const matchLeagueId = match.sportmonksData?.leagueId || match.leagueId || match.league_id || match.league?.id;
-      if (matchLeagueId) {
-        const leagueId = typeof matchLeagueId === 'string' ? parseInt(matchLeagueId, 10) : matchLeagueId;
-        if (!isNaN(leagueId)) {
-          if (!grouped.has(leagueId)) {
-            grouped.set(leagueId, []);
-          }
-          grouped.get(leagueId).push(match);
-        }
-      }
-    });
-    
-    return grouped;
+    return groupMatchesByLeague(allMatches);
   }, [allMatches]);
 
-  // Helper function to convert DD.MM.YYYY to YYYY-MM-DD for comparison
-  const convertDateToISO = (dateStr) => {
-    if (!dateStr) return '';
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      return dateStr;
-    }
-    if (dateStr.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
-      const [day, month, year] = dateStr.split('.');
-      return `${year}-${month}-${day}`;
-    }
-    return dateStr;
-  };
-
-  // Get popular leagues sorted by match count
+  // Get all leagues sorted by match count (optimized - single pass)
   const popularLeagues = useMemo(() => {
     if (!Array.isArray(apiLeagues) || apiLeagues.length === 0) {
       return [];
     }
     
+    // Single pass: map and filter in one go
     const leaguesWithMatchCount = apiLeagues.map(league => {
       const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
       const leagueMatches = matchesByLeague.get(leagueId) || [];
       
-      // Filter matches within 7 days and not finished/postponed
-      const validMatches = leagueMatches.filter(match => {
-        const matchDate = convertDateToISO(match.date || '');
-        const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
-        const status = (match.status || '').toUpperCase();
-        const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
-        const isPostponed = status === 'POSTPONED';
-        return isWithin7Days && !isFinished && !isPostponed;
-      });
+      // Use optimized filter function
+      const validMatches = filterValidMatches(leagueMatches, today, sevenDaysLater);
       
       return {
         ...league,
@@ -97,8 +60,8 @@ const Sidebar = ({ isOpen, onClose }) => {
       return (a.name || '').localeCompare(b.name || '');
     });
     
-    // Return top 6 leagues that have at least 1 match
-    return leaguesWithMatchCount.filter(league => league.matchCount > 0).slice(0, 6);
+    // Return all leagues
+    return leaguesWithMatchCount;
   }, [apiLeagues, matchesByLeague, today, sevenDaysLater]);
 
   // Get country flag emoji
@@ -360,11 +323,11 @@ const Sidebar = ({ isOpen, onClose }) => {
             {/* Popular Leagues */}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">
-                Popüler Ligler
+                Tüm Ligler
               </h3>
               {leaguesLoading ? (
                 <div className="space-y-1">
-                  {[...Array(6)].map((_, i) => (
+                  {[...Array(10)].map((_, i) => (
                     <div key={i} className="px-2 py-2 rounded-lg animate-pulse">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">

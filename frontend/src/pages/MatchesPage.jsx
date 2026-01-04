@@ -1,13 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import MatchCard from '../components/betting/MatchCard';
-import { Calendar, Filter, Search, AlertCircle } from 'lucide-react';
+import { Calendar, Filter, Search, AlertCircle, Trophy } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Skeleton } from '../components/ui/skeleton';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useMatches } from '../hooks/useMatches';
+import { useLeagues } from '../hooks/useLeagues';
 
 // Helper function to normalize date format for comparison
 const normalizeDateForComparison = (dateStr) => {
@@ -27,34 +29,57 @@ const normalizeDateForComparison = (dateStr) => {
 const MatchesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlSearchQuery = searchParams.get('search') || '';
+  const urlLeagueId = searchParams.get('league_id');
   const [searchTerm, setSearchTerm] = useState(urlSearchQuery);
+  const [selectedLeagueId, setSelectedLeagueId] = useState(urlLeagueId ? parseInt(urlLeagueId, 10) : null);
   const [activeTab, setActiveTab] = useState('upcoming');
   const today = new Date().toISOString().split('T')[0];
-  // Calculate 12 days from today for upcoming matches
-  const twelveDaysLater = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  // Calculate 10 days ago for past matches (lazy loaded only when past tab is active)
-  const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  
+  // Fetch leagues for filter dropdown
+  const { leagues, loading: leaguesLoading } = useLeagues();
+  
+  // Fixed date ranges: 7 days ahead for upcoming, 5 days back for past
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // Sync URL search param with local state
+  // Sync URL params with local state (initial load only)
   useEffect(() => {
     if (urlSearchQuery && urlSearchQuery !== searchTerm) {
       setSearchTerm(urlSearchQuery);
     }
-  }, [urlSearchQuery, searchTerm]);
+    if (urlLeagueId !== null) {
+      const leagueIdNum = urlLeagueId ? parseInt(urlLeagueId, 10) : null;
+      if (leagueIdNum !== selectedLeagueId) {
+        setSelectedLeagueId(leagueIdNum);
+      }
+    }
+  }, []); // Only run on mount
+  
+  // Update URL params when filters change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (searchTerm.trim()) {
+      params.set('search', searchTerm.trim());
+    }
+    if (selectedLeagueId) {
+      params.set('league_id', selectedLeagueId.toString());
+    }
+    setSearchParams(params, { replace: true });
+  }, [searchTerm, selectedLeagueId, setSearchParams]);
 
-  // Lazy loading: Only fetch upcoming matches initially (fast load)
+  // Fetch upcoming matches for next 7 days
   const { matches: upcomingMatchesData, loading: upcomingLoading, error: upcomingError, refetch: refetchUpcoming } = useMatches({ 
-    matchType: 1,
     date_from: today,
-    date_to: twelveDaysLater
+    date_to: sevenDaysLater,
+    league_id: selectedLeagueId
   });
 
-  // Lazy loading: Only fetch past matches when past tab is active
+  // Fetch past matches for last 5 days (only when past tab is active)
   const shouldFetchPast = activeTab === 'past';
   const { matches: pastMatchesData, loading: pastLoading, error: pastError, refetch: refetchPast } = useMatches({ 
-    matchType: 1,
-    date_from: tenDaysAgo,
-    date_to: today
+    date_from: fiveDaysAgo,
+    date_to: today, // Use today because Sportmonks API's date_to is exclusive (not inclusive)
+    league_id: selectedLeagueId
   }, {
     enabled: shouldFetchPast // Only fetch when past tab is active
   });
@@ -67,7 +92,7 @@ const MatchesPage = () => {
     return upcomingMatchesData || [];
   }, [activeTab, upcomingMatchesData, pastMatchesData]);
   
-  // Calculate counts from raw data (before filtering)
+  // Calculate counts from raw data (no filtering by odds)
   const upcomingCount = useMemo(() => {
     if (!upcomingMatchesData || upcomingMatchesData.length === 0) return 0;
     const today = new Date().toISOString().split('T')[0];
@@ -86,19 +111,7 @@ const MatchesPage = () => {
       const normalizedMatchDate = normalizeDateForComparison(m.date || '');
       const isPastDate = normalizedMatchDate && normalizedMatchDate < today;
       
-      // Exclude matches without odds
-      if (!m.markets || !Array.isArray(m.markets) || m.markets.length === 0) {
-        return false;
-      }
-      const hasValidOdds = m.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-      if (!hasValidOdds) return false;
-      
+      // No odds filtering - count all matches
       return !isPostponed && !isFinished && !(isPastDate && !m.isLive);
     }).length;
   }, [upcomingMatchesData]);
@@ -123,19 +136,7 @@ const MatchesPage = () => {
       const normalizedMatchDate = normalizeDateForComparison(m.date || '');
       const isPastDate = normalizedMatchDate && normalizedMatchDate < today;
       
-      // Exclude matches without odds
-      if (!m.markets || !Array.isArray(m.markets) || m.markets.length === 0) {
-        return false;
-      }
-      const hasValidOdds = m.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-      if (!hasValidOdds) return false;
-      
+      // No odds filtering - count all matches
       return !isPostponed && (isFinished || (isPastDate && !m.isLive));
     }).length;
   }, [shouldFetchPast, pastMatchesData]);
@@ -144,53 +145,25 @@ const MatchesPage = () => {
   const error = activeTab === 'past' ? pastError : upcomingError;
   const refetch = activeTab === 'past' ? refetchPast : refetchUpcoming;
   
-  // Check if matches have loaded with odds (markets)
-  const hasMatchesWithOdds = useMemo(() => {
-    if (loading) return false;
-    if (!allMatches || allMatches.length === 0) return false;
-    // Check if at least one match has markets with valid odds
-    return allMatches.some(match => {
-      if (!match.markets || !Array.isArray(match.markets)) return false;
-      return match.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-    });
-  }, [allMatches, loading]);
-  
-  // Show loading until matches with odds are loaded
   const isLoading = loading;
 
   const filteredMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];
     
+    // Only filter by search term - no odds filtering, show all matches
     return allMatches.filter((match) => {
-      // Filter by search term
-      const matchesSearch = 
-        match.homeTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        match.awayTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        match.league?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      if (!matchesSearch) return false;
-      
-      // Filter out matches without odds
-      if (!match.markets || !Array.isArray(match.markets) || match.markets.length === 0) {
-        return false;
+      // Filter by search term (if searchTerm is empty, show all matches)
+      if (searchTerm.trim()) {
+        const matchesSearch = 
+          match.homeTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          match.awayTeam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          match.league?.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        if (!matchesSearch) return false;
       }
       
-      // Check if at least one market has valid odds
-      const hasValidOdds = match.markets.some(market => {
-        if (!market.options || !Array.isArray(market.options)) return false;
-        return market.options.some(opt => {
-          const oddsValue = typeof opt.value === 'number' ? opt.value : parseFloat(opt.value) || 0;
-          return oddsValue > 0;
-        });
-      });
-      
-      return hasValidOdds;
+      // No odds filtering - show all matches
+      return true;
     });
   }, [allMatches, searchTerm]);
 
@@ -201,11 +174,6 @@ const MatchesPage = () => {
     const postponed = [];
     
     for (const match of filteredMatches) {
-      // Exclude live matches - they should only appear on Live Matches page
-      if (match.isLive === true) {
-        continue;
-      }
-      
       const status = (match.status || '').toUpperCase();
       const isPostponed = status === 'POSTP' || status === 'POSTPONED';
       // Check isFinished field first, then status, then date
@@ -227,7 +195,7 @@ const MatchesPage = () => {
         // Past matches: finished by status/field OR past date (and not live)
         past.push(match);
       } else {
-        // Upcoming matches
+        // Upcoming matches (including live matches for "upcoming" tab)
         upcoming.push(match);
       }
     }
@@ -339,21 +307,14 @@ const MatchesPage = () => {
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <div className="relative flex-1 md:w-64">
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative flex-1 md:w-64 min-w-[200px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
             <Input
               placeholder="Takım veya lig ara..."
               value={searchTerm}
               onChange={(e) => {
-                const newValue = e.target.value;
-                setSearchTerm(newValue);
-                // Update URL search param
-                if (newValue.trim()) {
-                  setSearchParams({ search: newValue.trim() });
-                } else {
-                  setSearchParams({});
-                }
+                setSearchTerm(e.target.value);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -362,6 +323,48 @@ const MatchesPage = () => {
               }}
               className="pl-9 bg-[#0d1117] border-[#1e2736] text-white"
             />
+          </div>
+          <div className="w-full md:w-64 min-w-[200px]">
+            <Select 
+              value={selectedLeagueId ? selectedLeagueId.toString() : 'all'} 
+              onValueChange={(value) => {
+                if (value === 'all') {
+                  setSelectedLeagueId(null);
+                } else {
+                  setSelectedLeagueId(parseInt(value, 10));
+                }
+              }}
+            >
+              <SelectTrigger className="bg-[#0d1117] border-[#1e2736] text-white h-10 w-full">
+                <Trophy size={16} className="text-amber-500 mr-2 flex-shrink-0" />
+                <SelectValue placeholder="Tüm Ligler" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0d1117] border-[#1e2736] text-white max-h-[300px]">
+                <SelectItem 
+                  value="all"
+                  className="text-white focus:bg-[#1a2332] focus:text-white cursor-pointer hover:bg-[#1a2332]"
+                >
+                  Tüm Ligler
+                </SelectItem>
+                {leaguesLoading ? (
+                  <SelectItem value="loading" disabled className="text-gray-500">
+                    Yükleniyor...
+                  </SelectItem>
+                ) : (
+                  leagues && leagues.length > 0 && leagues
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                    .map((league) => (
+                      <SelectItem
+                        key={league.id}
+                        value={league.id.toString()}
+                        className="text-white focus:bg-[#1a2332] focus:text-white cursor-pointer hover:bg-[#1a2332]"
+                      >
+                        {league.name || 'Bilinmeyen Lig'}
+                      </SelectItem>
+                    ))
+                )}
+              </SelectContent>
+            </Select>
           </div>
           <Button 
             variant="outline" 
@@ -391,22 +394,6 @@ const MatchesPage = () => {
         </Alert>
       )}
 
-      {/* No-odds Warning (prevents infinite skeleton when API returns matches without odds) */}
-      {!loading && !error && filteredMatches.length > 0 && !hasMatchesWithOdds && (
-        <Alert className="mb-6 bg-amber-500/10 border-amber-500/30">
-          <AlertCircle className="h-4 w-4 text-amber-500" />
-          <AlertDescription className="text-white">
-            Şu an maçlar listeleniyor fakat oran verisi bulunamadı. Birkaç dakika sonra tekrar deneyin.
-            <Button
-              variant="link"
-              onClick={refetch}
-              className="ml-2 text-amber-500 hover:text-amber-400 p-0 h-auto"
-            >
-              Yenile
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

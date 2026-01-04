@@ -99,7 +99,7 @@ export function hasRecentGoal(events, secondsThreshold = 30, currentMinute = nul
   // If we have current minute, compare with goal minute
   // Without timestamp or matchId tracking, we can only approximate
   if (currentMinute !== null && currentMinute !== undefined) {
-    const goalMinute = parseInt(recentGoal.minute || recentGoal.time || recentGoal.elapsed || 0);
+  const goalMinute = parseInt(recentGoal.minute || recentGoal.time || recentGoal.elapsed || 0);
     const currentMin = parseInt(currentMinute);
     
     if (isNaN(goalMinute) || isNaN(currentMin)) {
@@ -159,14 +159,28 @@ export function hasDangerousAttacks(statistics, threshold = 3) {
 
   // Look for dangerous attacks or shots on target
   const dangerousAttacks = stats.find(s => {
-    const type = (s.type || s.name || s.statistic || '').toLowerCase();
+    // Handle nested objects (e.g., s.type.name) and ensure we get a string
+    const typeValue = (
+      (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
+      (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
+      (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
+      ''
+    );
+    const type = String(typeValue).toLowerCase();
     return type.includes('dangerous attack') || 
            type.includes('dangerous_attack') ||
            (type.includes('attack') && type.includes('dangerous'));
   });
 
   const shotsOnTarget = stats.find(s => {
-    const type = (s.type || s.name || s.statistic || '').toLowerCase();
+    // Handle nested objects (e.g., s.type.name) and ensure we get a string
+    const typeValue = (
+      (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
+      (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
+      (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
+      ''
+    );
+    const type = String(typeValue).toLowerCase();
     return type.includes('shots on target') || 
            type.includes('shots on goal') ||
            (type.includes('shots') && (type.includes('target') || type.includes('goal')));
@@ -192,6 +206,110 @@ export function hasDangerousAttacks(statistics, threshold = 3) {
 }
 
 /**
+ * Check if there are dangerous events in recent match events (last 30 seconds)
+ * Professional betting sites lock odds when:
+ * - Corner kicks occur
+ * - Free kicks in dangerous areas
+ * - Penalties
+ * - Shots on target
+ * - Dangerous attacks (detected via events)
+ * @param {Array} events - Match events array
+ * @param {number} secondsThreshold - Time threshold in seconds (default: 30)
+ * @param {number|string} currentMinute - Current match minute
+ * @param {string|number} matchId - Match ID for tracking
+ * @returns {boolean} True if dangerous event occurred recently
+ */
+export function hasRecentDangerousEvent(events, secondsThreshold = 30, currentMinute = null, matchId = null) {
+  if (!events || !Array.isArray(events) || events.length === 0) {
+    return false;
+  }
+
+  const now = Date.now();
+  const thresholdMs = secondsThreshold * 1000;
+
+  // Find dangerous events (corners, free kicks, penalties, shots on target, dangerous attacks)
+  const dangerousEvents = events
+    .filter(event => {
+      // Event type can be nested: event.type.name or direct: event.type
+      const type = (
+        event.type?.name || 
+        event.type?.type ||
+        (typeof event.type === 'string' ? event.type : '') ||
+        event.event_type?.name ||
+        event.event_type?.type ||
+        (typeof event.event_type === 'string' ? event.event_type : '') ||
+        ''
+      ).toLowerCase();
+
+      // Check for dangerous events
+      return type.includes('corner') ||
+             type.includes('korner') ||
+             type.includes('free kick') ||
+             type.includes('serbest vuruş') ||
+             type.includes('penalty') ||
+             type.includes('penaltı') ||
+             type.includes('shot on target') ||
+             type.includes('shot on goal') ||
+             type.includes('dangerous attack') ||
+             type.includes('tehlikeli atak') ||
+             type.includes('big chance') ||
+             type.includes('büyük şans') ||
+             type.includes('attack') && (type.includes('dangerous') || type.includes('tehlikeli'));
+    })
+    .sort((a, b) => {
+      // Sort by minute/time descending
+      const aMin = parseInt(a.minute || a.time || a.elapsed || 0);
+      const bMin = parseInt(b.minute || b.time || b.elapsed || 0);
+      return bMin - aMin;
+    });
+
+  if (dangerousEvents.length === 0) {
+    return false;
+  }
+
+  const recentEvent = dangerousEvents[0];
+
+  // Check if event happened recently using timestamp (most accurate)
+  if (recentEvent.timestamp) {
+    const eventTime = new Date(recentEvent.timestamp).getTime();
+    const timeDiff = now - eventTime;
+    return timeDiff < thresholdMs;
+  }
+
+  // If we have matchId, track event count to detect new events
+  if (matchId) {
+    const currentEventCount = dangerousEvents.length;
+    const previousEventCount = previousGoalCounts.get(`dangerous_${matchId}`) || 0;
+    const lastCheck = lastCheckTime.get(`dangerous_${matchId}`);
+    const timeSinceLastCheck = lastCheck ? now - lastCheck : null;
+    
+    // If event count increased, it's a new event
+    if (currentEventCount > previousEventCount) {
+      // Only consider it recent if we've checked before (not first load)
+      // and it's been less than 30 seconds since last check
+      if (lastCheck && timeSinceLastCheck && timeSinceLastCheck < thresholdMs) {
+        // Update tracking
+        previousGoalCounts.set(`dangerous_${matchId}`, currentEventCount);
+        lastCheckTime.set(`dangerous_${matchId}`, now);
+        return true;
+      } else if (!lastCheck) {
+        // First time checking - initialize tracking but don't lock
+        previousGoalCounts.set(`dangerous_${matchId}`, currentEventCount);
+        lastCheckTime.set(`dangerous_${matchId}`, now);
+        return false;
+      }
+    }
+    
+    // Update tracking even if no new event
+    previousGoalCounts.set(`dangerous_${matchId}`, currentEventCount);
+    lastCheckTime.set(`dangerous_${matchId}`, now);
+  }
+
+  // Without timestamp or matchId tracking, we cannot accurately determine if event was within 30 seconds
+  return false;
+}
+
+/**
  * Check if match is in a critical moment (last 10 minutes, close score)
  * @param {Object} match - Match object
  * @returns {boolean} True if match is in critical moment
@@ -212,6 +330,11 @@ export function isCriticalMoment(match) {
 
 /**
  * Main function to check if betting should be locked for a live match
+ * Professional betting sites lock odds when:
+ * 1. Goal scored in last 30 seconds
+ * 2. Dangerous event in last 30 seconds (corner, free kick, penalty, shot on target, dangerous attack)
+ * 3. Ongoing dangerous attacks (accumulated statistics)
+ * 4. Critical moment (last 10 minutes, close score)
  * @param {Object} match - Match object
  * @param {Array} events - Match events array
  * @param {Object} statistics - Match statistics object
@@ -222,9 +345,10 @@ export function shouldLockBetting(match, events, statistics) {
     return { isLocked: false, reason: null };
   }
 
-  // Check for recent goal - pass current minute and match ID for accurate timing
   const currentMinute = match.minute || null;
   const matchId = match.id || match.sportmonksId || null;
+
+  // Check for recent goal - highest priority (lock for 30 seconds)
   if (hasRecentGoal(events, 30, currentMinute, matchId)) {
     return {
       isLocked: true,
@@ -232,15 +356,25 @@ export function shouldLockBetting(match, events, statistics) {
     };
   }
 
-  // Check for dangerous attacks
-  if (hasDangerousAttacks(statistics, 3)) {
+  // Check for recent dangerous event (corner, free kick, penalty, shot on target, dangerous attack)
+  // This mimics professional betting sites behavior
+  if (hasRecentDangerousEvent(events, 30, currentMinute, matchId)) {
+    return {
+      isLocked: true,
+      reason: 'Tehlikeli pozisyon oluştu. Oranlar geçici olarak kilitlendi.'
+    };
+  }
+
+  // Check for ongoing dangerous attacks (accumulated statistics)
+  // Lock if there are 2 or more dangerous attacks/shots on target in recent period
+  if (hasDangerousAttacks(statistics, 2)) {
     return {
       isLocked: true,
       reason: 'Tehlikeli atak durumu tespit edildi. Oranlar geçici olarak kilitlendi.'
     };
   }
 
-  // Check for critical moment
+  // Check for critical moment (last 10 minutes, close score)
   if (isCriticalMoment(match)) {
     return {
       isLocked: true,

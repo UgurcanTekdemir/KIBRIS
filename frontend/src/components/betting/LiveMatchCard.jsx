@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useBetSlip } from '../../context/BetSlipContext';
 import { useLiveMatchEvents } from '../../hooks/useLiveMatchEvents';
@@ -307,7 +307,73 @@ const LiveMatchCard = ({ match }) => {
     });
   };
   
-  // Get current minute directly from match.minute (API provides accurate data)
+  // Local seconds state for timer (updates every second when ticking=true)
+  const [localSeconds, setLocalSeconds] = useState(0);
+  
+  // Get current period data (from currentPeriod or periods array)
+  const currentPeriodData = useMemo(() => {
+    if (match.currentPeriod && typeof match.currentPeriod === 'object') {
+      return match.currentPeriod;
+    }
+    // Fallback to first period from periods array
+    if (match.periods && Array.isArray(match.periods) && match.periods.length > 0) {
+      // Find the current/active period (usually the last one or one with ticking=true)
+      for (let i = match.periods.length - 1; i >= 0; i--) {
+        const period = match.periods[i];
+        if (period && typeof period === 'object') {
+          if (period.ticking === true || period.has_timer === true) {
+            return period;
+          }
+        }
+      }
+      // If no ticking period found, use the last period
+      return match.periods[match.periods.length - 1];
+    }
+    return null;
+  }, [match.currentPeriod, match.periods]);
+  
+  // Extract period data
+  const periodMinutes = currentPeriodData?.minutes !== undefined ? parseInt(currentPeriodData.minutes, 10) : (match.minute ? parseInt(match.minute, 10) : null);
+  const periodSeconds = currentPeriodData?.seconds !== undefined ? parseInt(currentPeriodData.seconds, 10) : (match.seconds !== undefined ? parseInt(match.seconds, 10) : null);
+  const timeAdded = currentPeriodData?.time_added !== undefined ? parseInt(currentPeriodData.time_added, 10) : (match.time_added !== undefined ? parseInt(match.time_added, 10) : null);
+  const ticking = currentPeriodData?.ticking !== undefined ? currentPeriodData.ticking : (match.ticking !== undefined ? match.ticking : true);
+  const hasTimer = currentPeriodData?.has_timer !== undefined ? currentPeriodData.has_timer : (match.has_timer !== undefined ? match.has_timer : true);
+  
+  // Local timer effect - sync with API and increment when ticking=true
+  useEffect(() => {
+    const isLive = match.isLive && !match.isFinished;
+    const status = (match.status || '').toUpperCase();
+    const isHalfTime = status === 'HT' || status === 'HALF_TIME';
+    
+    // Only run timer if match is live, not finished, not in half-time, ticking=true, and has_timer=true
+    if (!isLive || isHalfTime || !ticking || !hasTimer) {
+      setLocalSeconds(0);
+      return;
+    }
+    
+    // Initialize with API seconds value
+    if (periodSeconds !== null && periodSeconds !== undefined) {
+      setLocalSeconds(periodSeconds);
+    } else {
+      setLocalSeconds(0);
+    }
+    
+    // Increment every second (only when ticking=true)
+    const interval = setInterval(() => {
+      setLocalSeconds(prev => {
+        // Reset to 0 when reaching 60 (minute will increment from API)
+        if (prev >= 59) {
+          return 0;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [match.isLive, match.isFinished, match.status, ticking, hasTimer, periodSeconds]);
+  
+  // Get current minute from currentPeriod/periods if available (most accurate), otherwise fallback to match.minute
+  // Format injury time as "45+X" or "90+X" when time_added > 0
   // Don't show minute if match is finished or in half-time break
   const currentMinute = useMemo(() => {
     // If match is finished, don't show minute
@@ -326,10 +392,35 @@ const LiveMatchCard = ({ match }) => {
       return null;
     }
     
-    // Use match.minute directly from API (most accurate)
-    const matchMinute = match.minute ? parseInt(match.minute, 10) : null;
-    return matchMinute;
-  }, [match.minute, match.isFinished, match.isLive, match.status]);
+    // Format with injury time if available
+    if (periodMinutes !== null) {
+      if (timeAdded !== null && timeAdded > 0) {
+        // Format as "45+X" or "90+X"
+        return `${periodMinutes}+${timeAdded}`;
+      }
+      return periodMinutes;
+    }
+    
+    return null;
+  }, [periodMinutes, timeAdded, match.isFinished, match.isLive, match.status]);
+  
+  // Display time with seconds (only if has_timer=true and ticking=true)
+  const displayTime = useMemo(() => {
+    if (!currentMinute) return null;
+    
+    // has_timer=false ise sadece dakika göster
+    if (!hasTimer) {
+      return `${currentMinute}'`;
+    }
+    
+    // ticking=true ise saniye de göster (local timer ile)
+    if (ticking && localSeconds !== null && localSeconds !== undefined) {
+      return `${currentMinute}:${String(localSeconds).padStart(2, '0')}'`;
+    }
+    
+    // ticking=false ise sadece dakika (timer durmuş)
+    return `${currentMinute}'`;
+  }, [currentMinute, localSeconds, ticking, hasTimer]);
 
   // Check if betting should be locked due to dangerous situations
   const lockStatus = useMemo(() => {
@@ -405,12 +496,26 @@ const LiveMatchCard = ({ match }) => {
     if (!Array.isArray(stats)) return null;
     
     const possession = stats.find(s => {
-      const type = (s.type || s.name || s.statistic || '').toLowerCase();
+      // Handle nested objects (e.g., s.type.name) and ensure we get a string
+      const typeValue = (
+        (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
+        (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
+        (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
+        ''
+      );
+      const type = String(typeValue).toLowerCase();
       return type.includes('possession') || type.includes('ball possession');
     });
     
     const shots = stats.find(s => {
-      const type = (s.type || s.name || s.statistic || '').toLowerCase();
+      // Handle nested objects (e.g., s.type.name) and ensure we get a string
+      const typeValue = (
+        (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
+        (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
+        (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
+        ''
+      );
+      const type = String(typeValue).toLowerCase();
       return type.includes('shots on target') || type.includes('shots on goal') || 
              (type.includes('shots') && type.includes('target'));
     });
@@ -459,13 +564,18 @@ const LiveMatchCard = ({ match }) => {
               <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
               <span className="text-yellow-500 text-xs sm:text-sm font-bold">DEVRE ARASI</span>
             </>
-          ) : (
+          ) : match.isLive && !match.isFinished ? (
             <>
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
               <span className="text-red-500 text-xs sm:text-sm font-bold">CANLI</span>
-              {currentMinute && (
-                <span className="text-white text-xs sm:text-sm font-bold ml-2">{currentMinute}'</span>
+              {displayTime && (
+                <span className="text-white text-xs sm:text-sm font-bold ml-2">{displayTime}</span>
               )}
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
+              <span className="text-gray-500 text-xs sm:text-sm font-bold">BİTTİ</span>
             </>
           )}
         </div>
@@ -581,6 +691,9 @@ const LiveMatchCard = ({ match }) => {
                   <div className="flex-1 min-w-0">
                     {type === 'substitution' ? (
                       <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-gray-400 text-[9px] font-medium">
+                          {isHome ? 'Ev Sahibi' : 'Deplasman'}:
+                        </span>
                         {eventData.playerOut ? (
                           <>
                             <span className="font-medium">{eventData.playerOut}</span>
@@ -601,16 +714,25 @@ const LiveMatchCard = ({ match }) => {
                       </div>
                     ) : type === 'goal' ? (
                       <div className="font-medium">
+                        <span className="text-gray-400 text-[9px] font-medium mr-1">
+                          {isHome ? 'Ev Sahibi' : 'Deplasman'}:
+                        </span>
                         {eventData.player && eventData.player !== 'Gol' ? eventData.player : 'Gol'}
                       </div>
                     ) : type === 'card' ? (
                       <div className="font-medium">
+                        <span className="text-gray-400 text-[9px] font-medium mr-1">
+                          {isHome ? 'Ev Sahibi' : 'Deplasman'}:
+                        </span>
                         {eventData.player || 'Oyuncu'}
                         {eventData.cardType === 'yellow' && <span className="text-yellow-500 ml-1">(Sarı Kart)</span>}
                         {eventData.cardType === 'red' && <span className="text-red-500 ml-1">(Kırmızı Kart)</span>}
                       </div>
                     ) : (
                       <div className="font-medium">
+                        <span className="text-gray-400 text-[9px] font-medium mr-1">
+                          {isHome ? 'Ev Sahibi' : 'Deplasman'}:
+                        </span>
                         {eventData.player || eventData.eventType || 'Olay'}
                       </div>
                     )}

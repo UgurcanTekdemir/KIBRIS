@@ -7,12 +7,58 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
 import { createCoupon } from '../services/couponService';
+import { getFixtureById } from '../services/football';
+import { mapApiMatchToInternal } from '../utils/matchMapper';
+import { OddsChangedModal } from '../components/betting/OddsChangedModal';
 
 const BetSlipPage = () => {
   const { selections, stake, setStake, removeSelection, clearSelections, totalOdds, potentialWin } = useBetSlip();
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [oddsChangedModalOpen, setOddsChangedModalOpen] = useState(false);
+  const [changedSelections, setChangedSelections] = useState([]);
+  const [pendingCouponData, setPendingCouponData] = useState(null);
+
+  // Compare snapshot odds with current odds
+  const compareOdds = async () => {
+    const changed = [];
+    
+    for (const selection of selections) {
+      try {
+        // Fetch current match data
+        const apiMatch = await getFixtureById(selection.fixtureId || selection.matchId);
+        if (!apiMatch) continue;
+        
+        const currentMatch = mapApiMatchToInternal(apiMatch);
+        if (!currentMatch || !currentMatch.markets) continue;
+        
+        // Find the market and option
+        const market = currentMatch.markets.find(m => m.name === selection.marketName);
+        if (!market || !market.options) continue;
+        
+        const option = market.options.find(opt => opt.label === selection.option);
+        if (!option) continue;
+        
+        const currentOdds = typeof option.value === 'number' ? option.value : parseFloat(option.value) || 0;
+        const snapshotOdds = selection.snapshotOdds || selection.odds;
+        
+        // Compare with small threshold (0.005) to avoid floating point issues
+        if (Math.abs(currentOdds - snapshotOdds) > 0.005) {
+          changed.push({
+            ...selection,
+            snapshotOdds,
+            currentOdds
+          });
+        }
+      } catch (error) {
+        console.error(`Error comparing odds for selection ${selection.matchId}:`, error);
+        // Continue with other selections even if one fails
+      }
+    }
+    
+    return changed;
+  };
 
   const handlePlaceBet = async () => {
     if (!user) {
@@ -34,11 +80,61 @@ const BetSlipPage = () => {
 
     setLoading(true);
     try {
-      // Create coupon in Firestore
+      // Compare snapshot odds with current odds
+      const changed = await compareOdds();
+      
+      if (changed.length > 0) {
+        // Odds have changed, show modal
+        setChangedSelections(changed);
+        
+        // Prepare coupon data with current odds (will be used if user accepts)
+        const updatedSelections = selections.map(s => {
+          const changedSelection = changed.find(c => 
+            c.matchId === s.matchId && c.marketName === s.marketName && c.option === s.option
+          );
+          
+          return {
+            matchId: s.matchId,
+            matchName: s.matchName,
+            league: s.league,
+            marketName: s.marketName,
+            option: s.option,
+            odds: changedSelection ? changedSelection.currentOdds : s.odds,
+          };
+        });
+        
+        const updatedTotalOdds = updatedSelections.reduce((acc, s) => acc * s.odds, 1);
+        const updatedPotentialWin = stake * updatedTotalOdds;
+        
+        setPendingCouponData({
+          userId: user.id,
+          agentId: user.parentId || null,
+          selections: updatedSelections,
+          stake,
+          totalOdds: updatedTotalOdds,
+          potentialWin: updatedPotentialWin,
+        });
+        
+        setOddsChangedModalOpen(true);
+        setLoading(false);
+        return;
+      }
+      
+      // No changes, proceed with normal coupon creation
+      await createCouponWithSelections(selections);
+    } catch (error) {
+      console.error('Error creating coupon:', error);
+      toast.error(error.message || 'Kupon oluşturulurken hata oluştu');
+      setLoading(false);
+    }
+  };
+
+  const createCouponWithSelections = async (selectionsToUse) => {
+    try {
       const couponData = {
         userId: user.id,
         agentId: user.parentId || null,
-        selections: selections.map(s => ({
+        selections: selectionsToUse.map(s => ({
           matchId: s.matchId,
           matchName: s.matchName,
           league: s.league,
@@ -47,8 +143,8 @@ const BetSlipPage = () => {
           odds: s.odds,
         })),
         stake,
-        totalOdds,
-        potentialWin,
+        totalOdds: selectionsToUse.reduce((acc, s) => acc * s.odds, 1),
+        potentialWin: stake * selectionsToUse.reduce((acc, s) => acc * s.odds, 1),
       };
 
       const coupon = await createCoupon(couponData);
@@ -59,18 +155,57 @@ const BetSlipPage = () => {
     } catch (error) {
       console.error('Error creating coupon:', error);
       toast.error(error.message || 'Kupon oluşturulurken hata oluştu');
+      throw error;
     } finally {
       setLoading(false);
     }
   };
 
+  const handleAcceptChangedOdds = async () => {
+    if (!pendingCouponData) return;
+    
+    setLoading(true);
+    try {
+      // Use updated selections with current odds
+      const updatedSelections = pendingCouponData.selections.map(s => ({
+        ...s,
+        odds: s.odds, // Already updated with current odds
+      }));
+      
+      await createCouponWithSelections(updatedSelections);
+      setOddsChangedModalOpen(false);
+      setPendingCouponData(null);
+      setChangedSelections([]);
+    } catch (error) {
+      console.error('Error creating coupon with updated odds:', error);
+      toast.error(error.message || 'Kupon oluşturulurken hata oluştu');
+      setLoading(false);
+    }
+  };
+
+  const handleRejectChangedOdds = () => {
+    setOddsChangedModalOpen(false);
+    setPendingCouponData(null);
+    setChangedSelections([]);
+    setLoading(false);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto pb-4">
-      {/* Back */}
-      <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-3 sm:mb-4 transition-colors text-sm">
-        <ArrowLeft size={16} />
-        <span>Geri</span>
-      </Link>
+    <>
+      <OddsChangedModal
+        open={oddsChangedModalOpen}
+        onClose={handleRejectChangedOdds}
+        onAccept={handleAcceptChangedOdds}
+        onReject={handleRejectChangedOdds}
+        changedSelections={changedSelections}
+      />
+      
+      <div className="max-w-2xl mx-auto pb-4">
+        {/* Back */}
+        <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-3 sm:mb-4 transition-colors text-sm">
+          <ArrowLeft size={16} />
+          <span>Geri</span>
+        </Link>
 
       <div className="bg-[#0d1117] border border-[#1e2736] rounded-xl sm:rounded-2xl overflow-hidden">
         {/* Header */}
@@ -193,7 +328,8 @@ const BetSlipPage = () => {
           </>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 
