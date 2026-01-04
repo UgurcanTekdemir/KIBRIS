@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getUserCoupons } from '../services/couponService';
 import { getUserTransactions } from '../services/transactionService';
@@ -17,13 +17,8 @@ const PlayerPanel = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user && user.role === 'player') {
-      loadData();
-    }
-  }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!user || !user.id) return;
     try {
       setLoading(true);
       const [couponsData, transactionsData] = await Promise.all([
@@ -38,7 +33,13 @@ const PlayerPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.role === 'player') {
+      loadData();
+    }
+  }, [user, loadData]);
 
   if (!user || user.role !== 'player') {
     return (

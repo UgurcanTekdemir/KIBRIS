@@ -307,8 +307,9 @@ const LiveMatchCard = ({ match }) => {
     });
   };
   
-  // Local seconds state for timer (updates every second when ticking=true)
-  const [localSeconds, setLocalSeconds] = useState(0);
+  // Local elapsed seconds state (calculated from anchor time - updated_at)
+  // SportMonks doesn't provide second-by-second updates, so we calculate elapsed time from anchor
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   
   // Get current period data (from currentPeriod or periods array)
   const currentPeriodData = useMemo(() => {
@@ -332,79 +333,164 @@ const LiveMatchCard = ({ match }) => {
     return null;
   }, [match.currentPeriod, match.periods]);
   
-  // Extract period data
-  const periodMinutes = currentPeriodData?.minutes !== undefined ? parseInt(currentPeriodData.minutes, 10) : (match.minute ? parseInt(match.minute, 10) : null);
+  // Extract period data - prioritize match.minute (from backend) for reliability
+  // Priority: 1) match.minute (backend processed), 2) currentPeriodData.minutes, 3) events (fallback), 4) null
+  const periodMinutes = useMemo(() => {
+    // First try match.minute (from backend)
+    if (match.minute !== null && match.minute !== undefined) {
+      return typeof match.minute === 'number' ? match.minute : parseInt(match.minute, 10);
+    }
+    
+    // Second try currentPeriodData.minutes
+    if (currentPeriodData?.minutes !== undefined && currentPeriodData?.minutes !== null) {
+      return parseInt(currentPeriodData.minutes, 10);
+    }
+    
+    // Third try: extract from events (fallback for missing minute data)
+    if (events && Array.isArray(events) && events.length > 0) {
+      const validEvents = events.filter(e => 
+        e && typeof e === 'object' && 
+        (e.minute !== null && e.minute !== undefined) &&
+        !isNaN(parseInt(e.minute, 10))
+      );
+      if (validEvents.length > 0) {
+        const latestEvent = validEvents.reduce((latest, current) => {
+          const currentMin = parseInt(current.minute, 10);
+          const latestMin = parseInt(latest.minute, 10);
+          return currentMin > latestMin ? current : latest;
+        });
+        const eventMinute = parseInt(latestEvent.minute, 10);
+        // Only use if minute is reasonable (0-120)
+        if (eventMinute >= 0 && eventMinute <= 120) {
+          return eventMinute;
+        }
+      }
+    }
+    
+    return null;
+  }, [match.minute, currentPeriodData?.minutes, events]);
+  
   const periodSeconds = currentPeriodData?.seconds !== undefined ? parseInt(currentPeriodData.seconds, 10) : (match.seconds !== undefined ? parseInt(match.seconds, 10) : null);
   const timeAdded = currentPeriodData?.time_added !== undefined ? parseInt(currentPeriodData.time_added, 10) : (match.time_added !== undefined ? parseInt(match.time_added, 10) : null);
   const ticking = currentPeriodData?.ticking !== undefined ? currentPeriodData.ticking : (match.ticking !== undefined ? match.ticking : true);
   const hasTimer = currentPeriodData?.has_timer !== undefined ? currentPeriodData.has_timer : (match.has_timer !== undefined ? match.has_timer : true);
+  const shouldTick = match.should_tick !== undefined ? match.should_tick : (ticking && hasTimer);
+  const updatedAt = match.updated_at; // Anchor time from backend
   
-  // Local timer effect - sync with API and increment when ticking=true
+  // Timer effect - calculate elapsed seconds from anchor (updated_at) only when LIVE
+  // SportMonks: Timer only runs when state === LIVE && !stopped && !suspended && ticking === true && has_timer === true
   useEffect(() => {
-    const isLive = match.isLive && !match.isFinished;
     const status = (match.status || '').toUpperCase();
-    const isHalfTime = status === 'HT' || status === 'HALF_TIME';
+    const isHalfTime = status === 'HT' || status === 'HALF_TIME' || status === 'BREAK';
+    const isLive = match.isLive && !match.isFinished;
     
-    // Only run timer if match is live, not finished, not in half-time, ticking=true, and has_timer=true
-    if (!isLive || isHalfTime || !ticking || !hasTimer) {
-      setLocalSeconds(0);
-      return;
+    // Don't run timer if:
+    // - HT/HALF_TIME/BREAK status (HT is a state, not a time)
+    // - Not live
+    // - Finished
+    // - should_tick=false (includes stopped, suspended, ticking=false, has_timer=false)
+    if (isHalfTime || !isLive || !shouldTick) {
+      setElapsedSeconds(0);
+      return; // Stop timer
     }
     
-    // Initialize with API seconds value
-    if (periodSeconds !== null && periodSeconds !== undefined) {
-      setLocalSeconds(periodSeconds);
-    } else {
-      setLocalSeconds(0);
-    }
-    
-    // Increment every second (only when ticking=true)
-    const interval = setInterval(() => {
-      setLocalSeconds(prev => {
-        // Reset to 0 when reaching 60 (minute will increment from API)
-        if (prev >= 59) {
-          return 0;
+    // Calculate elapsed seconds from anchor (updated_at)
+    // Only add elapsed time when LIVE
+    if (updatedAt) {
+      try {
+        const anchorTime = new Date(updatedAt).getTime();
+        const now = Date.now();
+        const elapsed = Math.floor((now - anchorTime) / 1000);
+        
+        // Initialize with anchor-based elapsed time
+        setElapsedSeconds(Math.max(0, elapsed));
+        
+        // Update every second (only when LIVE and should_tick=true)
+        const interval = setInterval(() => {
+          const currentElapsed = Math.floor((Date.now() - anchorTime) / 1000);
+          setElapsedSeconds(Math.max(0, currentElapsed));
+        }, 1000);
+        
+        return () => clearInterval(interval);
+      } catch (e) {
+        // If updatedAt is invalid, fall back to periodSeconds
+        if (periodSeconds !== null && periodSeconds !== undefined) {
+          setElapsedSeconds(periodSeconds);
+        } else {
+          setElapsedSeconds(0);
         }
-        return prev + 1;
-      });
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [match.isLive, match.isFinished, match.status, ticking, hasTimer, periodSeconds]);
+      }
+    } else {
+      // Fallback: use periodSeconds if updatedAt not available
+      if (periodSeconds !== null && periodSeconds !== undefined) {
+        setElapsedSeconds(periodSeconds);
+      } else {
+        setElapsedSeconds(0);
+      }
+    }
+  }, [match.isLive, match.isFinished, match.status, shouldTick, updatedAt, periodSeconds]);
   
-  // Get current minute from currentPeriod/periods if available (most accurate), otherwise fallback to match.minute
-  // Format injury time as "45+X" or "90+X" when time_added > 0
-  // Don't show minute if match is finished or in half-time break
+  // Get current minute - prioritize match.minute (from backend) for reliability
+  // Format injury time as "45+X" or "90+X" when time_added > 0 (fixed, timer not added)
+  // HT is a state, not a time - don't show minute during HT
+  // SportMonks: Minute = anchor (API) + local timer (only when LIVE)
   const currentMinute = useMemo(() => {
-    // If match is finished, don't show minute
+    // Priority 1: If HT/HALF_TIME/BREAK status → return null (HT is a state, not a time)
+    const status = (match.status || '').toUpperCase();
+    if (status === 'HT' || status === 'HALF_TIME' || status === 'BREAK') {
+      return null; // HT is a state, not a time - don't show minute
+    }
+    
+    // Priority 2: If finished → return null
     if (match.isFinished) {
       return null;
     }
     
-    // Check if match is in half-time break (HT/HALF_TIME status)
-    const status = (match.status || '').toUpperCase();
-    if (status === 'HT' || status === 'HALF_TIME') {
-      return null; // Don't show minute during half-time break
-    }
-    
-    // Only show minute if match is live
+    // Priority 3: Only show minute if LIVE
     if (!match.isLive) {
       return null;
     }
     
-    // Format with injury time if available
-    if (periodMinutes !== null) {
+    // Priority 4: Use minute from backend (should be null for HT)
+    // Backend should already set minute to null for HT, but double-check
+    if (match.minute === null || match.minute === undefined) {
+      return null;
+    }
+    
+    // Use periodMinutes (which already prioritizes match.minute)
+    // Format with injury time if available (fixed, timer not added to added_time)
+    if (periodMinutes !== null && !isNaN(periodMinutes)) {
       if (timeAdded !== null && timeAdded > 0) {
-        // Format as "45+X" or "90+X"
+        // Format as "45+X" or "90+X" (added_time is fixed, timer doesn't add to it)
         return `${periodMinutes}+${timeAdded}`;
       }
       return periodMinutes;
     }
     
     return null;
-  }, [periodMinutes, timeAdded, match.isFinished, match.isLive, match.status]);
+  }, [periodMinutes, timeAdded, match.isFinished, match.isLive, match.status, match.minute]);
   
-  // Display time with seconds (only if has_timer=true and ticking=true)
+  // Calculate display seconds: anchor seconds + elapsed seconds (only when LIVE)
+  // SportMonks: Seconds = anchor (API) + elapsed (local timer, only when LIVE)
+  const displaySeconds = useMemo(() => {
+    const status = (match.status || '').toUpperCase();
+    const isHalfTime = status === 'HT' || status === 'HALF_TIME' || status === 'BREAK';
+    const isLive = match.isLive && !match.isFinished;
+    
+    // Don't show seconds if HT, finished, or not live
+    if (isHalfTime || !isLive || !shouldTick) {
+      return null;
+    }
+    
+    // Calculate: anchor seconds + elapsed seconds (only when LIVE)
+    const anchorSeconds = periodSeconds !== null && periodSeconds !== undefined ? periodSeconds : 0;
+    const totalSeconds = anchorSeconds + elapsedSeconds;
+    
+    // Keep within 0-59 range
+    return totalSeconds % 60;
+  }, [periodSeconds, elapsedSeconds, match.status, match.isLive, match.isFinished, shouldTick]);
+  
+  // Display time with seconds (only if has_timer=true and should_tick=true)
   const displayTime = useMemo(() => {
     if (!currentMinute) return null;
     
@@ -413,14 +499,14 @@ const LiveMatchCard = ({ match }) => {
       return `${currentMinute}'`;
     }
     
-    // ticking=true ise saniye de göster (local timer ile)
-    if (ticking && localSeconds !== null && localSeconds !== undefined) {
-      return `${currentMinute}:${String(localSeconds).padStart(2, '0')}'`;
+    // should_tick=true ise saniye de göster (anchor + elapsed timer ile)
+    if (shouldTick && displaySeconds !== null && displaySeconds !== undefined) {
+      return `${currentMinute}:${String(displaySeconds).padStart(2, '0')}'`;
     }
     
-    // ticking=false ise sadece dakika (timer durmuş)
+    // should_tick=false ise sadece dakika (timer durmuş)
     return `${currentMinute}'`;
-  }, [currentMinute, localSeconds, ticking, hasTimer]);
+  }, [currentMinute, displaySeconds, shouldTick, hasTimer]);
 
   // Check if betting should be locked due to dangerous situations
   const lockStatus = useMemo(() => {

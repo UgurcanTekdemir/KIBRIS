@@ -547,11 +547,15 @@ function mapBackendMatchToInternal(backendMatch) {
     leagueLogo: backendMatch.league_logo,
     country: backendMatch.country || '',
     status: backendMatch.status || '',
-    minute: backendMatch.minute,
+    minute: backendMatch.minute !== null && backendMatch.minute !== undefined 
+      ? (typeof backendMatch.minute === 'number' ? backendMatch.minute : parseInt(backendMatch.minute, 10))
+      : null,
     seconds: backendMatch.seconds,  // Seconds from currentPeriod
-    time_added: backendMatch.time_added,  // Injury time for "45+X" format
+    time_added: backendMatch.time_added,  // Injury time for "45+X" format (fixed, timer not added)
     ticking: backendMatch.ticking,  // Whether timer is ticking
     has_timer: backendMatch.has_timer,  // Whether timer is available
+    should_tick: backendMatch.should_tick,  // Whether timer should tick (Bet365 behavior)
+    updated_at: backendMatch.updated_at,  // Anchor time for timer calculation (ISO format)
     currentPeriod: backendMatch.currentPeriod,  // Current period data
     periods: backendMatch.periods,  // All periods data
     isLive: backendMatch.is_live || false,
@@ -576,16 +580,39 @@ function mapBackendMatchToInternal(backendMatch) {
  * @returns {Object} Internal match structure
  */
 export function mapApiMatchToInternal(apiMatch) {
-  if (!apiMatch) return null;
+  if (!apiMatch) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ mapApiMatchToInternal: apiMatch is null or undefined');
+    }
+    return null;
+  }
   
   // Check if this is already transformed by backend (has home_team, away_team, league fields)
   if (apiMatch.home_team && apiMatch.away_team && !apiMatch.sport_id) {
-    return mapBackendMatchToInternal(apiMatch);
+    const mapped = mapBackendMatchToInternal(apiMatch);
+    if (process.env.NODE_ENV === 'development' && !mapped) {
+      console.warn('⚠️ mapBackendMatchToInternal returned null for:', apiMatch.id || 'unknown');
+    }
+    return mapped;
   }
   
   // Check if this is a Sportmonks V3 fixture (has sport_id, state_id, starting_at fields)
   if (apiMatch.sport_id !== undefined && apiMatch.state_id !== undefined && apiMatch.starting_at) {
-    return mapSportmonksFixtureToInternal(apiMatch);
+    const mapped = mapSportmonksFixtureToInternal(apiMatch);
+    if (process.env.NODE_ENV === 'development' && !mapped) {
+      console.warn('⚠️ mapSportmonksFixtureToInternal returned null for:', apiMatch.id || 'unknown');
+    }
+    return mapped;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.warn('⚠️ mapApiMatchToInternal: Unknown match format:', {
+      id: apiMatch.id,
+      has_home_team: !!apiMatch.home_team,
+      has_away_team: !!apiMatch.away_team,
+      has_sport_id: apiMatch.sport_id !== undefined,
+      keys: Object.keys(apiMatch).slice(0, 10)
+    });
   }
   
   // The Odds API / StatPal (transformed) response structure:
@@ -1142,9 +1169,26 @@ function getLeagueFlagFromSportKey(sportKey) {
  */
 export function mapApiMatchesToInternal(apiMatches) {
   if (!Array.isArray(apiMatches)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️ mapApiMatchesToInternal: apiMatches is not an array:', typeof apiMatches);
+    }
     return [];
   }
-  return apiMatches.map(mapApiMatchToInternal);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔄 Mapping', apiMatches.length, 'matches to internal format');
+  }
+  
+  const mapped = apiMatches.map(mapApiMatchToInternal).filter(Boolean);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log('✅ Successfully mapped', mapped.length, 'out of', apiMatches.length, 'matches');
+    if (mapped.length < apiMatches.length) {
+      console.warn('⚠️ Some matches were filtered out (returned null)');
+    }
+  }
+  
+  return mapped;
 }
 
 /**

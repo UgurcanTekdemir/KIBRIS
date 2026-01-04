@@ -10,27 +10,74 @@ import { createCoupon } from '../services/couponService';
 import { getFixtureById } from '../services/football';
 import { mapApiMatchToInternal } from '../utils/matchMapper';
 import { OddsChangedModal } from '../components/betting/OddsChangedModal';
+import { useQueryClient } from '@tanstack/react-query';
 
 const BetSlipPage = () => {
   const { selections, stake, setStake, removeSelection, clearSelections, totalOdds, potentialWin } = useBetSlip();
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [oddsChangedModalOpen, setOddsChangedModalOpen] = useState(false);
   const [changedSelections, setChangedSelections] = useState([]);
   const [pendingCouponData, setPendingCouponData] = useState(null);
 
   // Compare snapshot odds with current odds
+  // Optimized: Deduplicate match requests and use React Query cache
   const compareOdds = async () => {
     const changed = [];
     
-    for (const selection of selections) {
+    // Group selections by match ID to deduplicate requests
+    const uniqueMatchIds = [...new Set(selections.map(s => {
+      const matchId = s.fixtureId || s.matchId;
+      return matchId ? parseInt(matchId, 10) : null;
+    }).filter(Boolean))];
+    
+    if (uniqueMatchIds.length === 0) {
+      return changed;
+    }
+    
+    // Fetch all unique matches in parallel using React Query cache
+    // This will use cached data if available, reducing API calls
+    const matchPromises = uniqueMatchIds.map(async (matchId) => {
       try {
-        // Fetch current match data
-        const apiMatch = await getFixtureById(selection.fixtureId || selection.matchId);
-        if (!apiMatch) continue;
+        // Use React Query's fetchQuery which respects cache and staleTime
+        const apiMatch = await queryClient.fetchQuery({
+          queryKey: ['matchDetails', matchId],
+          queryFn: async () => {
+            const data = await getFixtureById(matchId);
+            return data;
+          },
+          staleTime: 0, // Same as useMatchDetails hook (never stale)
+        });
+        
+        if (!apiMatch) return null;
         
         const currentMatch = mapApiMatchToInternal(apiMatch);
+        return { matchId, match: currentMatch };
+      } catch (error) {
+        console.error(`Error fetching match ${matchId}:`, error);
+        return null;
+      }
+    });
+    
+    // Wait for all matches to be fetched
+    const matchResults = await Promise.all(matchPromises);
+    
+    // Create a map of matchId -> match data for quick lookup
+    const matchMap = new Map();
+    matchResults.forEach(result => {
+      if (result && result.match) {
+        matchMap.set(result.matchId, result.match);
+      }
+    });
+    
+    // Process all selections using the fetched match data
+    for (const selection of selections) {
+      try {
+        const matchId = parseInt(selection.fixtureId || selection.matchId, 10);
+        const currentMatch = matchMap.get(matchId);
+        
         if (!currentMatch || !currentMatch.markets) continue;
         
         // Find the market and option

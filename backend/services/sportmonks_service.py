@@ -6,11 +6,17 @@ Acts as a Data Proxy - no database storage, direct pass-through to frontend.
 import os
 import asyncio
 import random
+import hashlib
+import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 import httpx
 import logging
+
+from services.rate_limit_manager import get_rate_limit_manager
+from config.rate_limit_config import get_entity_from_path, get_cache_ttl
+from services.cache import get_cached, set_cached, cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,20 @@ BET365_SUPPORTED_MARKET_IDS = {
     23, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 37, 38, 40, 42, 43, 44, 45,
     46, 47, 50, 51, 53, 56, 57, 60, 61, 62, 63, 64, 65, 66, 67, 68, 70, 80,
     97, 101, 120, 121, 126, 247, 264, 265, 266
+}
+
+# Allowed event type_ids (Bet365 shows these)
+# Events that should be displayed in the UI
+ALLOWED_EVENT_TYPE_IDS = {
+    10,  # Goal
+    14,  # Goal
+    15,  # Card (Yellow)
+    16,  # Card (Red)
+    17,  # Substitution
+    18,  # Penalty
+    19,  # VAR
+    20,  # VAR Decision
+    21,  # Other important events
 }
 
 # Popular leagues for default filtering (20-40 leagues instead of all 113)
@@ -83,12 +103,8 @@ class SportmonksService:
         # Lazy initialization of HTTP client with connection pooling
         self._client = None
         
-        # Client-side rate limiting (sliding window)
-        # Sportmonks Advanced plan: 1000 requests per minute
-        self._rate_limit_window = 60  # 60 seconds window
-        self._rate_limit_max_requests = 900  # Conservative limit (90% of 1000)
-        self._request_timestamps = []  # Track request timestamps
-        self._rate_limit_lock = asyncio.Lock() if hasattr(asyncio, 'Lock') else None
+        # Entity-based rate limit manager
+        self._rate_limit_manager = get_rate_limit_manager()
         
         # Entity caching (for rarely-changing entities like States, Types, Countries)
         # Cache TTL: 24 hours (these entities rarely change)
@@ -104,21 +120,37 @@ class SportmonksService:
             )
         return self._client
 
+    def _generate_request_key(self, path: str, params: Optional[Dict[str, Any]] = None) -> str:
+        """Generate a unique key for request deduplication"""
+        key_parts = [path]
+        if params:
+            # Sort params for consistent key generation
+            sorted_params = sorted(params.items())
+            key_parts.append(json.dumps(sorted_params, sort_keys=True))
+        key_string = "|".join(key_parts)
+        return hashlib.md5(key_string.encode()).hexdigest()
+    
     async def _get(
         self,
         path: str,
         params: Optional[Dict[str, Any]] = None,
         retries: int = 3,
-        backoff_factor: float = 0.5
+        backoff_factor: float = 0.5,
+        entity: Optional[str] = None,
+        use_cache: bool = True,
+        use_deduplication: bool = True
     ) -> Any:
         """
-        Generic GET request handler with retry logic and rate limit management.
+        Generic GET request handler with retry logic and entity-based rate limit management.
         
         Args:
             path: API endpoint path (e.g., "livescores", "fixtures/12345")
             params: Additional query parameters (include, filters, etc.)
             retries: Number of retry attempts
             backoff_factor: Exponential backoff multiplier
+            entity: Entity type (auto-detected from path if not provided)
+            use_cache: Whether to use cache
+            use_deduplication: Whether to deduplicate in-flight requests
             
         Returns:
             JSON response data
@@ -128,6 +160,34 @@ class SportmonksService:
                 "SPORTMONKS_API_TOKEN environment variable is not set. "
                 "Please configure it to enable Sportmonks V3 requests."
             )
+        
+        # Determine entity from path
+        if not entity:
+            entity = get_entity_from_path(path)
+        
+        # Generate request key for deduplication
+        request_key = self._generate_request_key(path, params) if use_deduplication else None
+        
+        # Check for in-flight request (deduplication)
+        if use_deduplication and request_key:
+            in_flight_task = await self._rate_limit_manager.get_in_flight_request(request_key)
+            if in_flight_task and not in_flight_task.done():
+                logger.debug(f"Waiting for in-flight request: {path}")
+                try:
+                    return await in_flight_task
+                except Exception as e:
+                    logger.warning(f"In-flight request failed: {e}, making new request")
+        
+        # Check cache first
+        if use_cache:
+            cache_ttl = get_cache_ttl(entity)
+            cache_key_str = cache_key(f"sportmonks:{entity}", path, params)
+            cached_data = await get_cached(cache_key_str)
+            if cached_data is not None:
+                logger.debug(f"Cache HIT for {entity}: {path}")
+                self._rate_limit_manager.record_cache_hit(entity)
+                return cached_data
+            self._rate_limit_manager.record_cache_miss(entity)
         
         url = f"{self.base_url}/{path.lstrip('/')}"
         headers = {
@@ -139,113 +199,139 @@ class SportmonksService:
         if params:
             query_params.update(params)
         
-        # Client-side rate limiting (sliding window)
-        async def wait_for_rate_limit():
-            """Wait if rate limit is reached (sliding window)."""
-            if self._rate_limit_lock:
-                async with self._rate_limit_lock:
-                    now = asyncio.get_event_loop().time()
-                    # Remove timestamps outside the window
-                    self._request_timestamps = [
-                        ts for ts in self._request_timestamps 
-                        if now - ts < self._rate_limit_window
-                    ]
-                    
-                    # If we're at the limit, wait until oldest request expires
-                    if len(self._request_timestamps) >= self._rate_limit_max_requests:
-                        oldest_ts = min(self._request_timestamps)
-                        wait_time = self._rate_limit_window - (now - oldest_ts) + 0.1  # Add small buffer
-                        if wait_time > 0:
-                            logger.info(f"Rate limit reached ({len(self._request_timestamps)}/{self._rate_limit_max_requests}). Waiting {wait_time:.2f} seconds...")
-                            await asyncio.sleep(wait_time)
-                            # Clean up again after waiting
-                            now = asyncio.get_event_loop().time()
-                            self._request_timestamps = [
-                                ts for ts in self._request_timestamps 
-                                if now - ts < self._rate_limit_window
-                            ]
-                    
-                    # Record this request
-                    self._request_timestamps.append(asyncio.get_event_loop().time())
-            else:
-                # Fallback if lock is not available
-                now = asyncio.get_event_loop().time()
-                self._request_timestamps = [
-                    ts for ts in self._request_timestamps 
-                    if now - ts < self._rate_limit_window
-                ]
-                if len(self._request_timestamps) >= self._rate_limit_max_requests:
-                    oldest_ts = min(self._request_timestamps)
-                    wait_time = self._rate_limit_window - (now - oldest_ts) + 0.1
-                    if wait_time > 0:
-                        await asyncio.sleep(wait_time)
-                self._request_timestamps.append(asyncio.get_event_loop().time())
+        # Check if entity is degraded (serve from cache if available)
+        if self._rate_limit_manager.is_degraded(entity) and use_cache:
+            logger.warning(f"Entity {entity} is degraded, trying cache only")
+            cache_key_str = cache_key(f"sportmonks:{entity}", path, params)
+            cached_data = await get_cached(cache_key_str)
+            if cached_data is not None:
+                logger.info(f"Serving degraded request from cache: {entity}: {path}")
+                return cached_data
+            # If no cache, raise exception
+            raise Exception(f"Entity {entity} is degraded and no cache available for {path}")
         
-        last_exception = None
-        for attempt in range(retries):
-            try:
-                # Wait for rate limit before making request
-                await wait_for_rate_limit()
-                
-                # Use reusable client with connection pooling
-                client = self._get_client()
-                response = await client.get(url, headers=headers, params=query_params)
-                
-                # Check rate limit before processing
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                        # Check rate limit in response
-                        rate_limit_info = data.get("rate_limit", {})
-                        remaining = rate_limit_info.get("remaining", 0)
-                        
-                        if remaining < 5:
-                            logger.warning(
-                                f"Rate limit low: {remaining} remaining. Waiting 0.5 seconds before retry."
-                            )
-                            if attempt < retries - 1:
-                                await asyncio.sleep(0.5)
-                                continue
-                    except (ValueError, KeyError):
-                        pass  # If JSON parsing fails, continue with response
+        # Create request task for deduplication
+        async def make_request():
+            last_exception = None
+            for attempt in range(retries):
+                try:
+                    # Acquire rate limit permission
+                    allowed, wait_time = await self._rate_limit_manager.acquire(entity)
+                    if not allowed:
+                        logger.info(f"Rate limit wait for {entity}: {wait_time:.2f}s")
+                        await asyncio.sleep(wait_time)
+                        # Try again
+                        allowed, wait_time = await self._rate_limit_manager.acquire(entity)
+                        if not allowed:
+                            raise Exception(f"Rate limit exceeded for {entity} after waiting")
                     
-                    # Handle rate limiting (429)
+                    # Use reusable client with connection pooling
+                    client = self._get_client()
+                    response = await client.get(url, headers=headers, params=query_params)
+                    
+                    # Update rate limit state from response headers
+                    self._rate_limit_manager.update_from_response(
+                        entity=entity,
+                        headers=dict(response.headers)
+                    )
+                    
+                    # Handle rate limiting (429) - check this first
                     if response.status_code == 429:
-                        retry_after = int(response.headers.get("Retry-After", 60))
+                        try:
+                            error_data = response.json()
+                            error_message = error_data.get("message", "Rate limit exceeded")
+                            reset_code = error_data.get("reset_code", "")
+                            # Try to extract reset time from error response
+                            reset_at = error_data.get("reset_at") or error_data.get("reset")
+                        except:
+                            error_message = response.text[:200] if response.text else "Rate limit exceeded"
+                            reset_code = ""
+                            reset_at = None
+                        
+                        retry_after = None
+                        try:
+                            retry_after = int(response.headers.get("Retry-After", 0))
+                        except (ValueError, TypeError):
+                            pass
+                        
+                        # Handle 429 with rate limit manager
+                        cooldown_duration = await self._rate_limit_manager.handle_429(
+                            entity=entity,
+                            retry_after=retry_after,
+                            reset_at=reset_at
+                        )
+                        
                         if attempt < retries - 1:
-                            wait_time = retry_after * (backoff_factor ** attempt)
-                            # Add jitter (random delay between 0-30% of wait_time) to prevent synchronized retries
-                            jitter = random.uniform(0, wait_time * 0.3)
-                            wait_time_with_jitter = wait_time + jitter
                             logger.warning(
-                                f"Rate limited. Waiting {wait_time_with_jitter:.2f} seconds (base: {wait_time:.2f}, jitter: {jitter:.2f}) before retry {attempt + 1}/{retries}"
+                                f"Rate limited for {entity}:{path}. Cooldown: {cooldown_duration:.2f}s. "
+                                f"Retry {attempt + 1}/{retries}. Message: {error_message}"
                             )
-                            await asyncio.sleep(wait_time_with_jitter)
-                            continue
-                    
-                    # Handle other HTTP errors
-                    if response.status_code >= 400:
-                        error_text = response.text[:200] if response.text else "Unknown error"
-                        if attempt < retries - 1:
-                            wait_time = (backoff_factor ** attempt)
-                            # Add jitter (random delay between 0-30% of wait_time) to prevent synchronized retries
-                            jitter = random.uniform(0, wait_time * 0.3)
-                            wait_time_with_jitter = wait_time + jitter
-                            logger.warning(
-                                f"HTTP {response.status_code} error: {error_text}. "
-                                f"Retrying in {wait_time_with_jitter:.2f} seconds (base: {wait_time:.2f}, jitter: {jitter:.2f})..."
-                            )
-                            await asyncio.sleep(wait_time_with_jitter)
+                            await asyncio.sleep(cooldown_duration)
                             continue
                         else:
-                            from fastapi import HTTPException
-                            raise HTTPException(
-                                status_code=response.status_code,
-                                detail=f"API request failed: {error_text}"
+                            error_msg = f"Rate limit exceeded after {retries} attempts for {entity}:{path}: {error_message}"
+                            if reset_code:
+                                error_msg += f" (reset_code: {reset_code})"
+                            logger.error(error_msg)
+                            raise Exception(error_msg)
+                
+                # Handle other HTTP errors (400+)
+                if response.status_code >= 400:
+                    error_text = response.text[:200] if response.text else "Unknown error"
+                    if attempt < retries - 1:
+                        wait_time = (backoff_factor ** attempt)
+                        # Add jitter (random delay between 0-30% of wait_time) to prevent synchronized retries
+                        jitter = random.uniform(0, wait_time * 0.3)
+                        wait_time_with_jitter = wait_time + jitter
+                        logger.warning(
+                            f"HTTP {response.status_code} error for {path}: {error_text}. "
+                            f"Retrying in {wait_time_with_jitter:.2f} seconds (base: {wait_time:.2f}, jitter: {jitter:.2f})..."
+                        )
+                        await asyncio.sleep(wait_time_with_jitter)
+                        continue
+                    else:
+                        raise Exception(f"HTTP {response.status_code} error for {path}: {error_text}")
+                
+                    # Success (200) - parse and return JSON
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            
+                            # Extract rate limit metadata from response body
+                            rate_limit_info = data.get("rate_limit", {})
+                            remaining = rate_limit_info.get("remaining")
+                            limit = rate_limit_info.get("limit")
+                            reset_at = rate_limit_info.get("reset_at") or rate_limit_info.get("reset")
+                            
+                            # Update rate limit state from response body
+                            if remaining is not None or limit is not None or reset_at is not None:
+                                self._rate_limit_manager.update_from_response(
+                                    entity=entity,
+                                    remaining=remaining,
+                                    limit=limit,
+                                    reset_at=reset_at,
+                                    headers=dict(response.headers)
+                                )
+                            
+                        except (ValueError, KeyError, TypeError) as e:
+                            logger.debug(f"Could not parse rate limit info from response: {e}")
+                            # Still update from headers if available
+                            self._rate_limit_manager.update_from_response(
+                                entity=entity,
+                                headers=dict(response.headers)
                             )
-                    
-                    # Success - parse and return JSON
-                    return response.json()
+                        
+                        # Cache successful response
+                        if use_cache:
+                            cache_ttl = get_cache_ttl(entity)
+                            cache_key_str = cache_key(f"sportmonks:{entity}", path, params)
+                            await set_cached(cache_key_str, data, cache_ttl)
+                        
+                        # Success - return JSON
+                        return data
+                
+                # If we get here, status code is not 200, 429, or >= 400 (shouldn't happen)
+                raise Exception(f"Unexpected status code {response.status_code} for {path}")
                     
             except httpx.TimeoutException as e:
                 last_exception = e
@@ -270,20 +356,36 @@ class SportmonksService:
                 else:
                     raise Exception(f"Request failed after {retries} attempts: {str(e)}")
                     
-            except Exception as e:
-                last_exception = e
-                if attempt < retries - 1:
-                    wait_time = (backoff_factor ** attempt)
-                    logger.warning(f"Unexpected error: {str(e)}. Retrying in {wait_time} seconds...")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
-                    raise
+                except Exception as e:
+                    last_exception = e
+                    if attempt < retries - 1:
+                        wait_time = (backoff_factor ** attempt)
+                        logger.warning(f"Unexpected error: {str(e)}. Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        raise
+            
+            # If we get here, all retries failed
+            if last_exception:
+                error_msg = f"Request failed after {retries} retries for {entity}:{path}: {str(last_exception)}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+            error_msg = f"Request failed after all {retries} retries for {entity}:{path} (no exception captured)"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         
-        # If we get here, all retries failed
-        if last_exception:
-            raise last_exception
-        raise Exception("Request failed after all retries")
+        # Create and track task for deduplication
+        if use_deduplication and request_key:
+            task = asyncio.create_task(make_request())
+            await self._rate_limit_manager.set_in_flight_request(request_key, task)
+            try:
+                result = await task
+                return result
+            finally:
+                await self._rate_limit_manager.remove_in_flight_request(request_key)
+        else:
+            return await make_request()
 
     async def get_livescores(
         self,
@@ -540,9 +642,43 @@ class SportmonksService:
                     fixtures_list = await self.get_fixtures_between(
                         date_from, date_to, include=include, filters=filters
                     )
+                    
+                    # Fallback: If get_fixtures_between returns empty or suspiciously low count,
+                    # try per-day fetching (like old system) to ensure we get all matches
+                    # This handles cases where fixtures/between might have issues or miss matches
+                    # Average matches per day is typically 50-200, so if we get less than 10 per day, it's suspicious
+                    avg_matches_per_day = len(fixtures_list) / days_diff if days_diff > 0 else 0
+                    if not fixtures_list or (days_diff > 1 and avg_matches_per_day < 10):
+                        logger.warning(
+                            f"get_fixtures_between returned {len(fixtures_list)} fixtures ({avg_matches_per_day:.1f} per day) "
+                            f"for {date_from} to {date_to}. Falling back to per-day fetching to ensure completeness."
+                        )
+                        all_fixtures = []
+                        current_date = start_date
+                        
+                        while current_date <= end_date:
+                            day_fixtures = await self.get_fixtures_by_date(
+                                current_date.strftime("%Y-%m-%d"), 
+                                include=include, 
+                                filters=filters
+                            )
+                            if day_fixtures:
+                                all_fixtures.extend(day_fixtures)
+                            current_date += timedelta(days=1)
+                            
+                            # Small delay between days to respect rate limits
+                            if current_date <= end_date:
+                                await asyncio.sleep(0.05)
+                        
+                        # Use per-day results if they're better (more matches)
+                        between_count = len(fixtures_list)
+                        if len(all_fixtures) > between_count:
+                            fixtures_list = all_fixtures
+                            logger.info(f"Per-day fallback fetched {len(fixtures_list)} fixtures (vs {between_count} from between) for {date_from} to {date_to}")
+                        else:
+                            logger.info(f"Keeping get_fixtures_between results ({between_count} fixtures)")
                 else:
                     # For ranges > 100 days, split into chunks of 100 days
-                    import asyncio
                     all_fixtures = []
                     current_start = start_date
                     
@@ -1365,7 +1501,13 @@ class SportmonksService:
                 stopped = odd_item.get("stopped", False)
                 suspended = odd_item.get("suspended", False)
                 # If either stopped or suspended is true, mark as unavailable
-                is_unavailable = stopped or suspended
+                is_unavailable = odd_item.get("is_unavailable", False)
+                active = odd_item.get("active", True)  # Default True if not present
+                
+                # Selection state filtresi - Bet365 davranışı
+                # Eğer herhangi biri true ise, bu bahisi GİZLE
+                if stopped or suspended or is_unavailable or not active:
+                    continue  # Skip this odd - don't include in results
                 
                 # Extract timestamp for update comparison
                 latest_bookmaker_update = odd_item.get("latest_bookmaker_update")
@@ -1554,8 +1696,16 @@ class SportmonksService:
                 # Extract stopped and suspended status
                 stopped = odd_item.get("stopped", False)
                 suspended = odd_item.get("suspended", False)
-                # If either stopped or suspended is true, mark as unavailable
-                is_unavailable = stopped or suspended
+                # Check is_unavailable from value_item as well
+                is_unavailable = value_item.get("is_unavailable", False) or odd_item.get("is_unavailable", False)
+                active = value_item.get("active", True)  # Default True if not present
+                if active is True:  # Also check odd_item level
+                    active = odd_item.get("active", True)
+                
+                # Selection state filtresi - Bet365 davranışı
+                # Eğer herhangi biri true ise, bu bahisi GİZLE
+                if stopped or suspended or is_unavailable or not active:
+                    continue  # Skip this odd - don't include in results
                 
                 # Extract timestamp for update comparison
                 latest_bookmaker_update = odd_item.get("latest_bookmaker_update")
@@ -1611,18 +1761,365 @@ class SportmonksService:
         logger.info(f"_extract_and_normalize_odds: Returning {len(normalized_odds)} normalized odds")
         return normalized_odds
 
+    def _build_selection_key(self, odd: Dict[str, Any]) -> str:
+        """
+        Build unique key for selection: market_id + label + line + participant_id
+        Used for snapshot diff comparison.
+        
+        Args:
+            odd: Normalized odd object
+            
+        Returns:
+            Unique selection key string
+        """
+        market_id = odd.get("market_id", "")
+        label = odd.get("label") or odd.get("name") or ""
+        line = odd.get("line") or odd.get("handicap") or odd.get("total") or ""
+        participant_id = odd.get("participant_id") or odd.get("player_id") or ""
+        return f"{market_id}_{label}_{line}_{participant_id}"
+
+    def _filter_by_snapshot_diff(
+        self,
+        normalized_odds: List[Dict[str, Any]], 
+        previous_snapshot: Optional[Dict[str, Any]] = None,
+        match_status: str = "LIVE"
+    ) -> List[Dict[str, Any]]:
+        """
+        Filter odds by snapshot diff - hide odds that disappeared from snapshot.
+        Bet365 behavior: If an odd was in previous snapshot but not in current, hide it.
+        
+        Grace periods:
+        - LIVE: 20 seconds
+        - HT: 60 seconds  
+        - FT: 5 seconds
+        
+        Args:
+            normalized_odds: Current normalized odds list
+            previous_snapshot: Previous snapshot from Firebase (contains odds list)
+            match_status: Match status (LIVE, HT, FT)
+            
+        Returns:
+            Filtered odds list
+        """
+        if not previous_snapshot:
+            return normalized_odds
+        
+        from datetime import datetime, timezone
+        
+        # Determine grace period based on match status
+        status_upper = (match_status or "").upper()
+        if status_upper == "HT":
+            grace_period_seconds = 60
+        elif status_upper == "FT":
+            grace_period_seconds = 5
+        else:  # LIVE or other
+            grace_period_seconds = 20
+        
+        # Build selection key map from previous snapshot
+        previous_keys = set()
+        previous_odds = previous_snapshot.get("odds", [])
+        if isinstance(previous_odds, list):
+            for prev_odd in previous_odds:
+                if isinstance(prev_odd, dict):
+                    key = self._build_selection_key(prev_odd)
+                    if key:
+                        previous_keys.add(key)
+        
+        # Filter current odds - only keep if:
+        # 1. Was in previous snapshot, OR
+        # 2. Has recent update timestamp (within grace period)
+        filtered_odds = []
+        now = datetime.now(timezone.utc)
+        
+        for odd in normalized_odds:
+            if not isinstance(odd, dict):
+                continue
+            
+            key = self._build_selection_key(odd)
+            
+            # If was in previous snapshot, keep it
+            if key in previous_keys:
+                filtered_odds.append(odd)
+                continue
+            
+            # If not in previous, check if it has recent update
+            timestamp_str = odd.get("latest_bookmaker_update")
+            if timestamp_str:
+                try:
+                    if isinstance(timestamp_str, str):
+                        # Parse timestamp (could be ISO format or other)
+                        if 'T' in timestamp_str or ' ' in timestamp_str:
+                            # Try ISO format
+                            update_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        else:
+                            # Try other formats
+                            update_time = datetime.fromisoformat(timestamp_str)
+                        time_diff = (now - update_time).total_seconds()
+                        if time_diff <= grace_period_seconds:
+                            filtered_odds.append(odd)
+                except Exception as e:
+                    logger.debug(f"Error parsing timestamp for snapshot diff: {e}")
+                    # If timestamp parsing fails, include the odd (safer)
+                    filtered_odds.append(odd)
+            else:
+                # No timestamp - include it (safer)
+                filtered_odds.append(odd)
+        
+        return filtered_odds
+
+    def _group_odds_by_market_line(
+        self,
+        odds: List[Dict[str, Any]], 
+        home_team_id: Optional[int] = None,
+        away_team_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Group odds by market + line + direction for proper display (Bet365 behavior).
+        For Over/Under markets: Group Over + Under together by line.
+        For Handicap markets: Group Home + Away together by line.
+        
+        Args:
+            odds: List of normalized odds
+            home_team_id: Optional home team ID for handicap markets
+            away_team_id: Optional away team ID for handicap markets
+            
+        Returns:
+            Grouped structure:
+            {
+                "market_id": 5,
+                "market_name": "Over/Under 2.5",
+                "line": 2.5,
+                "selections": {
+                    "over": {...odd...},
+                    "under": {...odd...}
+                }
+            }
+        """
+        if not isinstance(odds, list):
+            return []
+        
+        # Market bazında grupla
+        market_groups = {}
+        
+        for odd in odds:
+            if not isinstance(odd, dict):
+                continue
+            
+            market_id = odd.get("market_id")
+            market_name = odd.get("market_name", "")
+            label = (odd.get("label") or odd.get("name") or "").lower()
+            
+            # Line marketler için (Over/Under, Total Goals)
+            line = odd.get("line") or odd.get("total")
+            if line is not None:
+                try:
+                    line_float = float(line)
+                    # Line market - group by market_id + line
+                    key = f"{market_id}_{line_float}"
+                    if key not in market_groups:
+                        market_groups[key] = {
+                            "market_id": market_id,
+                            "market_name": market_name,
+                            "line": line_float,
+                            "selections": {
+                                "over": None,
+                                "under": None
+                            }
+                        }
+                    
+                    # Determine direction (Over/Under)
+                    if "over" in label or "üst" in label or "over" in market_name.lower():
+                        market_groups[key]["selections"]["over"] = odd
+                    elif "under" in label or "alt" in label or "under" in market_name.lower():
+                        market_groups[key]["selections"]["under"] = odd
+                except (ValueError, TypeError):
+                    pass
+            
+            # Handicap marketler için
+            handicap = odd.get("handicap")
+            if handicap is not None:
+                try:
+                    handicap_float = float(handicap)
+                    abs_handicap = abs(handicap_float)
+                    # Handicap market - group by market_id + abs(handicap)
+                    key = f"{market_id}_handicap_{abs_handicap}"
+                    if key not in market_groups:
+                        market_groups[key] = {
+                            "market_id": market_id,
+                            "market_name": market_name,
+                            "handicap": abs_handicap,
+                            "selections": {
+                                "home": None,
+                                "away": None
+                            }
+                        }
+                    
+                    # Determine participant (Home/Away)
+                    participant_id = odd.get("participant_id") or odd.get("player_id")
+                    if participant_id:
+                        # Check if home or away based on participant_id
+                        if home_team_id and participant_id == home_team_id:
+                            market_groups[key]["selections"]["home"] = odd
+                        elif away_team_id and participant_id == away_team_id:
+                            market_groups[key]["selections"]["away"] = odd
+                    else:
+                        # Try to infer from label
+                        if "home" in label or "1" in label:
+                            market_groups[key]["selections"]["home"] = odd
+                        elif "away" in label or "2" in label:
+                            market_groups[key]["selections"]["away"] = odd
+                except (ValueError, TypeError):
+                    pass
+        
+        # Convert to list and filter out groups with no selections
+        grouped_odds = []
+        for group in market_groups.values():
+            # Only include groups that have at least one selection
+            has_selections = any(
+                selection is not None 
+                for selection in group.get("selections", {}).values()
+            )
+            if has_selections:
+                grouped_odds.append(group)
+        
+        return grouped_odds
+
+    def _filter_statistics_by_period(
+        self,
+        statistics: List[Dict[str, Any]],
+        match_status: str,
+        is_live: bool,
+        is_finished: bool
+    ) -> List[Dict[str, Any]]:
+        """
+        Filter statistics by period based on match status.
+        Bet365 behavior:
+        - LIVE: period == ALL || TOTAL
+        - HT: period == 1ST_HALF
+        - FT: period == ALL
+        
+        Args:
+            statistics: List of statistics objects from Sportmonks V3
+            match_status: Match status (LIVE, HT, FT, etc.)
+            is_live: Whether match is live
+            is_finished: Whether match is finished
+            
+        Returns:
+            Filtered list of statistics
+        """
+        if not isinstance(statistics, list):
+            return []
+        
+        filtered_stats = []
+        status_upper = (match_status or "").upper()
+        
+        for stat in statistics:
+            if not isinstance(stat, dict):
+                continue
+            
+            # Extract period information
+            period = stat.get("period")
+            period_id = stat.get("period_id")
+            period_name = (stat.get("period_name") or "").upper()
+            
+            # Also check in type object if available
+            stat_type = stat.get("type", {})
+            if isinstance(stat_type, dict):
+                if "data" in stat_type:
+                    stat_type = stat_type["data"]
+                if isinstance(stat_type, dict):
+                    period_name = period_name or (stat_type.get("period_name") or "").upper()
+            
+            # Filter based on match status
+            if is_live and not is_finished:
+                # Live match - only show ALL/TOTAL period
+                if period_name in ["ALL", "TOTAL", "FULL_TIME", "FULLTIME"] or period == "all" or period_id == "all":
+                    filtered_stats.append(stat)
+            elif status_upper == "HT":
+                # Half-time - only show 1ST_HALF
+                if period_name in ["1ST_HALF", "FIRST_HALF", "HALF_1", "FIRST"] or period == "1st_half" or period_id == "1st_half":
+                    filtered_stats.append(stat)
+            elif is_finished:
+                # Finished - show ALL/TOTAL
+                if period_name in ["ALL", "TOTAL", "FULL_TIME", "FULLTIME"] or period == "all" or period_id == "all":
+                    filtered_stats.append(stat)
+            else:
+                # Pre-match or unknown status - show all statistics
+                filtered_stats.append(stat)
+        
+        return filtered_stats
+
+    def _filter_and_dedup_events(self, events_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter events by type_id and deduplicate.
+        Only shows events that Bet365 would show (GOAL, CARD, SUBSTITUTION, PENALTY, VAR).
+        Event key: event_id or type + minute + participant
+        
+        Args:
+            events_data: List of event objects from Sportmonks V3
+            
+        Returns:
+            Filtered and deduplicated list of events
+        """
+        if not isinstance(events_data, list):
+            return []
+        
+        filtered_events = []
+        seen_event_keys = set()
+        
+        for event in events_data:
+            if not isinstance(event, dict):
+                continue
+            
+            # Extract type_id
+            type_id = event.get("type_id")
+            if type_id is None:
+                # Try to get from nested type object
+                event_type = event.get("type", {})
+                if isinstance(event_type, dict):
+                    if "data" in event_type:
+                        event_type = event_type["data"]
+                    if isinstance(event_type, dict):
+                        type_id = event_type.get("id")
+            
+            # Filter by allowed type_ids
+            if type_id not in ALLOWED_EVENT_TYPE_IDS:
+                continue  # Skip technical/internal events
+            
+            # Dedup: event_id veya type + minute + participant
+            event_id = event.get("id")
+            minute = event.get("minute")
+            participant_id = event.get("participant_id")
+            
+            if event_id:
+                event_key = f"event_{event_id}"
+            else:
+                event_key = f"{type_id}_{minute}_{participant_id}"
+            
+            # Skip duplicate
+            if event_key in seen_event_keys:
+                continue
+            
+            seen_event_keys.add(event_key)
+            filtered_events.append(event)
+        
+        return filtered_events
+
     def _format_time_status(
-        self, 
-        time_data: Dict[str, Any], 
-        current_period: Optional[Dict[str, Any]] = None
+        self,
+        time_data: Dict[str, Any],
+        current_period: Optional[Dict[str, Any]] = None,
+        periods: Optional[List[Dict[str, Any]]] = None,
+        updated_at: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Format time status and minute from Sportmonks V3 time object and currentPeriod.
-        Prioritizes currentPeriod data for accurate live match timing.
+        Prioritizes time_data.minute for reliability, then currentPeriod, then periods array.
         
         Args:
             time_data: Time object from Sportmonks V3 (contains status, minute, etc.)
             current_period: CurrentPeriod object from Sportmonks V3 (contains minutes, seconds, ticking, time_added, has_timer)
+            periods: List of periods from Sportmonks V3 (fallback if currentPeriod not available)
             
         Returns:
             Dictionary with formatted status, minute, is_live, is_finished, time_added, ticking, has_timer
@@ -1630,7 +2127,7 @@ class SportmonksService:
         if not isinstance(time_data, dict):
             time_data = {}
         
-        # Extract currentPeriod data if available (more accurate for live matches)
+        # Extract currentPeriod data if available
         period_minutes = None
         period_seconds = None
         time_added = None
@@ -1644,12 +2141,83 @@ class SportmonksService:
             ticking = current_period.get("ticking", True)  # Default to True if not specified
             has_timer = current_period.get("has_timer", True)  # Default to True if not specified
         
+        # If currentPeriod not available, try to find active period from periods array
+        if not current_period and periods and isinstance(periods, list) and len(periods) > 0:
+            # Find the current/active period (usually the last one or one with ticking=true)
+            for period in reversed(periods):  # Check from most recent
+                if isinstance(period, dict):
+                    # Prefer period with ticking=true or has_timer=true
+                    if period.get("ticking") is True or period.get("has_timer") is True:
+                        period_minutes = period.get("minutes")
+                        period_seconds = period.get("seconds")
+                        time_added = period.get("time_added")
+                        ticking = period.get("ticking", True)
+                        has_timer = period.get("has_timer", True)
+                        break
+            # If no ticking period found, use the last period
+            if period_minutes is None and periods:
+                last_period = periods[-1] if isinstance(periods[-1], dict) else None
+                if last_period:
+                    period_minutes = last_period.get("minutes")
+                    period_seconds = last_period.get("seconds")
+                    time_added = last_period.get("time_added")
+                    ticking = last_period.get("ticking", True)
+                    has_timer = last_period.get("has_timer", True)
+        
         status = time_data.get("status", "")
         if status:
             status = status.upper()
         
-        # Use currentPeriod minutes if available (more accurate), otherwise fall back to time_data
-        minute = period_minutes if period_minutes is not None else time_data.get("minute")
+        # HT detection - multiple sources (SportMonks behavior)
+        # HT is a state, not a time - check multiple indicators
+        is_ht = False
+        
+        # Check status field
+        if status in ["HT", "HALF_TIME", "BREAK"]:
+            is_ht = True
+        
+        # Check periods/currentPeriod for break indicators
+        if current_period and isinstance(current_period, dict):
+            period_type = current_period.get("type", {})
+            if isinstance(period_type, dict):
+                if "data" in period_type:
+                    period_type = period_type["data"]
+                if isinstance(period_type, dict):
+                    period_type_name = (period_type.get("name") or "").upper()
+                    if "BREAK" in period_type_name or "HALF_TIME" in period_type_name:
+                        is_ht = True
+        
+        # Check periods array for break indicators
+        if periods and isinstance(periods, list):
+            for period in periods:
+                if isinstance(period, dict):
+                    period_type = period.get("type", {})
+                    if isinstance(period_type, dict):
+                        if "data" in period_type:
+                            period_type = period_type["data"]
+                        if isinstance(period_type, dict):
+                            period_type_name = (period_type.get("name") or "").upper()
+                            if "BREAK" in period_type_name or "HALF_TIME" in period_type_name:
+                                is_ht = True
+                                break
+        
+        # If HT detected, override status and ensure proper state
+        if is_ht:
+            status = "HT"
+            is_live = False
+            minute = None  # HT is a state, not a time - don't show minute
+            time_added = None
+            ticking = False
+            has_timer = False
+            should_tick = False
+        
+        # Priority: 1) time_data.minute (most reliable), 2) period_minutes, 3) None
+        # time_data.minute is often more up-to-date than currentPeriod
+        # BUT: Don't use minute if HT (already set to None above)
+        if not is_ht:
+            minute = time_data.get("minute")
+            if minute is None:
+                minute = period_minutes
         
         # Convert minute to integer if it's a string or number
         if minute is not None:
@@ -1696,6 +2264,7 @@ class SportmonksService:
         # In that case, we'll use default values and let frontend handle it
         
         # Determine match state based on status
+        # Note: is_ht already set above if HT detected
         is_live = False
         is_finished = False
         is_postponed = False
@@ -1703,10 +2272,21 @@ class SportmonksService:
         if status:
             # HT (Half Time) and BREAK are not live - match is paused
             # Only actively playing statuses are considered live
-            is_live = status in ["LIVE", "ET", "PEN", "1ST_HALF", "2ND_HALF", "INPLAY", "IN_PLAY"]
+            if not is_ht:  # Don't set is_live if HT
+                is_live = status in ["LIVE", "ET", "PEN", "1ST_HALF", "2ND_HALF", "INPLAY", "IN_PLAY"]
             # Finished statuses: FT, FINISHED, AET, FT_PEN (HT is NOT finished, it's just a break)
             is_finished = status in ["FT", "AET", "FT_PEN", "FINISHED", "AWARDED"]
             is_postponed = status in ["POSTP", "CANCL", "CANCELED", "CANCELLED"]
+        
+        # If HT, ensure proper state (already set above, but double-check)
+        if is_ht:
+            is_live = False
+            is_finished = False
+            minute = None
+            time_added = None
+            ticking = False
+            has_timer = False
+            should_tick = False
         
         # If match is finished, don't show minute (set to None)
         # This prevents showing stale minute values (e.g., 78) for finished matches
@@ -1714,13 +2294,36 @@ class SportmonksService:
             minute = None
             time_added = None
         
+        # Timer çalıştırma kuralı - Bet365 davranışı
+        # Timer sadece şu durumlarda çalışır:
+        # - status === LIVE && !stopped && !suspended && ticking === true && has_timer === true
+        # HT durumunda timer durur (already set above)
+        if not is_ht:
+            stopped = time_data.get("stopped", False)
+            suspended = time_data.get("suspended", False)
+            
+            should_tick = (
+                status == "LIVE" and
+                not stopped and
+                not suspended and
+                ticking is True and
+                has_timer is True
+            )
+        
+        # HT/FT durumunda timer durur (double-check)
+        if status in ["HT", "FT"] or is_ht:
+            should_tick = False
+            ticking = False
+        
         return {
             "status": status,
             "minute": minute,
             "seconds": period_seconds,  # Include seconds from currentPeriod
-            "time_added": time_added,  # Injury time (for "45+X" format)
+            "time_added": time_added,  # Injury time (for "45+X" format) - fixed, timer not added
             "ticking": ticking,  # Whether timer is ticking (false during breaks)
             "has_timer": has_timer,  # Whether timer is available
+            "should_tick": should_tick,  # Whether timer should tick (Bet365 behavior)
+            "updated_at": updated_at,  # Anchor time for frontend timer calculation (ISO format)
             "is_live": is_live,
             "is_finished": is_finished,
             "is_postponed": is_postponed
@@ -1764,12 +2367,35 @@ class SportmonksService:
         if not isinstance(events_data, list):
             events_data = []
         
+        # Filter and deduplicate events (Bet365 shows only specific event types)
+        events_data = self._filter_and_dedup_events(events_data)
+        
         # Extract time status - handle nested format
         time_data = livescore.get("time", {})
         if isinstance(time_data, dict) and "data" in time_data:
             time_data = time_data["data"]
         if not isinstance(time_data, dict):
             time_data = {}
+        
+        # Extract state_id - Sportmonks state_id is reliable for determining match status
+        # state_id: 1=Not Started, 2=Live, 3=Period Break, 4=Finished, 5=Finished, 6=Postponed, 7=Cancelled
+        state_id = livescore.get("state_id")
+        
+        # Determine status from state_id if time_data is empty or status is missing
+        # This is more reliable than inferring from other fields
+        if (not time_data.get("status") or time_data.get("status") == "") and state_id:
+            if state_id == 1:
+                time_data["status"] = "NS"  # Not Started
+            elif state_id == 2:
+                time_data["status"] = "LIVE"  # Live
+            elif state_id in [3, 8, 10]:
+                time_data["status"] = "HT"  # Half Time / Break
+            elif state_id in [4, 5]:
+                time_data["status"] = "FT"  # Full Time
+            elif state_id == 6:
+                time_data["status"] = "POSTP"  # Postponed
+            elif state_id == 7:
+                time_data["status"] = "CANCL"  # Cancelled
         
         # Extract currentPeriod - handle nested format (more accurate for live matches)
         current_period = livescore.get("currentPeriod", {})
@@ -1875,17 +2501,109 @@ class SportmonksService:
                     except Exception as e:
                         logger.debug(f"Could not determine match status from starting_at: {e}")
         
+        # If minute is still null/undefined and we have events, try to extract from events
+        # This helps when time_data.minute is missing but match is live
+        if (time_data.get("minute") is None or time_data.get("minute") == "") and events_data and len(events_data) > 0:
+            try:
+                # Get the latest event with a valid minute
+                valid_events = [e for e in events_data if isinstance(e, dict) and e.get("minute") is not None]
+                if valid_events:
+                    latest_event = max(valid_events, key=lambda e: e.get("minute", 0))
+                    latest_minute = latest_event.get("minute")
+                    if latest_minute is not None:
+                        # Only use if minute is reasonable (0-120)
+                        try:
+                            minute_int = int(latest_minute) if isinstance(latest_minute, (int, float)) else int(str(latest_minute).split('+')[0])
+                            if 0 <= minute_int <= 120:
+                                time_data["minute"] = latest_minute
+                                logger.debug(f"Extracted minute {latest_minute} from events for match {livescore.get('id')}")
+                        except (ValueError, TypeError):
+                            pass
+            except Exception as e:
+                logger.debug(f"Could not extract minute from events: {e}")
+        
+        # Extract updated_at for anchor time (frontend timer calculation)
+        updated_at = livescore.get("updated_at") or livescore.get("last_update")
+        
         # Format time status using currentPeriod if available (more accurate)
-        time_status = self._format_time_status(time_data, current_period=current_period)
+        time_status = self._format_time_status(time_data, current_period=current_period, periods=periods_data, updated_at=updated_at)
+        
+        # Override status based on state_id if available (more reliable)
+        # state_id: 1=Not Started, 2=Live, 3=Period Break, 4=Finished, 5=Finished, 6=Postponed, 7=Cancelled
+        # Additional state_ids: 8=Interrupted, 9=Abandoned, 10=Suspended, 11=Awaiting
+        if state_id == 2:
+            # state_id == 2 means match is definitely live
+            time_status["is_live"] = True
+            time_status["is_finished"] = False
+            if not time_status.get("status") or time_status.get("status") not in ["LIVE", "ET", "PEN", "1ST_HALF", "2ND_HALF", "INPLAY", "IN_PLAY"]:
+                time_status["status"] = "LIVE"
+        elif state_id == 3:
+            # state_id == 3 means half-time break
+            time_status["is_live"] = False
+            time_status["is_finished"] = False
+            time_status["status"] = "HT"
+        elif state_id in [4, 5]:
+            # state_id in [4, 5] means finished
+            time_status["is_finished"] = True
+            time_status["is_live"] = False
+            if not time_status.get("status") or time_status.get("status") not in ["FT", "AET", "FT_PEN", "FINISHED"]:
+                time_status["status"] = "FT"
+        elif state_id in [8, 10]:
+            # state_id 8=Interrupted, 10=Suspended - treat as break/not live
+            time_status["is_live"] = False
+            time_status["is_finished"] = False
+            if not time_status.get("status") or time_status.get("status") not in ["HT", "SUSP", "INT"]:
+                time_status["status"] = "SUSP"
+        elif state_id == 9:
+            # state_id 9=Abandoned - treat as finished
+            time_status["is_finished"] = True
+            time_status["is_live"] = False
+            time_status["status"] = "ABAN"
+        elif state_id not in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+            # Unknown state_id - log warning and rely on other indicators
+            logger.warning(f"Unknown state_id {state_id} for match {livescore.get('id')}, relying on other indicators")
+        
+        # Additional check: if we have scores or events and match has started, consider it live
+        # This catches cases where state_id might not be set correctly
+        if not time_status.get("is_finished", False) and not time_status.get("is_live", False):
+            # Check if match has scores (indicates it has started)
+            has_scores = (scores.get("home_score") is not None and scores.get("home_score") > 0) or \
+                        (scores.get("away_score") is not None and scores.get("away_score") > 0)
+            # Check if match has events (indicates activity)
+            has_events = events_data and len(events_data) > 0
+            # Check if match has started (starting_at is in the past)
+            has_started = False
+            if start_dt:
+                try:
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc)
+                    has_started = start_dt <= now
+                except:
+                    pass
+            
+            # If match has started and has scores or events, and not finished, it's likely live
+            # BUT: Don't set is_live=True if state_id is 3 (HT/Period Break) or 6 (Postponed) or 7 (Cancelled)
+            if has_started and (has_scores or has_events) and state_id not in [3, 4, 5, 6, 7]:
+                time_status["is_live"] = True
+                if not time_status.get("status") or time_status.get("status") in ["NS", ""]:
+                    time_status["status"] = "LIVE"
         
         # Double-check: if match is finished, ensure is_live is False
         if time_status.get("is_finished", False):
             time_status["is_live"] = False
         
-        # Ensure minute is None if match is finished (prevent showing stale minute values)
+        # Double-check: if match is in HT/Period Break (state_id == 3), ensure is_live is False
+        if state_id == 3:
+            time_status["is_live"] = False
+        
+        # Ensure minute is None if match is finished or HT (prevent showing stale minute values)
+        # HT is a state, not a time - don't show minute during HT
         final_minute = time_status.get("minute")
+        status_upper = (time_status.get("status", "") or "").upper()
         if time_status.get("is_finished", False):
             final_minute = None
+        elif status_upper in ["HT", "HALF_TIME", "BREAK"]:
+            final_minute = None  # HT is a state, not a time
         
         # Extract league info - handle nested format
         league_data = livescore.get("league", {})
@@ -1899,6 +2617,13 @@ class SportmonksService:
             # Fallback to regular odds if inplayOdds not available
             raw_odds_data = livescore.get("odds", {})
         odds_data = self._extract_and_normalize_odds(raw_odds_data, bookmaker_id_filter=2)
+        
+        # Group odds by market + line + direction (Bet365 behavior)
+        odds_grouped = self._group_odds_by_market_line(
+            odds_data,
+            home_team_id=home_team.get("id") if isinstance(home_team, dict) else None,
+            away_team_id=away_team.get("id") if isinstance(away_team, dict) else None
+        )
         
         # Build transformed match
         transformed = {
@@ -1922,17 +2647,20 @@ class SportmonksService:
             "time_added": time_status.get("time_added"),  # Injury time for "45+X" format
             "ticking": time_status.get("ticking"),  # Whether timer is ticking
             "has_timer": time_status.get("has_timer"),  # Whether timer is available
+            "should_tick": time_status.get("should_tick", False),  # Whether timer should tick (Bet365 behavior)
             "is_live": time_status.get("is_live", False),
             "is_finished": time_status.get("is_finished", False),
             "is_postponed": time_status.get("is_postponed", False),
             "commence_time": commence_time_turkey or livescore.get("starting_at"),
             "events": events_data if isinstance(events_data, list) else [],
-            "odds": odds_data,
+            "odds": odds_data,  # Flat list for backward compatibility
+            "odds_grouped": odds_grouped if isinstance(odds_grouped, list) else [],  # Grouped structure (Bet365 behavior)
             "currentPeriod": current_period,  # Store currentPeriod for frontend
             "periods": periods_data,  # Store all periods for frontend (more comprehensive)
             "participants": participants,  # Keep for reference
             "scores": scores_data,  # Keep for reference
             "time": time_data,  # Keep for reference
+            "state_id": state_id,  # Store state_id for debugging and filtering
         }
         
         return transformed
@@ -2012,7 +2740,10 @@ class SportmonksService:
             elif state_id == 7:
                 time_data["status"] = "CANCL"  # Cancelled
         
-        time_status = self._format_time_status(time_data, current_period=current_period)
+        # Extract updated_at for anchor time (frontend timer calculation)
+        updated_at = fixture.get("updated_at") or fixture.get("last_update")
+        
+        time_status = self._format_time_status(time_data, current_period=current_period, periods=periods_data, updated_at=updated_at)
         
         # Override is_live for Period Break (state_id == 3) - match is not live during break
         if state_id == 3:
@@ -2150,6 +2881,11 @@ class SportmonksService:
                         if type_name and not stat.get("type_name"):
                             stat["type_name"] = type_name
                         
+                        # Also add type as string for frontend compatibility
+                        # Frontend expects s.type to be a string, not an object
+                        if type_name:
+                            stat["type"] = type_name
+                        
                         # Extract developer_name (important for frontend mapping)
                         developer_name = stat_type.get("developer_name")
                         if developer_name:
@@ -2161,6 +2897,17 @@ class SportmonksService:
                 
                 normalized_stats.append(stat)
             statistics_data = normalized_stats
+        
+        # Filter statistics by period based on match status (Bet365 behavior)
+        match_status = time_status.get("status", "")
+        is_live = time_status.get("is_live", False)
+        is_finished = time_status.get("is_finished", False)
+        statistics_data = self._filter_statistics_by_period(
+            statistics_data,
+            match_status,
+            is_live,
+            is_finished
+        )
         
         # Extract lineups
         lineups_data = fixture.get("lineups", [])
@@ -2245,9 +2992,19 @@ class SportmonksService:
         if isinstance(events_data, dict) and "data" in events_data:
             events_data = events_data["data"]
         
+        # Filter and deduplicate events (Bet365 shows only specific event types)
+        events_data = self._filter_and_dedup_events(events_data)
+        
         # Extract and normalize odds, filter by bet365
         raw_odds_data = fixture.get("odds", {})
         odds_data = self._extract_and_normalize_odds(raw_odds_data, bookmaker_id_filter=2)
+        
+        # Group odds by market + line + direction (Bet365 behavior)
+        odds_grouped = self._group_odds_by_market_line(
+            odds_data,
+            home_team_id=home_team.get("id") if isinstance(home_team, dict) else None,
+            away_team_id=away_team.get("id") if isinstance(away_team, dict) else None
+        )
         
         # Extract venue
         venue_data = fixture.get("venue", {})
@@ -2473,10 +3230,35 @@ class SportmonksService:
         
         logger.info(f"Transformed sidelined count: {len(transformed_sidelined)}")
         
-        # Ensure minute is None if match is finished (prevent showing stale minute values)
+        # If minute is still null/undefined and we have events, try to extract from events
+        # This helps when time_data.minute is missing but match is live
+        if (time_status.get("minute") is None or time_status.get("minute") == "") and events_data and len(events_data) > 0:
+            try:
+                # Get the latest event with a valid minute
+                valid_events = [e for e in events_data if isinstance(e, dict) and e.get("minute") is not None]
+                if valid_events:
+                    latest_event = max(valid_events, key=lambda e: e.get("minute", 0))
+                    latest_minute = latest_event.get("minute")
+                    if latest_minute is not None:
+                        # Only use if minute is reasonable (0-120)
+                        try:
+                            minute_int = int(latest_minute) if isinstance(latest_minute, (int, float)) else int(str(latest_minute).split('+')[0])
+                            if 0 <= minute_int <= 120:
+                                time_status["minute"] = latest_minute
+                                logger.debug(f"Extracted minute {latest_minute} from events for fixture {fixture.get('id')}")
+                        except (ValueError, TypeError):
+                            pass
+            except Exception as e:
+                logger.debug(f"Could not extract minute from events: {e}")
+        
+        # Ensure minute is None if match is finished or HT (prevent showing stale minute values)
+        # HT is a state, not a time - don't show minute during HT
         final_minute = time_status.get("minute")
+        status_upper = (time_status.get("status", "") or "").upper()
         if time_status.get("is_finished", False):
             final_minute = None
+        elif status_upper in ["HT", "HALF_TIME", "BREAK"]:
+            final_minute = None  # HT is a state, not a time
         
         # Build transformed match
         transformed = {
@@ -2500,6 +3282,7 @@ class SportmonksService:
             "time_added": time_status.get("time_added"),  # Injury time for "45+X" format
             "ticking": time_status.get("ticking"),  # Whether timer is ticking
             "has_timer": time_status.get("has_timer"),  # Whether timer is available
+            "should_tick": time_status.get("should_tick", False),  # Whether timer should tick (Bet365 behavior)
             "is_live": time_status.get("is_live", False),
             "is_finished": time_status.get("is_finished", False),
             "is_postponed": time_status.get("is_postponed", False),
@@ -2508,7 +3291,8 @@ class SportmonksService:
             "events": events_data if isinstance(events_data, list) else [],
             "statistics": statistics_data if isinstance(statistics_data, list) else [],
             "lineups": lineups_data if isinstance(lineups_data, dict) else (lineups_data if isinstance(lineups_data, list) else {}),
-            "odds": odds_data if isinstance(odds_data, list) else [],
+            "odds": odds_data if isinstance(odds_data, list) else [],  # Flat list for backward compatibility
+            "odds_grouped": odds_grouped if isinstance(odds_grouped, list) else [],  # Grouped structure (Bet365 behavior)
             "venue": venue_data,
             "sidelined": transformed_sidelined,  # Match-specific injuries and suspensions
             "currentPeriod": current_period,  # Store currentPeriod for frontend

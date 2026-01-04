@@ -16,7 +16,13 @@ async function fetchBackendAPI(endpoint, options = {}) {
   try {
     const data = await fetchAPI(endpoint, options);
     // Backend returns { success: true, data: [...] }
-    return data.data || data;
+    const result = data.data || data;
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📡 API Response from ${endpoint}:`, Array.isArray(result) ? `${result.length} items` : typeof result);
+    }
+    
+    return result;
   } catch (error) {
     // Re-throw with user-friendly message
     if (error.message.includes('Backend')) {
@@ -87,15 +93,8 @@ async function fetchBackendAPI(endpoint, options = {}) {
  * Get all livescores
  * @returns {Promise<Array>}
  */
-export async function getLivescores(leagueIds = null) {
-  const queryParams = new URLSearchParams();
-  if (leagueIds && Array.isArray(leagueIds) && leagueIds.length > 0) {
-    // Add league_ids as comma-separated query parameter
-    queryParams.append('league_ids', leagueIds.join(','));
-  }
-  const queryString = queryParams.toString();
-  const url = queryString ? `/matches/live?${queryString}` : '/matches/live';
-  return fetchBackendAPI(url);
+export async function getLivescores() {
+  return fetchBackendAPI('/matches/live');
 }
 
 /**

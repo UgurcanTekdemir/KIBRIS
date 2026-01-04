@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getUserCoupons } from '../services/couponService';
 import { FileText, Filter } from 'lucide-react';
@@ -13,13 +13,8 @@ const CouponsPage = () => {
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      loadCoupons();
-    }
-  }, [user]);
-
-  const loadCoupons = async () => {
+  const loadCoupons = useCallback(async () => {
+    if (!user || !user.id) return;
     try {
       setLoading(true);
       const userCoupons = await getUserCoupons(user.id, 100);
@@ -30,7 +25,13 @@ const CouponsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadCoupons();
+    }
+  }, [user, loadCoupons]);
 
   if (!user) {
     return (

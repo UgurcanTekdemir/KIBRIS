@@ -53,6 +53,7 @@ const MatchesPage = () => {
         setSelectedLeagueId(leagueIdNum);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
   
   // Update URL params when filters change

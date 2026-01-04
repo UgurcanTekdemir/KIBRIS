@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
 import { Zap, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -9,6 +9,37 @@ import { useLiveMatches } from '../hooks/useMatches';
 const LiveMatchesPage = () => {
   // Get only live matches (isLive === true)
   const { matches, loading, error, refetch } = useLiveMatches(1);
+  
+  // Sort matches by minute (highest minute first) to prevent constant reordering
+  // This ensures the most advanced match (highest minute) appears at the top
+  const sortedMatches = useMemo(() => {
+    if (!matches || matches.length === 0) return [];
+    
+    return [...matches].sort((a, b) => {
+      // Extract minute values, handling both number and string formats
+      const getMinute = (match) => {
+        if (match.minute === null || match.minute === undefined) return -1;
+        if (typeof match.minute === 'number') return match.minute;
+        if (typeof match.minute === 'string') {
+          // Handle "45+3" format - extract base minute
+          const baseMinute = parseInt(match.minute.split('+')[0], 10);
+          if (!isNaN(baseMinute)) return baseMinute;
+        }
+        return -1;
+      };
+      
+      const minuteA = getMinute(a);
+      const minuteB = getMinute(b);
+      
+      // Sort descending: highest minute first
+      if (minuteB !== minuteA) {
+        return minuteB - minuteA;
+      }
+      
+      // If minutes are equal, maintain stable order by ID
+      return (a.id || '').localeCompare(b.id || '');
+    });
+  }, [matches]);
 
   // Only show loading during initial fetch, not when there are no matches
   const isLoading = loading;
@@ -47,9 +78,9 @@ const LiveMatchesPage = () => {
             <p className="text-sm text-gray-400">
               {isLoading 
                 ? 'Veriler çekiliyor lütfen bekleyiniz...' 
-                : matches.length === 0 
+                : sortedMatches.length === 0 
                   ? 'Canlı maç yok'
-                  : `${matches.length} canlı maç bulundu`}
+                  : `${sortedMatches.length} canlı maç bulundu`}
             </p>
           </div>
         </div>
@@ -114,7 +145,7 @@ const LiveMatchesPage = () => {
             ))}
           </div>
         </>
-      ) : matches.length === 0 ? (
+      ) : sortedMatches.length === 0 ? (
         /* Empty State - No Live Matches */
         <div className="text-center py-16">
           <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#1a2332] flex items-center justify-center">
@@ -131,7 +162,7 @@ const LiveMatchesPage = () => {
       ) : (
         /* Matches List */
         <div className="md:grid md:grid-cols-2 md:gap-4 flex gap-4 overflow-x-auto pb-2 md:pb-0 scrollbar-hide -mx-2 md:mx-0 px-2 md:px-0">
-          {matches.map((match, idx) => (
+          {sortedMatches.map((match, idx) => (
             <div key={match.id || `live-${idx}-${match.homeTeam}-${match.awayTeam}`} className="min-w-[85%] md:min-w-0 flex-shrink-0">
               <LiveMatchCard match={match} />
             </div>

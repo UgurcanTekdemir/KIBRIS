@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   getAgentPlayers, 
@@ -44,13 +44,8 @@ const AgentPanel = () => {
   const [balanceHistory, setBalanceHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'credit', 'balance'
 
-  useEffect(() => {
-    if (user && user.role === 'agent') {
-      loadData();
-    }
-  }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!user || !user.id) return;
     try {
       setLoading(true);
       const [playersData, couponsData, transactionsData, pendingCreditsData, creditHistoryData, balanceHistoryData] = await Promise.all([
@@ -73,7 +68,13 @@ const AgentPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.role === 'agent') {
+      loadData();
+    }
+  }, [user, loadData]);
 
   if (!user || user.role !== 'agent') {
     return (

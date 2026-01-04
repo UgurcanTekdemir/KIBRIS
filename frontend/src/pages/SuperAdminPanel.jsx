@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   getAllAgents, 
@@ -103,13 +103,8 @@ const SuperAdminPanel = () => {
   // Pending credits state
   const [pendingCredits, setPendingCredits] = useState([]);
 
-  useEffect(() => {
-    if (user && user.role === 'superadmin') {
-      loadData();
-    }
-  }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!user || !user.id) return;
     try {
       setLoading(true);
       const [agentsData, playersData, transactionsData, couponsData, pendingCreditsData] = await Promise.all([
@@ -130,7 +125,13 @@ const SuperAdminPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.role === 'superadmin') {
+      loadData();
+    }
+  }, [user, loadData]);
 
   if (!user || user.role !== 'superadmin') {
     return (

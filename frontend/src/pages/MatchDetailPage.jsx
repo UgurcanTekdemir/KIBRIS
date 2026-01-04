@@ -438,9 +438,10 @@ const MatchDetailPage = () => {
       return odds?.data || odds || [];
     },
     enabled: !!id && !!match, // Only fetch if match ID exists and match is loaded
-    staleTime: 7000, // Data is fresh for 7 seconds
+    staleTime: 0, // Data is never stale (always refetch for freshness)
     cacheTime: 300000, // Cache for 5 minutes
     refetchInterval: match?.isLive ? 5000 : false, // Poll every 5 seconds for live matches
+    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
   });
   
   // Merge odds from dedicated endpoint with match data
@@ -1082,7 +1083,7 @@ const MatchDetailPage = () => {
       
       return indexA - indexB;
     });
-  }, [match?.markets, selectedCategory, marketsByCategory]);
+  }, [match?.markets, match?.homeTeam, match?.awayTeam, matchWithOdds?.markets, selectedCategory, marketsByCategory]);
   
   // Check if a market is Over/Under type (for table display)
   const isOverUnderMarket = useMemo(() => {
@@ -1311,7 +1312,15 @@ const MatchDetailPage = () => {
           ) : match.isLive ? (
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              <span className="text-red-500 font-bold">CANLI {match.minute}'</span>
+              {match.minute !== null && match.minute !== undefined ? (
+                <span className="text-red-500 font-bold">CANLI {match.minute}'</span>
+              ) : (
+                <span className="text-red-500 font-bold">CANLI</span>
+              )}
+            </div>
+          ) : match.isFinished ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <span className="font-bold">MAÇ BİTTİ</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-gray-400">
@@ -1356,7 +1365,7 @@ const MatchDetailPage = () => {
                   {isHalfTime && (
                     <div className="text-xs text-yellow-500 font-medium">DEVRE ARASI</div>
                   )}
-                  {match.isLive && match.minute && (
+                  {match.isLive && !isHalfTime && match.minute !== null && match.minute !== undefined && (
                     <div className="text-xs text-red-500 font-medium">{match.minute}'</div>
                   )}
                 </div>

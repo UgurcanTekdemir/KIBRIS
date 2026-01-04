@@ -13,7 +13,7 @@ export function useOddsTracking(matchId, match, refreshInterval = 5000) {
   const markets = useMemo(() => {
     if (!match || !match.markets || !Array.isArray(match.markets)) return null;
     return match.markets;
-  }, [match?.markets]);
+  }, [match]);
 
   useEffect(() => {
     if (!matchId || !markets) return;

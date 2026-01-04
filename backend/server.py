@@ -26,6 +26,8 @@ api_router = APIRouter()
 # Import sportmonks service
 from services.sportmonks_service import sportmonks_service
 from services.cache import get_cached, set_cached, cache_key
+from services.firebase_service import get_latest_odds_snapshot
+from services.rate_limit_manager import get_rate_limit_manager
 
 # Bookmaker ID constants
 BOOKMAKER_BET365_ID = 2  # Bet365 bookmaker ID in Sportmonks API
@@ -150,25 +152,16 @@ async def get_matches(
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/matches/live")
-async def get_live_matches(
-    league_ids: Optional[List[int]] = Query(None, description="Filter by league IDs (comma-separated). Defaults to popular leagues.")
-):
+async def get_live_matches():
     """
     Get all live matches (excludes finished matches).
-    Cached for 5-10 seconds (in-play data updates frequently).
-    
-    Args:
-        league_ids: Optional list of league IDs to filter by. If not provided, uses popular leagues.
+    Cached for 6-8 seconds (balances rate limit with data freshness).
     """
     try:
-        # Use popular leagues as default if no league_ids provided
-        from services.sportmonks_service import POPULAR_LEAGUE_IDS
-        final_league_ids = league_ids if league_ids else POPULAR_LEAGUE_IDS
+        # Generate cache key
+        cache_key_str = cache_key("matches:live")
         
-        # Generate cache key including league_ids for proper caching
-        cache_key_str = cache_key(f"matches:live:{','.join(map(str, sorted(final_league_ids)))}")
-        
-        # Try to get from cache (TTL: 5-10 seconds for live matches)
+        # Try to get from cache (TTL: 6-8 seconds for live matches)
         cached_result = await get_cached(cache_key_str)
         if cached_result is not None:
             logger.debug(f"Cache HIT for live matches")
@@ -179,22 +172,13 @@ async def get_live_matches(
         # Include basic match data with periods and state for accurate live minutes
         # periods include provides minutes, seconds, ticking, time_added, has_timer
         # state include provides match phase information
-        # Include inplayOdds for live matches (more accurate than prematch odds)
         # Include event types and players for proper event icon detection
         # Note: time object is included by default in livescores, no need to add it to include
-        include = "participants;scores;events.type;events.player;league;inplayOdds;periods;state"
+        include = "participants;scores;events.type;events.player;league;odds;periods;state"
         
-        # Add filters for bookmakers:2 and markets:1 (1X2 only) for list view to reduce payload
-        # Format: "bookmakers:2;markets:1"
-        filters = "bookmakers:2;markets:1"
-        
-        # Use inplay endpoint for better accuracy with league filtering
-        livescores = await sportmonks_service.get_livescores(
-            include=include, 
-            filters=filters, 
-            use_inplay=True,
-            league_ids=final_league_ids
-        )
+        # Don't use filters or league_ids to get ALL live matches (not just popular leagues)
+        # This ensures we get all live matches, not just filtered ones
+        livescores = await sportmonks_service.get_livescores(include=include)
         
         # Transform livescores to match format and filter out finished matches
         matches = []
@@ -203,13 +187,18 @@ async def get_live_matches(
             # Include matches that are:
             # 1. Live (is_live = True) and not finished, OR
             # 2. In half-time break (HT status) and not finished (to show "DEVRE ARASI")
+            # Note: HT matches should have is_live=False but still be included
             status = (transformed.get("status", "") or "").upper()
             is_live = transformed.get("is_live", False)
             is_finished = transformed.get("is_finished", False)
-            is_ht = status in ["HT", "HALF_TIME"]
+            state_id = transformed.get("state_id")
+            is_ht = status in ["HT", "HALF_TIME"] or state_id == 3
             
-            if not is_finished and (is_live or is_ht):
-                matches.append(transformed)
+            # Only include truly live matches (is_live=True) or HT matches (not finished)
+            # Exclude finished, postponed, and cancelled matches
+            if not is_finished and state_id not in [4, 5, 6, 7]:
+                if is_live or is_ht:
+                    matches.append(transformed)
         
         result = {
             "success": True,
@@ -217,13 +206,15 @@ async def get_live_matches(
             "count": len(matches)
         }
         
-        # Cache result (TTL: 5-10 seconds for live matches, use 7 seconds as average)
-        await set_cached(cache_key_str, result, ttl_seconds=7)
+        # Cache result (TTL: 3-5 seconds for live matches, use 4 seconds for better freshness)
+        await set_cached(cache_key_str, result, ttl_seconds=4)
         
         return result
     except Exception as e:
-        logger.error(f"Error fetching live matches: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_detail = str(e)
+        logger.error(f"Error fetching live matches: {error_detail}")
+        logger.exception(e)  # Log full traceback for debugging
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @api_router.get("/matches/{match_id}")
 async def get_match_details(match_id: int):
@@ -316,6 +307,18 @@ async def get_match_details(match_id: int):
                 
                 # Now filter by bet365
                 odds_data = sportmonks_service._extract_and_normalize_odds(raw_odds_data, bookmaker_id_filter=BOOKMAKER_BET365_ID)
+                
+                # Apply snapshot diff filter (Bet365 behavior)
+                previous_snapshot = await get_latest_odds_snapshot(match_id)
+                match_status = match.get("status", "LIVE")
+                if previous_snapshot:
+                    odds_data = sportmonks_service._filter_by_snapshot_diff(
+                        odds_data,
+                        previous_snapshot,
+                        match_status
+                    )
+                    logger.info(f"Applied snapshot diff filter for match {match_id}, {len(odds_data)} odds remaining")
+                
                 if odds_data:
                     match["odds"] = odds_data
                     logger.info(f"Fetched {len(odds_data)} odds separately for match {match_id}")
@@ -333,17 +336,21 @@ async def get_match_details(match_id: int):
         }
         
         # Determine cache TTL based on match status
-        # In-play matches: 5-10 seconds (odds update frequently)
-        # Pre-match matches: 60-120 seconds (odds update less frequently)
+        # In-play matches: 10 seconds (odds update frequently)
+        # Finished matches: 300 seconds (5 minutes - finished matches don't change)
+        # Pre-match matches: 180 seconds (3 minutes - odds update less frequently)
         is_live = match.get("is_live", False)
         is_finished = match.get("is_finished", False)
         
         if is_live and not is_finished:
-            # In-play match: cache for 7 seconds (average of 5-10)
-            cache_ttl = 7
+            # In-play match: cache for 10 seconds
+            cache_ttl = 10
+        elif is_finished:
+            # Finished match: cache for 300 seconds (5 minutes)
+            cache_ttl = 300
         else:
-            # Pre-match or finished: cache for 90 seconds (average of 60-120)
-            cache_ttl = 90
+            # Pre-match (upcoming): cache for 180 seconds (3 minutes)
+            cache_ttl = 180
         
         # Cache result
         await set_cached(cache_key_str, result, ttl_seconds=cache_ttl)
@@ -382,14 +389,26 @@ async def get_match_odds(match_id: int):
         # Normalize odds
         normalized_odds = sportmonks_service._extract_and_normalize_odds(odds_data, bookmaker_id_filter=2)
         
+        # Apply snapshot diff filter (Bet365 behavior)
+        previous_snapshot = await get_latest_odds_snapshot(match_id)
+        # Get match status from fixture if available, otherwise default to LIVE
+        match_status = "LIVE"  # Default, could be improved by fetching match details
+        if previous_snapshot:
+            normalized_odds = sportmonks_service._filter_by_snapshot_diff(
+                normalized_odds,
+                previous_snapshot,
+                match_status
+            )
+            logger.debug(f"Applied snapshot diff filter for match {match_id} odds, {len(normalized_odds)} odds remaining")
+        
         result = {
             "success": True,
             "data": normalized_odds,
             "count": len(normalized_odds)
         }
         
-        # Cache result (TTL: 5-10 seconds for live matches, 60 seconds for pre-match)
-        await set_cached(cache_key_str, result, ttl_seconds=7)
+        # Cache result (TTL: 3-5 seconds for live matches, 60 seconds for pre-match)
+        await set_cached(cache_key_str, result, ttl_seconds=4)
         
         return result
     except HTTPException:
@@ -714,6 +733,33 @@ app.add_middleware(
 )
 
 # Include the router in the main app (after CORS middleware) with /api prefix
+# Rate limit observability endpoint
+@api_router.get("/rate-limit/metrics")
+async def get_rate_limit_metrics(entity: Optional[str] = None):
+    """
+    Get rate limit metrics for observability.
+    
+    Args:
+        entity: Optional entity name to filter metrics (e.g., "fixtures", "livescores")
+    
+    Returns:
+        Rate limit metrics and alerts
+    """
+    try:
+        rate_limit_manager = get_rate_limit_manager()
+        metrics = rate_limit_manager.get_metrics(entity=entity)
+        alerts = rate_limit_manager.check_alerts()
+        
+        return {
+            "success": True,
+            "metrics": metrics,
+            "alerts": alerts,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting rate limit metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 app.include_router(api_router, prefix="/api")
 
 # Startup and shutdown events for background worker

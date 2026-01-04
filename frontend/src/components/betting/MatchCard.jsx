@@ -15,6 +15,55 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
   const dateTimeDisplay = useMemo(() => {
     return formatMatchDateTime(match.date, match.time);
   }, [match.date, match.time]);
+  
+  // Extract minute with fallback to events if match.minute is missing
+  // HT is a state, not a time - don't show minute during HT
+  // Priority: 1) HT check, 2) Finished check, 3) match.minute, 4) events, 5) null
+  const displayMinute = useMemo(() => {
+    // Priority 1: HT → no minute (HT is a state, not a time)
+    const status = (match.status || '').toUpperCase();
+    if (status === 'HT' || status === 'HALF_TIME' || status === 'BREAK') {
+      return null;
+    }
+    
+    // Priority 2: Finished → no minute
+    if (match.isFinished) {
+      return null;
+    }
+    
+    // Priority 3: Only if live
+    if (!match.isLive) {
+      return null;
+    }
+    
+    // Priority 4: First try match.minute (backend should already set to null for HT)
+    if (match.minute !== null && match.minute !== undefined) {
+      return typeof match.minute === 'number' ? match.minute : parseInt(match.minute, 10);
+    }
+    
+    // Priority 5: Fallback: try to extract from match.events if available
+    if (match.events && Array.isArray(match.events) && match.events.length > 0) {
+      const validEvents = match.events.filter(e => 
+        e && typeof e === 'object' && 
+        (e.minute !== null && e.minute !== undefined) &&
+        !isNaN(parseInt(e.minute, 10))
+      );
+      if (validEvents.length > 0) {
+        const latestEvent = validEvents.reduce((latest, current) => {
+          const currentMin = parseInt(current.minute, 10);
+          const latestMin = parseInt(latest.minute, 10);
+          return currentMin > latestMin ? current : latest;
+        });
+        const eventMinute = parseInt(latestEvent.minute, 10);
+        // Only use if minute is reasonable (0-120)
+        if (eventMinute >= 0 && eventMinute <= 120) {
+          return eventMinute;
+        }
+      }
+    }
+    
+    return null;
+  }, [match.minute, match.events, match.status, match.isFinished, match.isLive]);
 
   const handleOddsClick = (e, market, option, odds, selectionId = null) => {
     e.preventDefault();
@@ -121,7 +170,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
             ) : match.isLive ? (
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="text-red-500 text-[10px] sm:text-xs font-bold">{match.minute}'</span>
+                {displayMinute !== null && displayMinute !== undefined ? (
+                  <span className="text-red-500 text-[10px] sm:text-xs font-bold">{displayMinute}'</span>
+                ) : (
+                  <span className="text-red-500 text-[10px] sm:text-xs font-bold">CANLI</span>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-0.5 sm:gap-1 text-gray-400">
@@ -286,7 +339,11 @@ const MatchCard = ({ match, showFullMarkets = false, compact = false }) => {
           ) : match.isLive ? (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              <span className="text-red-500 text-xs font-bold">{match.minute}'</span>
+              {displayMinute !== null && displayMinute !== undefined ? (
+                <span className="text-red-500 text-xs font-bold">{displayMinute}'</span>
+              ) : (
+                <span className="text-red-500 text-xs font-bold">CANLI</span>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-1 text-gray-400">

@@ -159,28 +159,40 @@ export function hasDangerousAttacks(statistics, threshold = 3) {
 
   // Look for dangerous attacks or shots on target
   const dangerousAttacks = stats.find(s => {
+    if (!s) return false;
     // Handle nested objects (e.g., s.type.name) and ensure we get a string
-    const typeValue = (
-      (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
-      (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
-      (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
-      ''
-    );
-    const type = String(typeValue).toLowerCase();
+    // Backend now sends type as string, but handle both cases for safety
+    let typeValue = '';
+    if (typeof s.type === 'string') {
+      typeValue = s.type;
+    } else if (s.type && typeof s.type === 'object') {
+      typeValue = s.type?.name || s.type?.type || s.type_name || '';
+    } else {
+      typeValue = s.type_name || s.name || s.statistic || '';
+    }
+    
+    // Ensure typeValue is a string before calling toLowerCase
+    const type = String(typeValue || '').toLowerCase();
     return type.includes('dangerous attack') || 
            type.includes('dangerous_attack') ||
            (type.includes('attack') && type.includes('dangerous'));
   });
 
   const shotsOnTarget = stats.find(s => {
+    if (!s) return false;
     // Handle nested objects (e.g., s.type.name) and ensure we get a string
-    const typeValue = (
-      (typeof s.type === 'string' ? s.type : s.type?.name || s.type?.type || '') ||
-      (typeof s.name === 'string' ? s.name : s.name?.name || '') ||
-      (typeof s.statistic === 'string' ? s.statistic : s.statistic?.name || '') ||
-      ''
-    );
-    const type = String(typeValue).toLowerCase();
+    // Backend now sends type as string, but handle both cases for safety
+    let typeValue = '';
+    if (typeof s.type === 'string') {
+      typeValue = s.type;
+    } else if (s.type && typeof s.type === 'object') {
+      typeValue = s.type?.name || s.type?.type || s.type_name || '';
+    } else {
+      typeValue = s.type_name || s.name || s.statistic || '';
+    }
+    
+    // Ensure typeValue is a string before calling toLowerCase
+    const type = String(typeValue || '').toLowerCase();
     return type.includes('shots on target') || 
            type.includes('shots on goal') ||
            (type.includes('shots') && (type.includes('target') || type.includes('goal')));

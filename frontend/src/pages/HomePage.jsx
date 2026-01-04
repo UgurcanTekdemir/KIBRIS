@@ -222,6 +222,18 @@ const HomePage = () => {
     date_to: sevenDaysLater
   });
   
+  // Debug: Log matches data
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🏠 HomePage - allMatches:', allMatches?.length || 0, 'matches');
+      console.log('🏠 HomePage - loading:', loading);
+      console.log('🏠 HomePage - error:', error);
+      if (allMatches && allMatches.length > 0) {
+        console.log('🏠 HomePage - First match sample:', allMatches[0]);
+      }
+    }
+  }, [allMatches, loading, error]);
+  
   // Fetch stats from API
   useEffect(() => {
     const fetchStats = async () => {
@@ -243,19 +255,59 @@ const HomePage = () => {
   const isLoading = loading;
 
   // Filter matches by today and upcoming - optimized with helper functions
+  // Sort live matches by minute (highest first) to prevent constant reordering
   const todayMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];
     
+    // Separate live matches from upcoming matches
+    const liveMatches = allMatches.filter(m => isMatchLive(m) && !isMatchFinished(m));
+    const upcomingTodayMatches = allMatches.filter(m => {
+      const matchDate = getMatchDate(m);
+      return normalizeDateForComparison(matchDate) === today &&
+             !isMatchLive(m) &&
+             !isMatchHalfTime(m) &&
+             !isMatchFinished(m) &&
+             !isMatchPostponed(m);
+    });
+    
+    // Sort live matches by minute (highest first)
+    const sortedLiveMatches = liveMatches.sort((a, b) => {
+      const getMinute = (match) => {
+        if (match.minute === null || match.minute === undefined) return -1;
+        if (typeof match.minute === 'number') return match.minute;
+        if (typeof match.minute === 'string') {
+          const baseMinute = parseInt(match.minute.split('+')[0], 10);
+          if (!isNaN(baseMinute)) return baseMinute;
+        }
+        return -1;
+      };
+      
+      const minuteA = getMinute(a);
+      const minuteB = getMinute(b);
+      
+      if (minuteB !== minuteA) {
+        return minuteB - minuteA;
+      }
+      
+      return (a.id || '').localeCompare(b.id || '');
+    });
+    
+    // Sort upcoming matches by datetime
+    const sortedUpcoming = sortMatchesByDateTime(upcomingTodayMatches);
+    
+    // Combine: live matches first (sorted by minute), then upcoming matches
+    const combined = [...sortedLiveMatches, ...sortedUpcoming];
+    
     // Try 1-hour window first
-    const matches1Hour = filterTodayMatchesWithinWindow(allMatches, 1);
+    const matches1Hour = filterTodayMatchesWithinWindow(combined, 1);
     if (matches1Hour.length > 0) {
-      return sortMatchesByDateTime(matches1Hour).slice(0, 4);
+      return matches1Hour.slice(0, 4);
     }
     
     // Fallback: 4-hour window
-    const matches4Hour = filterTodayMatchesWithinWindow(allMatches, 4);
-    return sortMatchesByDateTime(matches4Hour).slice(0, 4);
-  }, [allMatches]);
+    const matches4Hour = filterTodayMatchesWithinWindow(combined, 4);
+    return matches4Hour.slice(0, 4);
+  }, [allMatches, today]);
 
   const upcomingMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) return [];

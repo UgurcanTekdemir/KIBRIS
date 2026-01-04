@@ -22,7 +22,7 @@ export function useMatches(filters = {}, options = {}) {
     date_to: filters.date_to || defaultSevenDaysLater,
     league_id: filters.league_id || null,
     ...filters
-  }), [filters.date_from, filters.date_to, filters.league_id, defaultToday, defaultSevenDaysLater]);
+  }), [filters, defaultToday, defaultSevenDaysLater]);
   
   // Create a stable query key from filters
   const queryKey = useMemo(() => [
@@ -42,10 +42,20 @@ export function useMatches(filters = {}, options = {}) {
         const matchesArray = Array.isArray(apiMatches) 
           ? apiMatches 
           : [apiMatches].filter(Boolean);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('📊 Fetched matches:', matchesArray.length, 'items');
+        }
+        
         const mapped = mapApiMatchesToInternal(matchesArray);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ Mapped matches:', mapped.length, 'items');
+        }
+        
         return mapped;
       } catch (error) {
-        console.error('Error fetching matches:', error);
+        console.error('❌ Error fetching matches:', error);
         throw error;
       }
     },
@@ -75,7 +85,7 @@ export function useLiveMatches(matchType = 1, leagueIds = null) {
     queryKey: ['liveMatches', matchType, leagueIds],
     queryFn: async () => {
       // Use Sportmonks V3 API to get live scores
-      const apiMatches = await footballService.getLivescores(leagueIds);
+      const apiMatches = await footballService.getLivescores();
       // Ensure it's an array
       const matchesArray = Array.isArray(apiMatches) ? apiMatches : [apiMatches].filter(Boolean);
       const mappedMatches = mapApiMatchesToInternal(matchesArray);
@@ -98,9 +108,10 @@ export function useLiveMatches(matchType = 1, leagueIds = null) {
         return false;
       });
     },
-    staleTime: 5000, // Live matches are fresh for 5 seconds (in-play data updates frequently)
+    staleTime: 0, // Live matches are never stale (always refetch for freshness)
     cacheTime: 60000, // Cache live matches for 1 minute
-    refetchInterval: 5000, // Auto-refetch every 5 seconds for live matches (in-play odds update every 2-10 seconds)
+    refetchInterval: 5000, // Auto-refetch every 5 seconds for live matches (aligns with backend cache of 4s)
+    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
   });
 
   return {
@@ -137,18 +148,18 @@ export function useMatchDetails(matchId) {
       throw new Error('Maç bulunamadı');
     },
     enabled: !!matchId, // Only run query if matchId exists
-    staleTime: 7000, // Data is fresh for 7 seconds (in-play cache 5-10s, pre-match 60-120s)
+    staleTime: 0, // Data is never stale (always refetch for freshness)
     cacheTime: 300000, // Cache unused data for 5 minutes
+    refetchIntervalInBackground: true, // Continue refetching even when tab is in background
     // Dynamic refetch interval based on match status
     refetchInterval: (query) => {
       const match = query.state.data;
-      const isHalfTime = match?.status === 'HT' || match?.status === 'HALF_TIME';
       if (match?.isLive && !match?.isFinished) {
-        return 5000; // 5 seconds for live matches (in-play odds update every 2-10 seconds)
-      } else if (isHalfTime || match?.isFinished) {
-        return 90000; // 90 seconds for half-time and finished matches (pre-match cache)
+        return 5000; // 5 seconds for live matches (aligns with backend cache of 4s)
+      } else if (match?.isFinished) {
+        return false; // Disable refetch for finished matches (they don't change)
       }
-      return 90000; // 90 seconds for upcoming matches (pre-match cache 60-120s)
+      return 180000; // 180 seconds (3 minutes) for upcoming matches (aligns with backend cache)
     },
   });
 
