@@ -10254,3 +10254,296 @@ INFO:     Application startup complete.
 2026-01-07 04:11:52,900 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/pre-match/latest "HTTP/1.1 200 OK"
 2026-01-07 04:11:57,717 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
 2026-01-07 04:11:57,718 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:03,054 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:03,055 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:08,371 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:08,372 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:13,143 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/pre-match/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:13,144 - services.sportmonks_service - WARNING - Unexpected response format for latest pre-match odds: <class 'dict'>
+2026-01-07 04:12:13,500 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:13,501 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:18,950 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:18,951 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:24,318 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:24,319 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:27,939 - services.cache - INFO - Redis connected successfully to localhost:6379
+2026-01-07 04:12:27,939 - server - INFO - Cache MISS for matches: matches:2026-01-07:2026-01-11
+2026-01-07 04:12:27,939 - server - INFO - Fetching fixtures from Sportmonks: date_from=2026-01-07, date_to=2026-01-11, league_id=None
+2026-01-07 04:12:29,682 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:29,683 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:32,407 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/fixtures/between/2026-01-07/2026-01-11?page=1&per_page=100&include=participants%3Bscores%3Bevents.type%3Bevents.player%3Bleague%3Bodds "HTTP/1.1 200 OK"
+2026-01-07 04:12:33,288 - services.sportmonks_service - INFO - Total fixtures fetched for 2026-01-07 to 2026-01-11: 25
+2026-01-07 04:12:33,289 - server - INFO - Received 25 fixtures from Sportmonks
+2026-01-07 04:12:33,289 - server - INFO - Transforming 25 fixtures for league_id=None, date_from=2026-01-07, date_to=2026-01-11
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,289 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 825 odds items
+2026-01-07 04:12:33,290 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=Draw, Value=7.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,290 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=81.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,290 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=26, Market Name=1st Half Asian Handicap, Label=1, Value=1.87, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,290 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=126.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,290 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=Draw, Value=17.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.8, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211987005137, 'fixture_id': 19638494, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.80', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '26.32%', 'dp3': '3.800', 'fractional': '19/5', 'american': '280', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T14:20:54.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:27'}
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=4.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=1.66, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 103 normalized odds
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 1654 odds items
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=81.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=81.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=23.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=97, Market Name=2nd Half Result, Label=Away, Value=2.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,291 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=101.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=4.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211983114601, 'fixture_id': 19598316, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '4.50', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '22.22%', 'dp3': '4.500', 'fractional': '9/2', 'american': '350', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T13:40:58.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:55'}
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=3.8, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=1.6, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 205 normalized odds
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 678 odds items
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Over, Value=1.9, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,293 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Under, Value=1.9, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=27, Market Name=1st Half Goal Line, Label=Over, Value=1.95, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=6, Market Name=Asian Handicap, Label=1, Value=1.82, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=6, Market Name=Asian Handicap, Label=2, Value=1.97, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=2.25, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 212002066708, 'fixture_id': 19639884, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '2.25', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '44.44%', 'dp3': '2.250', 'fractional': '9/4', 'american': '125', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T16:50:54.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:42'}
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=4.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,294 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=2.4, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 104 normalized odds
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 647 odds items
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=10, Market Name=Draw No Bet, Label=2, Value=1.44, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=44, Market Name=Goals Odd/Even, Label=Even, Value=1.92, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Under, Value=1.85, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Over, Value=1.95, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,295 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Under, Value=1.85, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=3.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211976958848, 'fixture_id': 19638496, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '3.00', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '33.33%', 'dp3': '3.000', 'fractional': '3', 'american': '200', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T12:40:17.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:51'}
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=4.1, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=1.85, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 96 normalized odds
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 777 odds items
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=29.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=41.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=44, Market Name=Goals Odd/Even, Label=Odd, Value=1.97, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=7, Market Name=Goal Line, Label=Under, Value=1.8, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,296 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=67.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.7, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211977249044, 'fixture_id': 19638497, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.70', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '27.03%', 'dp3': '3.700', 'fractional': '37/10', 'american': '270', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T12:40:58.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:43'}
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Match Winner #2: Label='Home', Value=1.72, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=3.7, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 107 normalized odds
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 660 odds items
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=Draw, Value=29.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=41.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,297 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=Draw, Value=34.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=2, Value=67.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=2, Value=81.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=4.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211965518686, 'fixture_id': 19638498, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '4.50', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '22.22%', 'dp3': '4.500', 'fractional': '9/2', 'american': '350', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T10:40:20.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:52'}
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - Match Winner #2: Label='Home', Value=1.4, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,298 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=5.75, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 101 normalized odds
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 763 odds items
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=1, Value=41.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=1, Value=126.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=31, Market Name=Half Time Result, Label=Draw, Value=2.37, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=126.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,299 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=44, Market Name=Goals Odd/Even, Label=Odd, Value=1.95, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Match Winner #1: Label='Away', Value=2.87, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211965550409, 'fixture_id': 19639885, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Away', 'value': '2.87', 'name': None, 'sort_order': 2, 'market_description': 'Full Time Result', 'probability': '34.78%', 'dp3': '2.875', 'fractional': '23/8', 'american': '187', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T10:40:25.000000Z', 'original_label': '2', 'latest_bookmaker_update': '2026-01-07 02:11:08'}
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Match Winner #2: Label='Home', Value=2.05, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Match Winner #3: Label='Draw', Value=3.7, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 112 normalized odds
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 1773 odds items
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=11, Market Name=Last Team to Score, Label=2, Value=1.8, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=6, Market Name=Asian Handicap, Label=2, Value=1.9, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=26, Market Name=1st Half Asian Handicap, Label=1, Value=1.7, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=37, Market Name=Result / Total Goals, Label=Over, Value=9.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,300 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=15.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=2.9, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211689179359, 'fixture_id': 19618818, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '2.90', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '34.48%', 'dp3': '2.900', 'fractional': '29/10', 'american': '190', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-04T04:50:51.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:32'}
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=3.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=2.15, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 219 normalized odds
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 1680 odds items
+2026-01-07 04:12:33,302 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=34.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,303 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=10, Market Name=Draw No Bet, Label=1, Value=5.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,303 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=37, Market Name=Result / Total Goals, Label=Under, Value=13.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,303 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=67.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,303 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=31, Market Name=Half Time Result, Label=Draw, Value=2.4, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=6.25, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211982819064, 'fixture_id': 19598317, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '6.25', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '16%', 'dp3': '6.250', 'fractional': '25/4', 'american': '525', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T13:40:14.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:27'}
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=1.38, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Match Winner #3: Label='Draw', Value=4.33, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 207 normalized odds
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 1740 odds items
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=126, Market Name=Winning Margin, Label=1, Value=15.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=45, Market Name=1st Half Goals Odd/Even, Label=Even, Value=1.8, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=151.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,305 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=11, Market Name=Last Team to Score, Label=No Goal, Value=26.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,306 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=31, Market Name=Half Time Result, Label=Draw, Value=2.6, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.8, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211940248924, 'fixture_id': 19597731, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.80', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '26.32%', 'dp3': '3.800', 'fractional': '19/5', 'american': '280', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-06T06:01:59.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:29'}
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=2.2, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=2.7, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 220 normalized odds
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3824 odds items
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=501.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=3.6, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=121, Market Name=Away Team Highest Scoring Half, Label=Tie, Value=2.37, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=38, Market Name=Exact 2nd Half Goals, Label=5+ Goals, Value=29.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,308 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=4.75, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=3.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 210906230518, 'fixture_id': 19425061, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '3.00', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '33.33%', 'dp3': '3.000', 'fractional': '3', 'american': '200', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2025-12-28T15:20:33.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:53'}
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=3.3, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=2.4, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 394 normalized odds
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3761 odds items
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=10.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=28, Market Name=First Half Goals, Label=Over, Value=1.4, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,313 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=126, Market Name=Winning Margin, Label=1, Value=6.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,314 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=47, Market Name=Half Time Double Chance, Label=Napoli or Draw, Value=1.04, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,314 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=34, Market Name=10 Minute Result, Label=2, Value=17.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,318 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,318 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=5.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 210906310259, 'fixture_id': 19425066, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '5.00', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '20%', 'dp3': '5.000', 'fractional': '5', 'american': '400', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2025-12-28T15:20:43.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:29'}
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=8.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=1.36, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 392 normalized odds
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - _extract_and_normalize_odds: No odds_data provided
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3670 odds items
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=27, Market Name=1st Half Goal Line, Label=Over, Value=2.1, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=247, Market Name=First Team to Score, Label=1, Value=1.72, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=4.75, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=65, Market Name=1st Player Booked, Label=1st Card, Value=19.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,319 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=66, Market Name=Player to be Sent Off, Label=Red Card, Value=51.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211351001257, 'fixture_id': 19427657, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.50', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '28.57%', 'dp3': '3.500', 'fractional': '7/2', 'american': '250', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:50:40.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:42'}
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Match Winner #2: Label='Home', Value=2.15, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=3.25, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 384 normalized odds
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3636 odds items
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=11, Market Name=Last Team to Score, Label=No Goal, Value=9.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=351.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=37, Market Name=Result / Total Goals, Label=Under, Value=8.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=5.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,324 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=6.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Match Winner #1: Label='Home', Value=1.83, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211350946894, 'fixture_id': 19427658, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Home', 'value': '1.83', 'name': None, 'sort_order': 0, 'market_description': 'Full Time Result', 'probability': '54.56%', 'dp3': '1.833', 'fractional': '11/6', 'american': '-121', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:50:32.000000Z', 'original_label': '1', 'latest_bookmaker_update': '2026-01-07 02:10:40'}
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=3.6, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=4.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 393 normalized odds
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3634 odds items
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=66, Market Name=Player to be Sent Off, Label=Red Card, Value=51.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=6, Market Name=Asian Handicap, Label=2, Value=1.8, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=126, Market Name=Winning Margin, Label=Score Draw, Value=4.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=501.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,329 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=12.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Match Winner #1: Label='Away', Value=2.25, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211350884738, 'fixture_id': 19427660, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Away', 'value': '2.25', 'name': None, 'sort_order': 2, 'market_description': 'Full Time Result', 'probability': '44.44%', 'dp3': '2.250', 'fractional': '9/4', 'american': '125', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:50:23.000000Z', 'original_label': '2', 'latest_bookmaker_update': '2026-01-07 02:11:07'}
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Match Winner #2: Label='Draw', Value=3.3, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=3.2, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 383 normalized odds
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3506 odds items
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=501.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=1, Value=34.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=38, Market Name=Exact 2nd Half Goals, Label=3 Goals, Value=7.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=Draw, Value=8.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,334 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=3.75, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.5, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211351264267, 'fixture_id': 19427661, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.50', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '28.57%', 'dp3': '3.500', 'fractional': '7/2', 'american': '250', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:51:17.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:25'}
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=5.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=1.75, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 381 normalized odds
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3541 odds items
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=57, Market Name=Correct Score, Label=2, Value=301.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=42, Market Name=Home Team Odd/Even Goals, Label=Fulham - Odd, Value=2.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=1, Value=23.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=45, Market Name=1st Half Goals Odd/Even, Label=Odd, Value=2.1, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,339 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=53, Market Name=2nd Half Goals, Label=Over, Value=1.2, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=3.6, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211351064875, 'fixture_id': 19427662, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '3.60', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '27.78%', 'dp3': '3.600', 'fractional': '18/5', 'american': '260', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:50:47.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:29'}
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - Match Winner #2: Label='Away', Value=2.05, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - Match Winner #3: Label='Home', Value=3.4, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 375 normalized odds
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Processing 3803 odds items
+2026-01-07 04:12:33,343 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #1: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=247, Market Name=First Team to Score, Label=2, Value=2.75, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,344 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #2: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=64, Market Name=Player to be booked, Label=Booked, Value=7.5, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,344 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #3: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=65, Market Name=1st Player Booked, Label=1st Card, Value=23.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,344 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #4: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=66, Market Name=Player to be Sent Off, Label=Red Card, Value=67.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,344 - services.sportmonks_service - INFO - Sample normalized odd (normalized format) #5: Bookmaker ID=2, Bookmaker Name=Bet365, Market ID=30, Market Name=Half Time Correct Score, Label=1, Value=13.0, Raw Bookmaker=NoneType
+2026-01-07 04:12:33,348 - services.sportmonks_service - INFO - === MATCH WINNER ODDS DEBUG (3 items) ===
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - Match Winner #1: Label='Draw', Value=5.0, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO -   Raw data sample (first item): {'id': 211351198734, 'fixture_id': 19427663, 'market_id': 1, 'bookmaker_id': 2, 'label': 'Draw', 'value': '5.00', 'name': None, 'sort_order': 1, 'market_description': 'Full Time Result', 'probability': '20%', 'dp3': '5.000', 'fractional': '5', 'american': '400', 'winning': False, 'stopped': False, 'total': None, 'handicap': None, 'participants': None, 'created_at': '2026-01-01T14:51:05.000000Z', 'original_label': 'Draw', 'latest_bookmaker_update': '2026-01-07 02:10:56'}
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - Match Winner #2: Label='Home', Value=1.42, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - Match Winner #3: Label='Away', Value=6.25, Bookmaker ID=2, Bookmaker Name='Bet365', Market ID=1, Market Name='Full Time Result'
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - === END MATCH WINNER ODDS DEBUG ===
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - _extract_and_normalize_odds: Returning 401 normalized odds
+2026-01-07 04:12:33,349 - services.sportmonks_service - INFO - Transformed sidelined count: 0
+2026-01-07 04:12:33,349 - server - INFO - Transformed 25 matches from 25 fixtures
+An error occurred: module 'importlib.metadata' has no attribute 'packages_distributions'
+INFO:     127.0.0.1:49956 - "GET /api/matches?date_from=2026-01-07&date_to=2026-01-11 HTTP/1.1" 200 OK
+2026-01-07 04:12:35,068 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/inplay/latest "HTTP/1.1 200 OK"
+2026-01-07 04:12:35,069 - services.sportmonks_service - WARNING - Unexpected response format for latest in-play odds: <class 'dict'>
+2026-01-07 04:12:35,710 - httpx - INFO - HTTP Request: GET https://api.sportmonks.com/v3/football/odds/pre-match/latest "HTTP/1.1 200 OK"
