@@ -86,14 +86,13 @@ const LeaguePage = () => {
     return flagMap[country] || '🏆';
   }
 
-  // Fetch matches filtered by league_id from backend (2 days past to 5 days future)
+  // Fetch matches filtered by league_id from backend (today to 4 days future)
   const today = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const twoDaysAgo = useMemo(() => getDateFromToday(-2), []);
-  const fiveDaysLater = useMemo(() => getDateFromToday(5), []);
+  const fourDaysLater = useMemo(() => getDateFromToday(4), []);
   
   const { matches: allMatches, loading, error, refetch } = useMatches({
-    date_from: twoDaysAgo,
-    date_to: fiveDaysLater,
+    date_from: today,
+    date_to: fourDaysLater,
     league_id: leagueId
   });
 
@@ -118,44 +117,26 @@ const LeaguePage = () => {
   // (matches can be shown even without odds)
   const isLoading = loadingLeague || loading;
 
-  // Filter and sort matches (backend already filters by league_id, optimized with helpers)
+  // Filter and sort matches (backend already filters by league_id)
   const leagueMatches = useMemo(() => {
     if (!allMatches || allMatches.length === 0) {
       return [];
     }
     
-    // Backend already filters by league_id, but we verify and filter out past/finished matches
+    // Backend already filters by league_id, so we just filter out finished/postponed matches
+    // and matches outside date range
     const filtered = allMatches.filter(match => {
-      // Verify league_id match (backend should have filtered, but double-check)
-      if (leagueInfo) {
-        const matchLeagueId = match.leagueId || match.league_id || match.league?.id;
-        const leagueIdNum = parseInt(leagueInfo.id, 10);
-        const matchesLeagueId = matchLeagueId === leagueInfo.id || 
-                                matchLeagueId === leagueIdNum ||
-                                String(matchLeagueId) === String(leagueInfo.id);
-        
-        if (!matchesLeagueId) {
-          // Also check by league name as fallback
-          const matchLeague = (match.league || '').toLowerCase();
-          const leagueNameLower = (leagueInfo.name || '').toLowerCase();
-          const matchesLeagueName = leagueNameLower && (
-            matchLeague === leagueNameLower || 
-            matchLeague.includes(leagueNameLower) ||
-            leagueNameLower.includes(matchLeague)
-          );
-          
-          if (!matchesLeagueName) {
-            return false;
-          }
+      // Exclude finished/postponed matches (but keep live matches)
+      if (isMatchFinished(match) || isMatchPostponed(match)) {
+        // Keep live matches even if they might be marked as finished
+        if (!match.isLive) {
+          return false;
         }
       }
       
-      // Exclude finished/postponed matches using helpers
-      if (isMatchFinished(match) || isMatchPostponed(match)) return false;
-      
-      // Exclude matches outside the date range (2 days ago to 5 days later)
+      // Exclude matches outside the date range (today to 4 days later)
       const matchDate = normalizeDateForComparison(getMatchDate(match));
-      if (matchDate && (matchDate < twoDaysAgo || matchDate > fiveDaysLater)) {
+      if (matchDate && (matchDate < today || matchDate > fourDaysLater)) {
         return false;
       }
       
@@ -164,9 +145,7 @@ const LeaguePage = () => {
     
     // Sort using helper function
     return sortMatchesByDateTime(filtered);
-    
-    return filtered;
-  }, [allMatches, leagueInfo, twoDaysAgo, fiveDaysLater]);
+  }, [allMatches, today, fourDaysLater]);
 
   // Loading skeleton component
   const MatchCardSkeleton = () => (

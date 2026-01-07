@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from typing import Optional, List
+from pydantic import BaseModel
 import os
 import logging
 from pathlib import Path
@@ -29,6 +30,10 @@ from services.cache import get_cached, set_cached, cache_key
 
 # Bookmaker ID constants
 BOOKMAKER_BET365_ID = 2  # Bet365 bookmaker ID in Sportmonks API
+
+# Pydantic models for request/response
+class BatchMatchIdsRequest(BaseModel):
+    match_ids: List[int]
 
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
@@ -80,15 +85,18 @@ async def get_matches(
             logger.debug(f"Cache HIT for matches: {cache_key_str}")
             return cached_result
         
-        logger.debug(f"Cache MISS for matches: {cache_key_str}")
+        logger.info(f"Cache MISS for matches: {cache_key_str}")
         
         # Include basic match data first (without complex odds to avoid API errors)
         # Include event types and players for proper event icon detection
         # Note: time object is included by default in fixtures, no need to add it to include
+        # For list view, include odds but don't filter - show all matches even without odds
         include = "participants;scores;events.type;events.player;league;odds"
-        # Don't filter by bookmaker for list endpoint to avoid API errors
-        filters = None
+        # Don't filter by bookmaker/market for league page - show all matches
+        # Only filter if category is specified (for optimization)
+        filters = None if not category else "bookmakers:2;markets:1"
         
+        logger.info(f"Fetching fixtures from Sportmonks: date_from={date_from}, date_to={date_to}, league_id={league_id}")
         fixtures = await sportmonks_service.get_fixtures(
             date_from=date_from,
             date_to=date_to,
@@ -96,12 +104,22 @@ async def get_matches(
             include=include,
             filters=filters
         )
+        logger.info(f"Received {len(fixtures)} fixtures from Sportmonks")
         
         # Transform fixtures to match format with Turkey timezone
         matches = []
+        logger.info(f"Transforming {len(fixtures)} fixtures for league_id={league_id}, date_from={date_from}, date_to={date_to}")
         for fixture in fixtures:
-            transformed = sportmonks_service._transform_fixture_to_match(fixture, timezone_offset=3)
-            matches.append(transformed)
+            try:
+                transformed = sportmonks_service._transform_fixture_to_match(fixture, timezone_offset=3)
+                if transformed:  # Only add if transformation succeeded
+                    matches.append(transformed)
+            except Exception as e:
+                logger.warning(f"Error transforming fixture {fixture.get('id', 'unknown')}: {e}")
+                # Continue with other fixtures even if one fails
+                continue
+        
+        logger.info(f"Transformed {len(matches)} matches from {len(fixtures)} fixtures")
         
         # Categorize matches - prioritize live, then finished, then upcoming
         # A match can only be in one category
@@ -141,8 +159,8 @@ async def get_matches(
             }
         }
         
-        # Cache result (TTL: 60-120 seconds for fixtures list, use 90 seconds as average)
-        await set_cached(cache_key_str, result, ttl_seconds=90)
+        # Cache result (TTL: 60-300 seconds for fixtures list, use 120 seconds as average for pre-match)
+        await set_cached(cache_key_str, result, ttl_seconds=120)
         
         return result
     except Exception as e:
@@ -217,8 +235,8 @@ async def get_live_matches(
             "count": len(matches)
         }
         
-        # Cache result (TTL: 5-10 seconds for live matches, use 7 seconds as average)
-        await set_cached(cache_key_str, result, ttl_seconds=7)
+        # Cache result (TTL: 5-15 seconds for live matches, use 10 seconds as average)
+        await set_cached(cache_key_str, result, ttl_seconds=10)
         
         return result
     except Exception as e:
@@ -339,11 +357,11 @@ async def get_match_details(match_id: int):
         is_finished = match.get("is_finished", False)
         
         if is_live and not is_finished:
-            # In-play match: cache for 7 seconds (average of 5-10)
-            cache_ttl = 7
+            # In-play match: cache for 10 seconds (average of 5-15)
+            cache_ttl = 10
         else:
-            # Pre-match or finished: cache for 90 seconds (average of 60-120)
-            cache_ttl = 90
+            # Pre-match or finished: cache for 120 seconds (average of 60-300)
+            cache_ttl = 120
         
         # Cache result
         await set_cached(cache_key_str, result, ttl_seconds=cache_ttl)
@@ -388,14 +406,90 @@ async def get_match_odds(match_id: int):
             "count": len(normalized_odds)
         }
         
-        # Cache result (TTL: 5-10 seconds for live matches, 60 seconds for pre-match)
-        await set_cached(cache_key_str, result, ttl_seconds=7)
+        # Cache result (TTL: 5-15 seconds for live matches, 120 seconds for pre-match)
+        # Use 10 seconds for live, 120 for pre-match (will be determined by match status if needed)
+        await set_cached(cache_key_str, result, ttl_seconds=10)
         
         return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error fetching odds for match {match_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/matches/batch-odds")
+async def get_batch_match_odds(request: BatchMatchIdsRequest):
+    """
+    Get odds for multiple matches in a single request (batch endpoint).
+    This reduces API calls when checking odds for multiple matches (e.g., in bet slip).
+    Uses cache when available, fetches from API only for cache misses.
+    Returns a dictionary mapping match_id to odds data.
+    """
+    try:
+        match_ids = request.match_ids
+        if not match_ids or len(match_ids) == 0:
+            return {
+                "success": True,
+                "data": {},
+                "count": 0
+            }
+        
+        # Limit batch size to prevent abuse
+        if len(match_ids) > 50:
+            raise HTTPException(status_code=400, detail="Maximum 50 match IDs allowed per batch request")
+        
+        import asyncio
+        
+        # Fetch odds for all matches in parallel (with cache check)
+        async def fetch_odds_for_match(match_id: int):
+            # Check cache first
+            cache_key_str = cache_key("match:odds", match_id)
+            cached_result = await get_cached(cache_key_str)
+            
+            if cached_result is not None:
+                logger.debug(f"Cache HIT for batch match odds: {match_id}")
+                return match_id, cached_result.get("data", [])
+            
+            # Cache miss - fetch from API
+            logger.debug(f"Cache MISS for batch match odds: {match_id}")
+            try:
+                odds_data = await sportmonks_service.get_inplay_odds_by_fixture(match_id, bookmaker_id=2)
+                normalized_odds = sportmonks_service._extract_and_normalize_odds(odds_data, bookmaker_id_filter=2)
+                
+                # Cache the result
+                result = {
+                    "success": True,
+                    "data": normalized_odds,
+                    "count": len(normalized_odds)
+                }
+                await set_cached(cache_key_str, result, ttl_seconds=7)
+                
+                return match_id, normalized_odds
+            except Exception as e:
+                logger.error(f"Error fetching odds for match {match_id} in batch: {e}")
+                return match_id, []
+        
+        # Fetch all odds in parallel
+        results = await asyncio.gather(*[fetch_odds_for_match(mid) for mid in match_ids], return_exceptions=True)
+        
+        # Build result dictionary
+        odds_dict = {}
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Exception in batch odds fetch: {result}")
+                continue
+            match_id, odds = result
+            odds_dict[match_id] = odds
+        
+        return {
+            "success": True,
+            "data": odds_dict,
+            "count": len(odds_dict)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching batch odds: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/matches/{match_id}/lineups")
@@ -611,8 +705,8 @@ async def get_stats():
         seven_days_later = (now_turkey + timedelta(days=7)).strftime("%Y-%m-%d")
         
         # Get matches for the next 7 days
-        # Include all odds data: bookmaker, market, values for all markets from bookmaker 1
-        include = "participants;scores;events.type;events.player;league;odds;odds.bookmaker;odds.market;odds.values;odds.participants"
+        # Include all odds data: bookmaker, market for all markets from bookmaker 1
+        include = "participants;scores;events.type;events.player;league;odds;odds.bookmaker;odds.market"
         # Use bet365 for all odds
         filters = f"bookmakers:{BOOKMAKER_BET365_ID}"
         fixtures = await sportmonks_service.get_fixtures(

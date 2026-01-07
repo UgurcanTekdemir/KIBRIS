@@ -14,10 +14,18 @@ import { fetchAPI } from './api';
  */
 async function fetchBackendAPI(endpoint, options = {}) {
   try {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📡 fetchBackendAPI called:', endpoint, options);
+    }
     const data = await fetchAPI(endpoint, options);
     // Backend returns { success: true, data: [...] }
-    return data.data || data;
+    const result = data.data || data;
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ fetchBackendAPI success:', endpoint, Array.isArray(result) ? `${result.length} items` : 'object');
+    }
+    return result;
   } catch (error) {
+    console.error('❌ fetchBackendAPI error:', endpoint, error);
     // Re-throw with user-friendly message
     if (error.message.includes('Backend')) {
       throw new Error(`Backend'e bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin.`);
@@ -151,6 +159,29 @@ export async function getMatchOdds(matchId) {
 }
 
 /**
+ * Get odds for multiple matches in a single batch request
+ * This reduces API calls when checking odds for multiple matches (e.g., in bet slip)
+ * @param {Array<number>} matchIds - Array of Match/Fixture IDs
+ * @returns {Promise<Object>} Dictionary mapping match_id to odds array
+ */
+export async function getBatchMatchOdds(matchIds) {
+  if (!matchIds || matchIds.length === 0) {
+    return { data: {}, count: 0 };
+  }
+  
+  // Use POST endpoint for batch request
+  const response = await fetchBackendAPI('/matches/batch-odds', {
+    method: 'POST',
+    body: JSON.stringify({ match_ids: matchIds }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  return response.data || response;
+}
+
+/**
  * Get all leagues
  * @returns {Promise<Array>}
  */
@@ -166,6 +197,7 @@ export default {
   getUpcomingFixturesByMarketId,
   getFixtureById,
   getMatchOdds,
+  getBatchMatchOdds,
   getLeagues,
 };
 

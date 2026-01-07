@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import MatchCard from '../components/betting/MatchCard';
 import LiveMatchCard from '../components/betting/LiveMatchCard';
 import HeroBannerSlider from '../components/HeroBannerSlider';
-import { Zap, Calendar, TrendingUp, Star, ChevronRight, Search, X, Loader2 } from 'lucide-react';
+import { Zap, Calendar, TrendingUp, Star, ChevronRight, ChevronLeft, Search, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -34,8 +34,48 @@ function PopularLeagues({ allMatches }) {
   const today = new Date().toISOString().split('T')[0];
   const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
+  // Backend'deki öncelikli lig ID'leri (POPULAR_LEAGUE_IDS ile aynı sırada)
+  const PRIORITY_LEAGUE_IDS = [
+    600,  // Super Lig (Turkey)
+    603,  // 1. Lig (Turkey) - TFF First League
+    8,    // Premier League (England)
+    564,  // La Liga (Spain)
+    82,   // Bundesliga (Germany)
+    384,  // Serie A (Italy)
+    301,  // Ligue 1 (France)
+    72,   // Eredivisie (Netherlands)
+    648,  // Serie A (Brazil)
+    9,    // Championship (England)
+    636,  // Liga Profesional de Fútbol (Argentina)
+    743,  // Liga MX (Mexico)
+    2,    // Champions League (Europe)
+    5,    // Europa League (Europe)
+    2286, // Europa Conference League (Europe)
+    779,  // Major League Soccer (United States)
+    968,  // J-League (Japan)
+    1356, // A-League Men (Australia)
+    462,  // Liga Portugal (Portugal)
+    501,  // Premiership (Scotland)
+    208,  // Pro League (Belgium)
+    181,  // Admiral Bundesliga (Austria)
+    591,  // Super League (Switzerland)
+    486,  // Premier League (Russia)
+    271,  // Superliga (Denmark)
+    444,  // Eliteserien (Norway)
+    573,  // Allsvenskan (Sweden)
+    453,  // Ekstraklasa (Poland)
+    262,  // Chance Liga (Czech Republic)
+    325,  // Super League (Greece)
+    244,  // 1. HNL (Croatia)
+    474,  // Superliga (Romania)
+    229,  // First League (Bulgaria)
+  ];
+  
   // Fetch leagues from API (cached)
   const { leagues: apiLeagues, loading: leaguesLoading } = useLeagues();
+  
+  // Slider ref
+  const scrollContainerRef = useRef(null);
   
   // Helper function to convert DD.MM.YYYY to YYYY-MM-DD for comparison
   const convertDateToISO = (dateStr) => {
@@ -74,43 +114,94 @@ function PopularLeagues({ allMatches }) {
     return grouped;
   }, [allMatches]);
   
-  // Get popular leagues sorted by match count
+  // Get popular leagues prioritized by backend POPULAR_LEAGUE_IDS order
   const popularLeagues = useMemo(() => {
     if (!Array.isArray(apiLeagues) || apiLeagues.length === 0) {
       return [];
     }
     
-    const leaguesWithMatchCount = apiLeagues.map(league => {
+    // Create a map for quick lookup
+    const leagueMap = new Map();
+    apiLeagues.forEach(league => {
       const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
-      const leagueMatches = matchesByLeague.get(leagueId) || [];
-      
-      // Filter matches within 7 days and not finished/postponed
-      const validMatches = leagueMatches.filter(match => {
-        const matchDate = convertDateToISO(match.date || '');
-        const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
-        const status = (match.status || '').toUpperCase();
-        const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
-        const isPostponed = status === 'POSTPONED';
-        return isWithin7Days && !isFinished && !isPostponed;
-      });
-      
-      return {
-        ...league,
-        matchCount: validMatches.length,
-      };
+      leagueMap.set(leagueId, league);
     });
     
-    // Sort by match count (descending), then by name
-    leaguesWithMatchCount.sort((a, b) => {
+    // Get leagues in priority order from PRIORITY_LEAGUE_IDS
+    const prioritizedLeagues = [];
+    const otherLeagues = [];
+    
+    PRIORITY_LEAGUE_IDS.forEach(priorityId => {
+      const league = leagueMap.get(priorityId);
+      if (league) {
+        const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+        const leagueMatches = matchesByLeague.get(leagueId) || [];
+        
+        // Filter matches within 7 days and not finished/postponed
+        const validMatches = leagueMatches.filter(match => {
+          const matchDate = convertDateToISO(match.date || '');
+          const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+          const status = (match.status || '').toUpperCase();
+          const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+          const isPostponed = status === 'POSTPONED';
+          return isWithin7Days && !isFinished && !isPostponed;
+        });
+        
+        prioritizedLeagues.push({
+          ...league,
+          matchCount: validMatches.length,
+          priority: PRIORITY_LEAGUE_IDS.indexOf(priorityId),
+        });
+      }
+    });
+    
+    // Add other leagues that are not in priority list
+    apiLeagues.forEach(league => {
+      const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+      if (!PRIORITY_LEAGUE_IDS.includes(leagueId)) {
+        const leagueMatches = matchesByLeague.get(leagueId) || [];
+        const validMatches = leagueMatches.filter(match => {
+          const matchDate = convertDateToISO(match.date || '');
+          const isWithin7Days = matchDate >= today && matchDate <= sevenDaysLater;
+          const status = (match.status || '').toUpperCase();
+          const isFinished = status === 'FT' || status === 'FINISHED' || status === 'CANCELED' || status === 'CANCELLED';
+          const isPostponed = status === 'POSTPONED';
+          return isWithin7Days && !isFinished && !isPostponed;
+        });
+        
+        // Add all leagues, even if they have no matches
+        otherLeagues.push({
+          ...league,
+          matchCount: validMatches.length,
+          priority: 999, // Lower priority
+        });
+      }
+    });
+    
+    // Sort other leagues by match count (descending), then by name
+    otherLeagues.sort((a, b) => {
       if (b.matchCount !== a.matchCount) {
         return b.matchCount - a.matchCount;
       }
       return (a.name || '').localeCompare(b.name || '');
     });
     
-    // Return top 6 leagues that have at least 1 match
-    return leaguesWithMatchCount.filter(league => league.matchCount > 0).slice(0, 6);
+    // Combine: prioritized leagues first, then others (show all leagues, even with 0 matches)
+    return [...prioritizedLeagues, ...otherLeagues];
   }, [apiLeagues, matchesByLeague, today, sevenDaysLater]);
+  
+  // Slider navigation functions
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+  
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
   
   // Get country flag emoji
   const getCountryFlag = (country) => {
@@ -147,9 +238,9 @@ function PopularLeagues({ allMatches }) {
 
   if (leaguesLoading) {
     return (
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 animate-pulse">
+      <div className="flex gap-2 sm:gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        {[...Array(8)].map((_, i) => (
+          <div key={i} className="flex-shrink-0 w-20 sm:w-24 md:w-28 bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 animate-pulse">
             <div className="w-full aspect-square rounded-lg bg-[#1a2332] mb-2"></div>
             <div className="h-3 w-full mb-1 bg-[#1a2332] rounded"></div>
             <div className="h-2 w-2/3 bg-[#1a2332] rounded"></div>
@@ -168,41 +259,72 @@ function PopularLeagues({ allMatches }) {
   }
 
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-      {popularLeagues.map((league) => {
-        const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
-        const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
-        const country = league.country || '';
-        const flag = getCountryFlag(country);
+    <div className="relative">
+      {/* Slider Container */}
+      <div className="relative group">
+        {/* Left Arrow */}
+        <button
+          onClick={scrollLeft}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-[#0d1117] border border-[#1e2736] rounded-full p-1.5 sm:p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#1a2332] hover:border-amber-500/50"
+          aria-label="Önceki ligler"
+        >
+          <ChevronLeft size={16} className="text-white sm:w-4 sm:h-4" />
+        </button>
         
-        return (
-          <Link
-            key={leagueId}
-            to={`/league/${leagueId}`}
-            className="bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
-          >
-            {league.image_path ? (
-              <div className="w-full aspect-square flex items-center justify-center mb-0.5 sm:mb-1 md:mb-2 overflow-hidden">
-                <img 
-                  src={league.image_path} 
-                  alt={leagueName}
-                  className="w-full h-full object-contain p-1"
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.parentElement.innerHTML = `<span class="text-xl sm:text-2xl md:text-3xl">${flag}</span>`;
-                  }}
-                />
-              </div>
-            ) : (
-              <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{flag}</span>
-            )}
-            <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{leagueName}</p>
-            {league.matchCount > 0 && (
-              <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 font-semibold">{league.matchCount} maç</p>
-            )}
-          </Link>
-        );
-      })}
+        {/* Scrollable Container */}
+        <div
+          ref={scrollContainerRef}
+          className="flex gap-2 sm:gap-3 overflow-x-auto scroll-smooth pb-2 hide-scrollbar"
+          style={{ 
+            scrollbarWidth: 'none', 
+            msOverflowStyle: 'none'
+          }}
+        >
+          {popularLeagues.map((league) => {
+            const leagueId = typeof league.id === 'string' ? parseInt(league.id, 10) : league.id;
+            const leagueName = league.name || league.league_name || 'Bilinmeyen Lig';
+            const country = league.country || '';
+            const flag = getCountryFlag(country);
+            
+            return (
+              <Link
+                key={leagueId}
+                to={`/league/${leagueId}`}
+                className="flex-shrink-0 w-20 sm:w-24 md:w-28 bg-[#0d1117] border border-[#1e2736] rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 text-center hover:border-amber-500/50 hover:bg-[#1a2332] transition-all group"
+              >
+                {league.image_path ? (
+                  <div className="w-full aspect-square flex items-center justify-center mb-0.5 sm:mb-1 md:mb-2 overflow-hidden">
+                    <img 
+                      src={league.image_path} 
+                      alt={leagueName}
+                      className="w-full h-full object-contain p-1"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentElement.innerHTML = `<span class="text-xl sm:text-2xl md:text-3xl">${flag}</span>`;
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <span className="text-xl sm:text-2xl md:text-3xl block mb-0.5 sm:mb-1 md:mb-2">{flag}</span>
+                )}
+                <p className="text-white font-medium text-[10px] sm:text-xs md:text-sm mb-0.5 truncate">{leagueName}</p>
+                {league.matchCount > 0 && (
+                  <p className="text-[9px] sm:text-[10px] md:text-xs text-gray-400 font-semibold">{league.matchCount} maç</p>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+        
+        {/* Right Arrow */}
+        <button
+          onClick={scrollRight}
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-[#0d1117] border border-[#1e2736] rounded-full p-1.5 sm:p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#1a2332] hover:border-amber-500/50"
+          aria-label="Sonraki ligler"
+        >
+          <ChevronRight size={16} className="text-white sm:w-4 sm:h-4" />
+        </button>
+      </div>
     </div>
   );
 }

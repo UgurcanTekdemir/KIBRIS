@@ -18,7 +18,7 @@ SPORTMONKS_API_BASE_URL = "https://api.sportmonks.com/v3/football"
 # API Token from environment variable or use provided token
 SPORTMONKS_API_TOKEN = os.environ.get(
     "SPORTMONKS_API_TOKEN",
-    "DANuduophWe7ysew7fNLOxySHaeQKvWsEPlpbOGCxI4Jt6sBuQhBnGUFFEem"
+    "VvzpF8KrjBkKX1ODV24K1ovWmyF1RlPj4KJeVhOF0rL2zlnJyE5BHrbK2dfY"
 )
 
 # Bet365 (bookmaker ID: 2) supported market IDs for Standard Odds (Total Pre-Match/In-Play)
@@ -31,43 +31,41 @@ BET365_SUPPORTED_MARKET_IDS = {
 
 # Popular leagues for default filtering (20-40 leagues instead of all 113)
 # These are the most commonly watched leagues
+# Updated with correct league IDs from Sportmonks API
 POPULAR_LEAGUE_IDS = [
-    8,    # Premier League
-    39,   # La Liga
-    78,   # Bundesliga
-    135,  # Serie A
-    61,   # Ligue 1
-    88,   # Eredivisie
-    203,  # Super Lig
-    71,   # Brasileirão
-    169,  # Championship
-    140,  # Primera División (Argentina)
-    235,  # Liga MX
-    17,   # UEFA Champions League
-    18,   # UEFA Europa League
-    5,    # World Cup
-    1,    # World
-    2,    # International
-    4,    # Europe
-    564,  # MLS
-    384,  # J1 League
-    197,  # A-League
-    119,  # Primeira Liga
-    144,  # Scottish Premiership
-    103, # Belgian Pro League
-    45,   # Austrian Bundesliga
-    41,   # Swiss Super League
-    50,   # Russian Premier League
-    37,   # Danish Superliga
-    38,   # Norwegian Eliteserien
-    39,   # Swedish Allsvenskan
-    42,   # Polish Ekstraklasa
-    48,   # Czech First League
-    51,   # Greek Super League
-    52,   # Croatian First League
-    53,   # Romanian Liga I
-    54,   # Bulgarian First League
-    55,   # Serbian SuperLiga
+    600,  # Super Lig (Turkey) - was 203
+    603,  # 1. Lig (Turkey) - TFF First League
+    8,    # Premier League (England)
+    564,  # La Liga (Spain) - was 39
+    82,   # Bundesliga (Germany) - was 78
+    384,  # Serie A (Italy) - was 135
+    301,  # Ligue 1 (France) - was 61
+    72,   # Eredivisie (Netherlands) - was 88
+    648,  # Serie A (Brazil) - was 71
+    9,    # Championship (England) - was 169
+    636,  # Liga Profesional de Fútbol (Argentina) - was 140
+    743,  # Liga MX (Mexico) - was 235
+    2,    # Champions League (Europe)
+    5,    # Europa League (Europe)
+    2286, # Europa Conference League (Europe)
+    779,  # Major League Soccer (United States) - was 564
+    968,  # J-League (Japan) - was 384
+    1356, # A-League Men (Australia) - was 197
+    462,  # Liga Portugal (Portugal) - was 119
+    501,  # Premiership (Scotland) - was 144
+    208,  # Pro League (Belgium) - was 103
+    181,  # Admiral Bundesliga (Austria) - was 45
+    591,  # Super League (Switzerland) - was 41
+    486,  # Premier League (Russia) - was 50
+    271,  # Superliga (Denmark) - was 37
+    444,  # Eliteserien (Norway) - was 38
+    573,  # Allsvenskan (Sweden) - was 39
+    453,  # Ekstraklasa (Poland) - was 42
+    262,  # Chance Liga (Czech Republic) - was 48
+    325,  # Super League (Greece) - was 51
+    244,  # 1. HNL (Croatia) - was 52
+    474,  # Superliga (Romania) - was 53
+    229,  # First League (Bulgaria) - was 54
 ]
 
 
@@ -191,7 +189,25 @@ class SportmonksService:
                 client = self._get_client()
                 response = await client.get(url, headers=headers, params=query_params)
                 
-                # Check rate limit before processing
+                # Handle rate limiting (429) FIRST - before checking 200
+                if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 60))
+                        if attempt < retries - 1:
+                            wait_time = retry_after * (backoff_factor ** attempt)
+                            # Add jitter (random delay between 0-30% of wait_time) to prevent synchronized retries
+                            jitter = random.uniform(0, wait_time * 0.3)
+                            wait_time_with_jitter = wait_time + jitter
+                            logger.warning(
+                                f"Rate limited. Waiting {wait_time_with_jitter:.2f} seconds (base: {wait_time:.2f}, jitter: {jitter:.2f}) before retry {attempt + 1}/{retries}"
+                            )
+                            await asyncio.sleep(wait_time_with_jitter)
+                            continue
+                        else:
+                            # All retries exhausted for 429
+                            logger.error(f"Rate limited (429) after {retries} attempts. Returning empty result.")
+                            return {"data": []}  # Return empty result instead of raising exception
+                    
+                # Check rate limit before processing (only for 200 responses)
                 if response.status_code == 200:
                     try:
                         data = response.json()
@@ -209,19 +225,8 @@ class SportmonksService:
                     except (ValueError, KeyError):
                         pass  # If JSON parsing fails, continue with response
                     
-                    # Handle rate limiting (429)
-                    if response.status_code == 429:
-                        retry_after = int(response.headers.get("Retry-After", 60))
-                        if attempt < retries - 1:
-                            wait_time = retry_after * (backoff_factor ** attempt)
-                            # Add jitter (random delay between 0-30% of wait_time) to prevent synchronized retries
-                            jitter = random.uniform(0, wait_time * 0.3)
-                            wait_time_with_jitter = wait_time + jitter
-                            logger.warning(
-                                f"Rate limited. Waiting {wait_time_with_jitter:.2f} seconds (base: {wait_time:.2f}, jitter: {jitter:.2f}) before retry {attempt + 1}/{retries}"
-                            )
-                            await asyncio.sleep(wait_time_with_jitter)
-                            continue
+                    # Success - parse and return JSON
+                    return response.json()
                     
                     # Handle other HTTP errors
                     if response.status_code >= 400:
@@ -243,9 +248,6 @@ class SportmonksService:
                                 status_code=response.status_code,
                                 detail=f"API request failed: {error_text}"
                             )
-                    
-                    # Success - parse and return JSON
-                    return response.json()
                     
             except httpx.TimeoutException as e:
                 last_exception = e
@@ -457,6 +459,7 @@ class SportmonksService:
                     params["filters"] = filters
                 
                 # Use Sportmonks V3 fixtures/between/{start}/{end} endpoint
+                # Note: league_id filtering is done in get_fixtures() after fetching, not here
                 response = await self._get(f"fixtures/between/{date_from}/{date_to}", params=params)
                 
                 # Extract fixtures from response
@@ -572,13 +575,51 @@ class SportmonksService:
             
             # Filter by league_id if specified
             if league_id and fixtures_list:
-                fixtures_list = [
-                    f for f in fixtures_list
-                    if f.get("league_id") == league_id or 
-                    (isinstance(f.get("league"), dict) and f.get("league", {}).get("id") == league_id) or
-                    (isinstance(f.get("league"), dict) and "data" in f.get("league", {}) and 
-                     f.get("league", {}).get("data", {}).get("id") == league_id)
-                ]
+                original_count = len(fixtures_list)
+                filtered_fixtures = []
+                no_league_id_count = 0
+                league_id_mismatch_count = 0
+                
+                for f in fixtures_list:
+                    # Check multiple possible league_id locations
+                    fixture_league_id = None
+                    
+                    # Try direct league_id field first
+                    if f.get("league_id"):
+                        fixture_league_id = f.get("league_id")
+                    # Try nested league object
+                    elif isinstance(f.get("league"), dict):
+                        league_obj = f.get("league")
+                        if "data" in league_obj:
+                            # Handle nested data structure
+                            league_data = league_obj.get("data")
+                            if isinstance(league_data, dict):
+                                fixture_league_id = league_data.get("id")
+                            elif isinstance(league_data, list) and len(league_data) > 0:
+                                fixture_league_id = league_data[0].get("id") if isinstance(league_data[0], dict) else None
+                        else:
+                            fixture_league_id = league_obj.get("id")
+                    
+                    # Match league_id (handle both int and string comparisons)
+                    # If fixture_league_id is None, skip this fixture (can't match)
+                    if fixture_league_id is not None:
+                        try:
+                            if int(fixture_league_id) == int(league_id):
+                                filtered_fixtures.append(f)
+                            else:
+                                league_id_mismatch_count += 1
+                        except (ValueError, TypeError):
+                            # If conversion fails, skip this fixture
+                            logger.debug(f"Could not compare league_id: {fixture_league_id} with {league_id}")
+                            continue
+                    else:
+                        no_league_id_count += 1
+                        # Log first few examples for debugging
+                        if no_league_id_count <= 3:
+                            logger.debug(f"Fixture {f.get('id', 'unknown')} has no league_id. League object: {f.get('league', 'N/A')}")
+                
+                fixtures_list = filtered_fixtures
+                logger.info(f"Filtered fixtures by league_id={league_id}: {original_count} -> {len(fixtures_list)} fixtures (no league_id: {no_league_id_count}, mismatch: {league_id_mismatch_count})")
             
             return fixtures_list
                 
@@ -952,9 +993,21 @@ class SportmonksService:
         # Sort by position
         transformed_table.sort(key=lambda x: x.get("position", 999))
         
+        # Try to get season name if available
+        season_name = None
+        if table_data and len(table_data) > 0:
+            first_entry = table_data[0]
+            if isinstance(first_entry, dict):
+                season_info = first_entry.get("season") or first_entry.get("season_info")
+                if isinstance(season_info, dict):
+                    if "data" in season_info:
+                        season_info = season_info["data"]
+                    season_name = season_info.get("name") if isinstance(season_info, dict) else None
+        
         return {
             "table": transformed_table,
             "season_id": season_id or (table_data[0].get("season_id") if table_data else None),
+            "season_name": season_name,
         }
     
     async def get_standings_by_season(
@@ -1066,7 +1119,60 @@ class SportmonksService:
                     league_standings = [s for s in standings_list if s.get("league_id") == league_id]
                     
                     if league_standings:
-                        # If season_id not provided, use the most common season_id from filtered standings
+                        # If season_id not provided, prioritize 2025-2026 season
+                        if not season_id:
+                            # First, try to get season info to find 2025-2026 season
+                            try:
+                                include = "seasons"
+                                league_response = await self._get(f"leagues/{league_id}", params={"include": include})
+                                
+                                if isinstance(league_response, dict):
+                                    league = league_response.get("data") or league_response
+                                    if league:
+                                        seasons = league.get("seasons") or league.get("season")
+                                        if isinstance(seasons, dict) and "data" in seasons:
+                                            seasons = seasons["data"]
+                                        elif not isinstance(seasons, list):
+                                            seasons = [seasons] if seasons else []
+                                        
+                                        if isinstance(seasons, list) and len(seasons) > 0:
+                                            logger.info(f"Found {len(seasons)} seasons for league {league_id}")
+                                            # Log all season names for debugging
+                                            season_names = [s.get("name", "") if isinstance(s, dict) else "" for s in seasons]
+                                            logger.info(f"Available seasons: {season_names}")
+                                            
+                                            # Find 2025-2026 season (exact match: "2025/2026" or "2025-2026")
+                                            for season in seasons:
+                                                season_name = season.get("name", "") if isinstance(season, dict) else ""
+                                                # Exact match for 2025/2026 or 2025-2026 (not 2024/2025)
+                                                if season_name:
+                                                    # Check for exact 2025/2026 format
+                                                    is_2025_2026 = (
+                                                        "2025/2026" in season_name or 
+                                                        "2025-2026" in season_name or
+                                                        season_name == "2025/2026" or
+                                                        season_name == "2025-2026"
+                                                    )
+                                                    
+                                                    if is_2025_2026:
+                                                        potential_season_id = season.get("id") if isinstance(season, dict) else None
+                                                        logger.info(f"Found 2025-2026 season: name='{season_name}', id={potential_season_id}")
+                                                        
+                                                        if potential_season_id:
+                                                            # Check if this season_id exists in standings
+                                                            if any(s.get("season_id") == potential_season_id for s in league_standings):
+                                                                season_id = potential_season_id
+                                                                logger.info(f"✅ Using 2025-2026 season from standings for league {league_id}: season_id={season_id}, name='{season_name}'")
+                                                                break
+                                                            else:
+                                                                # Season found but not in standings - will use season-specific endpoint later
+                                                                season_id = potential_season_id
+                                                                logger.info(f"✅ Found 2025-2026 season (not in standings, will use season endpoint): season_id={season_id}, name='{season_name}'")
+                                                                break
+                            except Exception as e:
+                                logger.debug(f"Error fetching seasons for league {league_id}: {e}")
+                            
+                            # If 2025-2026 not found, use the most common season_id from filtered standings
                         if not season_id:
                             # Count season_id occurrences
                             season_counts = {}
@@ -1082,43 +1188,102 @@ class SportmonksService:
                         # Filter by season_id if provided
                         if season_id:
                             league_standings = [s for s in league_standings if s.get("season_id") == season_id]
+                            
+                            # If filtered standings is empty but we have a season_id, try season-specific endpoint
+                            if not league_standings:
+                                logger.info(f"No standings found in general endpoint for season {season_id}, trying season-specific endpoint...")
+                                standings_result = await self.get_standings_by_season(season_id)
+                                if standings_result and standings_result.get("table"):
+                                    logger.info(f"✅ Got standings from season-specific endpoint for season {season_id}")
+                                    return standings_result
                         
                         # Transform standings to match frontend format
-                        return self._transform_standings_data(league_standings, season_id)
+                        if league_standings:
+                            return self._transform_standings_data(league_standings, season_id)
+                        else:
+                            # No standings found - return empty result
+                            logger.warning(f"No standings found for league {league_id}, season {season_id}")
+                            return {"table": [], "season_id": season_id, "season_name": None}
             
             # Fallback: try to get season_id and use season-specific endpoint
-            # First try to get from league info directly (more efficient than fetching all leagues)
+            # Priority: 1) 2025-2026 season, 2) current season, 3) most recent season
             if not season_id:
                 try:
-                    # Get league info directly
-                    include = "currentSeason"
+                    # Get league info with seasons to find 2025-2026 season
+                    include = "seasons"
                     league_response = await self._get(f"leagues/{league_id}", params={"include": include})
                     
                     if isinstance(league_response, dict):
                         league = league_response.get("data") or league_response
                         if league:
-                            current_season = league.get("current_season") or league.get("currentseason")
-                            if isinstance(current_season, dict):
-                                if "data" in current_season:
-                                    current_season = current_season["data"]
-                                season_id = current_season.get("id") if isinstance(current_season, dict) else None
-                            elif isinstance(current_season, list) and len(current_season) > 0:
-                                season_id = current_season[0].get("id") if isinstance(current_season[0], dict) else None
+                            seasons = league.get("seasons") or league.get("season")
+                            if isinstance(seasons, dict) and "data" in seasons:
+                                seasons = seasons["data"]
+                            elif not isinstance(seasons, list):
+                                seasons = [seasons] if seasons else []
+                            
+                            if isinstance(seasons, list) and len(seasons) > 0:
+                                logger.info(f"Found {len(seasons)} seasons for league {league_id} (fallback)")
+                                # Log all season names for debugging
+                                season_names = [s.get("name", "") if isinstance(s, dict) else "" for s in seasons]
+                                logger.info(f"Available seasons: {season_names}")
+                                
+                                # First, try to find 2025-2026 season (priority - exact match)
+                                for season in seasons:
+                                    season_name = season.get("name", "") if isinstance(season, dict) else ""
+                                    # Exact match for 2025/2026 or 2025-2026 (not 2024/2025)
+                                    if season_name:
+                                        # Check for exact 2025/2026 format
+                                        is_2025_2026 = (
+                                            "2025/2026" in season_name or 
+                                            "2025-2026" in season_name or
+                                            season_name == "2025/2026" or
+                                            season_name == "2025-2026"
+                                        )
+                                        
+                                        if is_2025_2026:
+                                            season_id = season.get("id") if isinstance(season, dict) else None
+                                            logger.info(f"✅ Found 2025-2026 season for league {league_id}: season_id={season_id}, name='{season_name}'")
+                                            break
+                                
+                                # If 2025-2026 not found, try current season
+                                if not season_id:
+                                    for season in seasons:
+                                        if isinstance(season, dict) and season.get("is_current", False):
+                                            season_id = season.get("id")
+                                            logger.info(f"Using current season for league {league_id}: season_id={season_id}")
+                                            break
+                                
+                                # If still not found, use the most recent season (highest ID or latest starting_at)
+                                if not season_id:
+                                    # Sort by starting_at descending (most recent first)
+                                    sorted_seasons = sorted(
+                                        [s for s in seasons if isinstance(s, dict)],
+                                        key=lambda x: (x.get("starting_at") or "", x.get("id", 0)),
+                                        reverse=True
+                                    )
+                                    if sorted_seasons:
+                                        season_id = sorted_seasons[0].get("id")
+                                        logger.info(f"Using most recent season for league {league_id}: season_id={season_id}")
                 except Exception as e:
-                    logger.debug(f"Error fetching league {league_id} directly: {e}")
-                    # Fallback to getting from all leagues
-                    include = "currentSeason"
-                    leagues = await self.get_leagues(include=include)
-                    league = next((l for l in leagues if l.get("id") == league_id), None)
-                    
-                    if league:
-                        current_season = league.get("current_season") or league.get("currentseason")
-                        if isinstance(current_season, dict):
-                            if "data" in current_season:
-                                current_season = current_season["data"]
-                            season_id = current_season.get("id") if isinstance(current_season, dict) else None
-                        elif isinstance(current_season, list) and len(current_season) > 0:
-                            season_id = current_season[0].get("id") if isinstance(current_season[0], dict) else None
+                    logger.debug(f"Error fetching league {league_id} with seasons: {e}")
+                    # Fallback: try with currentSeason only
+                    try:
+                        include = "currentSeason"
+                        league_response = await self._get(f"leagues/{league_id}", params={"include": include})
+                        
+                        if isinstance(league_response, dict):
+                            league = league_response.get("data") or league_response
+                            if league:
+                                current_season = league.get("current_season") or league.get("currentseason")
+                                if isinstance(current_season, dict):
+                                    if "data" in current_season:
+                                        current_season = current_season["data"]
+                                    season_id = current_season.get("id") if isinstance(current_season, dict) else None
+                                elif isinstance(current_season, list) and len(current_season) > 0:
+                                    season_id = current_season[0].get("id") if isinstance(current_season[0], dict) else None
+                    except Exception as e2:
+                        logger.debug(f"Error fetching league {league_id} with currentSeason: {e2}")
             
             # If we have season_id, try season-specific endpoint
             if season_id:
@@ -2056,6 +2221,9 @@ class SportmonksService:
                     # Try to parse ISO format
                     if 'Z' in starting_at or '+00:00' in starting_at:
                         start_dt = datetime.fromisoformat(starting_at.replace('Z', '+00:00'))
+                    elif '+' in starting_at or starting_at.count('-') >= 3:
+                        # Has timezone info (e.g., +03:00)
+                        start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
                     else:
                         # Assume UTC if no timezone
                         start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
@@ -2063,6 +2231,8 @@ class SportmonksService:
                             start_dt = start_dt.replace(tzinfo=timezone.utc)
                 else:
                     start_dt = starting_at
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
                 
                 # Convert to Turkey timezone (UTC+3)
                 if timezone_offset != 0:
@@ -2070,10 +2240,36 @@ class SportmonksService:
                     start_dt_turkey = start_dt.astimezone(turkey_tz)
                     commence_time_turkey = start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
                 else:
-                    commence_time_turkey = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    # If no offset specified, assume UTC and convert to Turkey timezone
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
+                    turkey_tz = timezone(timedelta(hours=3))
+                    start_dt_turkey = start_dt.astimezone(turkey_tz)
+                    commence_time_turkey = start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
             except Exception as e:
                 logger.warning(f"Error parsing starting_at: {e}")
-                commence_time_turkey = starting_at if isinstance(starting_at, str) else None
+                # Try to parse as fallback - if it's already in YYYY-MM-DD HH:MM:SS format, use it
+                if isinstance(starting_at, str) and len(starting_at) >= 16:
+                    # Might be already in correct format, but check if UTC needs conversion
+                    try:
+                        # Try to parse and convert
+                        if 'Z' in starting_at or '+00:00' in starting_at:
+                            start_dt = datetime.fromisoformat(starting_at.replace('Z', '+00:00'))
+                            turkey_tz = timezone(timedelta(hours=3))
+                            start_dt_turkey = start_dt.astimezone(turkey_tz)
+                            commence_time_turkey = start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            # Assume UTC and convert
+                            start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
+                            if start_dt.tzinfo is None:
+                                start_dt = start_dt.replace(tzinfo=timezone.utc)
+                            turkey_tz = timezone(timedelta(hours=3))
+                            start_dt_turkey = start_dt.astimezone(turkey_tz)
+                            commence_time_turkey = start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        commence_time_turkey = starting_at
+                else:
+                    commence_time_turkey = starting_at if isinstance(starting_at, str) else None
         
         # Determine if match is finished based on starting_at + duration
         if not time_status.get("is_finished") and starting_at:
@@ -2503,7 +2699,7 @@ class SportmonksService:
             "is_live": time_status.get("is_live", False),
             "is_finished": time_status.get("is_finished", False),
             "is_postponed": time_status.get("is_postponed", False),
-            "commence_time": commence_time_turkey or fixture.get("starting_at"),  # Use Turkey timezone if available
+            "commence_time": commence_time_turkey or self._format_commence_time_fallback(fixture.get("starting_at"), timezone_offset),  # Always use Turkey timezone
             "commence_time_utc": fixture.get("starting_at"),  # Keep original UTC time
             "events": events_data if isinstance(events_data, list) else [],
             "statistics": statistics_data if isinstance(statistics_data, list) else [],
@@ -2520,6 +2716,49 @@ class SportmonksService:
         }
         
         return transformed
+
+    def _format_commence_time_fallback(self, starting_at: Any, timezone_offset: int = 3) -> Optional[str]:
+        """
+        Fallback method to format starting_at to Turkey timezone.
+        Used when primary parsing fails.
+        
+        Args:
+            starting_at: Starting time from fixture (string or datetime)
+            timezone_offset: Timezone offset in hours (default 3 for Turkey)
+            
+        Returns:
+            Formatted datetime string in Turkey timezone (YYYY-MM-DD HH:MM:SS) or None
+        """
+        if not starting_at:
+            return None
+        
+        from datetime import datetime, timezone, timedelta
+        
+        try:
+            if isinstance(starting_at, str):
+                # Try to parse ISO format
+                if 'Z' in starting_at or '+00:00' in starting_at:
+                    start_dt = datetime.fromisoformat(starting_at.replace('Z', '+00:00'))
+                elif '+' in starting_at or starting_at.count('-') >= 3:
+                    # Has timezone info
+                    start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
+                else:
+                    # Assume UTC if no timezone
+                    start_dt = datetime.fromisoformat(starting_at.replace(' ', 'T'))
+                    if start_dt.tzinfo is None:
+                        start_dt = start_dt.replace(tzinfo=timezone.utc)
+            else:
+                start_dt = starting_at
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+            
+            # Convert to Turkey timezone
+            turkey_tz = timezone(timedelta(hours=timezone_offset))
+            start_dt_turkey = start_dt.astimezone(turkey_tz)
+            return start_dt_turkey.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            logger.warning(f"Error in _format_commence_time_fallback: {e}")
+            return starting_at if isinstance(starting_at, str) else None
 
     async def close(self):
         """Close the HTTP client and cleanup resources."""

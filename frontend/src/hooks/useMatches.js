@@ -32,20 +32,29 @@ export function useMatches(filters = {}, options = {}) {
     queryFilters.league_id
   ], [queryFilters.date_from, queryFilters.date_to, queryFilters.league_id]);
   
+  // Check if query is enabled
+  const isEnabled = options.enabled !== undefined ? options.enabled : true;
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 useMatches hook called:', { queryFilters, isEnabled, queryKey });
+  }
+  
   const query = useQuery({
     queryKey,
     queryFn: async () => {
       try {
+        console.log('🔄 useMatches queryFn called with filters:', queryFilters);
         // Use Backend API to get matches with filters
         const apiMatches = await footballService.getUpcomingFixtures(queryFilters);
+        console.log('📥 useMatches received data:', Array.isArray(apiMatches) ? `${apiMatches.length} matches` : typeof apiMatches);
         // Ensure it's an array
         const matchesArray = Array.isArray(apiMatches) 
           ? apiMatches 
           : [apiMatches].filter(Boolean);
         const mapped = mapApiMatchesToInternal(matchesArray);
+        console.log('✅ useMatches mapped:', mapped.length, 'matches');
         return mapped;
       } catch (error) {
-        console.error('Error fetching matches:', error);
+        console.error('❌ Error fetching matches:', error);
         throw error;
       }
     },
@@ -54,7 +63,14 @@ export function useMatches(filters = {}, options = {}) {
     cacheTime: options.cacheTime || 300000, // 5 minutes
     refetchOnWindowFocus: false,
     refetchOnMount: true,
-    refetchInterval: options.refetchInterval !== undefined ? options.refetchInterval : 90000, // 90 seconds
+    refetchInterval: (query) => {
+      // Only poll when page is visible (not in background)
+      if (typeof document !== 'undefined' && document.hidden) {
+        return false; // Stop polling when page is hidden
+      }
+      // Pre-match matches: poll every 60-120 seconds (use 90 seconds as average)
+      return options.refetchInterval !== undefined ? options.refetchInterval : 90000;
+    },
   });
 
   return {
@@ -100,7 +116,13 @@ export function useLiveMatches(matchType = 1, leagueIds = null) {
     },
     staleTime: 5000, // Live matches are fresh for 5 seconds (in-play data updates frequently)
     cacheTime: 60000, // Cache live matches for 1 minute
-    refetchInterval: 5000, // Auto-refetch every 5 seconds for live matches (in-play odds update every 2-10 seconds)
+    refetchInterval: (query) => {
+      // Only poll when page is visible (not in background)
+      if (typeof document !== 'undefined' && document.hidden) {
+        return false; // Stop polling when page is hidden
+      }
+      return 10000; // Auto-refetch every 10 seconds for live matches (in-play data updates every 5-15 seconds)
+    },
   });
 
   return {
@@ -141,14 +163,19 @@ export function useMatchDetails(matchId) {
     cacheTime: 300000, // Cache unused data for 5 minutes
     // Dynamic refetch interval based on match status
     refetchInterval: (query) => {
+      // Only poll when page is visible (not in background)
+      if (typeof document !== 'undefined' && document.hidden) {
+        return false; // Stop polling when page is hidden
+      }
+      
       const match = query.state.data;
       const isHalfTime = match?.status === 'HT' || match?.status === 'HALF_TIME';
       if (match?.isLive && !match?.isFinished) {
-        return 5000; // 5 seconds for live matches (in-play odds update every 2-10 seconds)
+        return 10000; // 10 seconds for live matches (in-play data updates every 5-15 seconds)
       } else if (isHalfTime || match?.isFinished) {
-        return 90000; // 90 seconds for half-time and finished matches (pre-match cache)
+        return 120000; // 120 seconds for half-time and finished matches (pre-match cache)
       }
-      return 90000; // 90 seconds for upcoming matches (pre-match cache 60-120s)
+      return 120000; // 120 seconds for upcoming matches (pre-match cache 60-300s)
     },
   });
 

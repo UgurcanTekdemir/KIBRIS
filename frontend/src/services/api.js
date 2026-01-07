@@ -48,7 +48,7 @@ async function fetchAPI(endpoint, options = {}) {
   
   // Log API calls only in development
   if (process.env.NODE_ENV === 'development') {
-    console.log('🌐 API Call:', url);
+    console.log('🌐 API Call:', url, options.method || 'GET');
   }
   
   const config = {

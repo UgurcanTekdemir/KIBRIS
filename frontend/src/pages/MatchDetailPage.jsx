@@ -440,7 +440,15 @@ const MatchDetailPage = () => {
     enabled: !!id && !!match, // Only fetch if match ID exists and match is loaded
     staleTime: 7000, // Data is fresh for 7 seconds
     cacheTime: 300000, // Cache for 5 minutes
-    refetchInterval: match?.isLive ? 5000 : false, // Poll every 5 seconds for live matches
+    refetchInterval: (query) => {
+      // Only poll when page is visible (not in background)
+      if (typeof document !== 'undefined' && document.hidden) {
+        return false; // Stop polling when page is hidden
+      }
+      // Live matches: poll every 10 seconds (in-play data updates every 5-15 seconds)
+      // Pre-match: don't poll (odds update less frequently)
+      return match?.isLive ? 10000 : false;
+    },
   });
   
   // Merge odds from dedicated endpoint with match data
@@ -485,8 +493,10 @@ const MatchDetailPage = () => {
     }
   }, [match?.isFinished, activeTab, shouldFetchEvents]);
   // Refresh intervals: live matches refresh faster, half-time and finished matches refresh slower
-  const refreshIntervalEvents = match?.isLive ? 12000 : (isHalfTime || match?.isFinished ? 60000 : false);
-  const refreshIntervalStats = match?.isLive ? 30000 : (isHalfTime || match?.isFinished ? 60000 : false);
+  // Only poll when page is visible (not in background)
+  const isPageVisible = typeof document !== 'undefined' && !document.hidden;
+  const refreshIntervalEvents = isPageVisible && match?.isLive ? 15000 : (isPageVisible && (isHalfTime || match?.isFinished) ? 120000 : false);
+  const refreshIntervalStats = isPageVisible && match?.isLive ? 30000 : (isPageVisible && (isHalfTime || match?.isFinished) ? 120000 : false);
   const { events, loading: eventsLoading, error: eventsError } = useLiveMatchEvents(id, shouldFetchEvents, refreshIntervalEvents);
   const { statistics: rawStatistics, loading: statsLoading, error: statsError } = useLiveMatchStatistics(id, shouldFetchEvents, refreshIntervalStats);
   

@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
 import { createCoupon } from '../services/couponService';
-import { getFixtureById } from '../services/football';
+import { getBatchMatchOdds } from '../services/football';
 import { mapApiMatchToInternal } from '../utils/matchMapper';
 import { OddsChangedModal } from '../components/betting/OddsChangedModal';
 
@@ -20,41 +20,65 @@ const BetSlipPage = () => {
   const [changedSelections, setChangedSelections] = useState([]);
   const [pendingCouponData, setPendingCouponData] = useState(null);
 
-  // Compare snapshot odds with current odds
+  // Compare snapshot odds with current odds (optimized with batch endpoint)
   const compareOdds = async () => {
+    if (selections.length === 0) return [];
+    
     const changed = [];
     
-    for (const selection of selections) {
-      try {
-        // Fetch current match data
-        const apiMatch = await getFixtureById(selection.fixtureId || selection.matchId);
-        if (!apiMatch) continue;
-        
-        const currentMatch = mapApiMatchToInternal(apiMatch);
-        if (!currentMatch || !currentMatch.markets) continue;
-        
-        // Find the market and option
-        const market = currentMatch.markets.find(m => m.name === selection.marketName);
-        if (!market || !market.options) continue;
-        
-        const option = market.options.find(opt => opt.label === selection.option);
-        if (!option) continue;
-        
-        const currentOdds = typeof option.value === 'number' ? option.value : parseFloat(option.value) || 0;
-        const snapshotOdds = selection.snapshotOdds || selection.odds;
-        
-        // Compare with small threshold (0.005) to avoid floating point issues
-        if (Math.abs(currentOdds - snapshotOdds) > 0.005) {
-          changed.push({
-            ...selection,
-            snapshotOdds,
-            currentOdds
-          });
+    try {
+      // Collect unique fixture IDs from selections
+      const fixtureIds = [...new Set(
+        selections
+          .map(s => s.fixtureId || s.matchId)
+          .filter(id => id != null)
+      )];
+      
+      if (fixtureIds.length === 0) return [];
+      
+      // Fetch odds for all matches in a single batch request
+      const batchOdds = await getBatchMatchOdds(fixtureIds);
+      const oddsByMatchId = batchOdds.data || batchOdds || {};
+      
+      // Process each selection
+      for (const selection of selections) {
+        try {
+          const matchId = selection.fixtureId || selection.matchId;
+          if (!matchId) continue;
+          
+          // Get odds for this match from batch result
+          const matchOdds = oddsByMatchId[matchId] || [];
+          if (!Array.isArray(matchOdds) || matchOdds.length === 0) continue;
+          
+          // Find the market and option in the odds data
+          // Odds are normalized as: { market_name, market_id, option_label, value, ... }
+          const oddsEntry = matchOdds.find(
+            o => o.market_name === selection.marketName && o.option_label === selection.option
+          );
+          
+          if (!oddsEntry) continue;
+          
+          const currentOdds = typeof oddsEntry.value === 'number' 
+            ? oddsEntry.value 
+            : parseFloat(oddsEntry.value) || 0;
+          const snapshotOdds = selection.snapshotOdds || selection.odds;
+          
+          // Compare with small threshold (0.005) to avoid floating point issues
+          if (Math.abs(currentOdds - snapshotOdds) > 0.005) {
+            changed.push({
+              ...selection,
+              snapshotOdds,
+              currentOdds
+            });
+          }
+        } catch (error) {
+          console.error(`Error comparing odds for selection ${selection.matchId}:`, error);
+          // Continue with other selections even if one fails
         }
-      } catch (error) {
-        console.error(`Error comparing odds for selection ${selection.matchId}:`, error);
-        // Continue with other selections even if one fails
       }
+    } catch (error) {
+      console.error('Error in batch odds comparison:', error);
+      // Fallback: return empty array (don't block bet placement)
     }
     
     return changed;

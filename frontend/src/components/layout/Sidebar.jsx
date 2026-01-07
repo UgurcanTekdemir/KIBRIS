@@ -380,9 +380,6 @@ const Sidebar = ({ isOpen, onClose }) => {
                           )}
                           <span className="font-medium text-xs truncate">{leagueName}</span>
                         </div>
-                        <span className="text-[10px] font-semibold text-amber-500 bg-[#1a2332] px-1.5 py-0.5 rounded flex-shrink-0">
-                          {league.matchCount}
-                        </span>
                       </Link>
                     );
                   })}

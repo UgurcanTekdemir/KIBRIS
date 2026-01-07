@@ -104,6 +104,11 @@ a[href*="emergent-badge"] {
     left: -9999px !important;
 }
 
+/* Hide scrollbar for slider */
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
 @layer base {
     [data-debug-wrapper="true"] {
         display: contents !important;

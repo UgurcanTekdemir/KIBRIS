@@ -288,40 +288,68 @@ function mapSportmonksFixtureToInternal(fixture) {
 function mapBackendMatchToInternal(backendMatch) {
   if (!backendMatch) return null;
   
-  // Parse commence_time (format: "2025-12-28 22:45:00" - already in Turkey timezone)
-  // Backend sends time in Turkey timezone (UTC+3), so we should NOT do timezone conversion
+  // Parse commence_time (format: "2025-12-28 22:45:00" - should be in Turkey timezone)
+  // Backend should send time in Turkey timezone (UTC+3), but handle UTC format as fallback
   let startingAt = null;
   let date = '';
   let time = '';
   
   if (backendMatch.commence_time) {
     const timeStr = backendMatch.commence_time;
-    // Backend already sends time in Turkey timezone (UTC+3), so use it directly
-    if (timeStr.includes(' ')) {
+    
+    // Check if it's UTC format (Z or +00:00) - should be converted by backend, but handle as fallback
+    if (timeStr.includes('Z') || timeStr.includes('+00:00') || (timeStr.includes('T') && !timeStr.includes('+'))) {
+      // UTC format detected - convert to Turkey timezone (UTC+3)
+      try {
+        const utcDate = new Date(timeStr);
+        if (!isNaN(utcDate.getTime())) {
+          // Add 3 hours for Turkey timezone
+          const turkeyDate = new Date(utcDate.getTime() + (3 * 60 * 60 * 1000));
+          const year = turkeyDate.getUTCFullYear();
+          const month = String(turkeyDate.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(turkeyDate.getUTCDate()).padStart(2, '0');
+          const hours = String(turkeyDate.getUTCHours()).padStart(2, '0');
+          const minutes = String(turkeyDate.getUTCMinutes()).padStart(2, '0');
+          
+          date = `${day}.${month}.${year}`;
+          time = `${hours}:${minutes}`;
+          startingAt = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hours), parseInt(minutes), 0);
+        }
+      } catch (e) {
+        console.warn('Error parsing UTC commence_time:', e);
+      }
+    } else if (timeStr.includes(' ')) {
+      // Format: "YYYY-MM-DD HH:MM:SS" - should be in Turkey timezone from backend
       const [datePart, timePart] = timeStr.split(' ');
       const [year, month, day] = datePart.split('-');
       const [hour, minute] = timePart.split(':');
       
       // Format date as DD.MM.YYYY
       date = `${day}.${month}.${year}`;
-      // Format time as HH:mm (already in Turkey timezone from backend)
+      // Format time as HH:mm (assumed to be in Turkey timezone from backend)
       time = `${hour}:${minute}`;
       
       // Also create Date object for other uses (treat as local time, no conversion needed)
       startingAt = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute), 0);
     } else {
-      // ISO format - backend already sends in Turkey timezone, parse directly
+      // ISO format or other - try to parse
       startingAt = new Date(timeStr);
       if (!isNaN(startingAt.getTime())) {
-        // Extract date and time directly (backend already converted to Turkey timezone)
+        // Check if it's UTC (no timezone offset means UTC in ISO format)
+        // If backend didn't convert, we need to add 3 hours
         const year = startingAt.getFullYear();
         const month = String(startingAt.getMonth() + 1).padStart(2, '0');
         const day = String(startingAt.getDate()).padStart(2, '0');
-        const hours = String(startingAt.getHours()).padStart(2, '0');
-        const minutes = String(startingAt.getMinutes()).padStart(2, '0');
+        let hours = startingAt.getHours();
+        let minutes = startingAt.getMinutes();
+        
+        // If timezone offset is 0 or missing, assume UTC and add 3 hours
+        if (startingAt.getTimezoneOffset() === 0 || !timeStr.includes('+') && !timeStr.includes('Z')) {
+          hours = (hours + 3) % 24;
+        }
         
         date = `${day}.${month}.${year}`;
-        time = `${hours}:${minutes}`;
+        time = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
       }
     }
   }

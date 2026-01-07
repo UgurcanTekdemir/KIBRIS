@@ -38,8 +38,8 @@ const MatchesPage = () => {
   // Fetch leagues for filter dropdown
   const { leagues, loading: leaguesLoading } = useLeagues();
   
-  // Fixed date ranges: 7 days ahead for upcoming, 5 days back for past
-  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Fixed date ranges: 4 days ahead for upcoming, 5 days back for past
+  const fourDaysLater = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Sync URL params with local state (initial load only)
@@ -67,10 +67,10 @@ const MatchesPage = () => {
     setSearchParams(params, { replace: true });
   }, [searchTerm, selectedLeagueId, setSearchParams]);
 
-  // Fetch upcoming matches for next 7 days
+  // Fetch upcoming matches for next 4 days
   const { matches: upcomingMatchesData, loading: upcomingLoading, error: upcomingError, refetch: refetchUpcoming } = useMatches({ 
     date_from: today,
-    date_to: sevenDaysLater,
+    date_to: fourDaysLater,
     league_id: selectedLeagueId
   });
 
